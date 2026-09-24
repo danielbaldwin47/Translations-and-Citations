@@ -21,7 +21,12 @@
  *   markVerse(v)   Move the focus-verse outline in the mounted by-verse list to
  *                  verse v, without re-rendering, opening or scrolling. No-op in
  *                  by source.
- * Both act on whichever list the panel has mounted, so they hold no reference
+ *   revealVerse(v) markVerse(v), then open verse v's group and reveal it through
+ *                  panel.scrollIntoView, as a first build does for focusVerse
+ *                  (for a re-mounted list whose reader has moved on). Only
+ *                  the outline moves when v has no group or the filter hides
+ *                  it; no-op in by source.
+ * All three act on whichever list the panel has mounted, so they hold no reference
  * to a list; every bit of state they read lives on the list's own elements,
  * which the view host caches and re-mounts as one piece.
  *
@@ -69,7 +74,11 @@
     sum.setAttribute('aria-label', group.a11yLabel);
     sum.appendChild(el('span', 'btx-caret'));
     const label = el('span', 'btx-cit-label');
-    label.appendChild(el('span', 'btx-cit-label-text', group.label));
+    // One line, cut with an ellipsis (the pinned headers' stated heights
+    // count on it); the tooltip carries the whole label.
+    const text = el('span', 'btx-cit-label-text', group.label);
+    text.title = group.label;
+    label.appendChild(text);
     if (group.kind === 'verse') {
       const excerpt = el('span', 'btx-cit-excerpt');
       excerpt.dataset.btxVerse = String(group.verse);
@@ -207,6 +216,7 @@
       state = vm().applyPlan(state, plan);
       hidden = plan.hidden;
       summary.textContent = plan.summary;
+      summary.classList.toggle('btx-cit-unseen', !plan.summaryShown);
       noRes.hidden = !plan.noResults;
       noResText.textContent = plan.noResults || '';
       showCollapse(plan.collapseLabel);
@@ -364,9 +374,11 @@
     if (row) row.focus({ preventScroll: true });
   }
 
+  // The mounted by-verse list's group for verse v (null in by source, or when
+  // v has no group), after moving the focus-verse outline onto it.
   function markVerse(v) {
     const wrap = mountedList();
-    if (!wrap || wrap.dataset.btxLayout !== 'verse') return;
+    if (!wrap || wrap.dataset.btxLayout !== 'verse') return null;
     fillExcerpts(wrap);
     const uid = vm().verseUid(v);
     for (const n of wrap.querySelectorAll('.btx-cit-focus')) {
@@ -374,7 +386,18 @@
     }
     const group = wrap.querySelector(`[data-btx-uid="${CSS.escape(uid)}"]`);
     if (group) group.classList.add('btx-cit-focus');
+    return group;
   }
 
-  root.__BTX = Object.assign(root.__BTX || {}, { citPanel: { render, refocus, markVerse } });
+  function revealVerse(v) {
+    const group = markVerse(v);
+    // A group the filter hides has nowhere to be revealed.
+    if (!group || group.classList.contains('btx-cit-hidden')) return;
+    group.open = true; // its 'toggle' lands in the toolbar state like a click
+    panel().scrollIntoView(group, { frames: 1 });
+  }
+
+  root.__BTX = Object.assign(root.__BTX || {}, {
+    citPanel: { render, refocus, markVerse: (v) => { markVerse(v); }, revealVerse },
+  });
 })(typeof globalThis !== 'undefined' ? globalThis : this);
