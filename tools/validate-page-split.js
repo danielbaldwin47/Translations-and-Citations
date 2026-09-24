@@ -104,6 +104,22 @@ eq(P.cssId('p1.2'), 'article#main [id="p1.2"]', 'merged-verse ids (Turkish p1.2)
 eq(P.cssId('a"b'), 'article#main [id="a\\"b"]', 'a quote in an id cannot break out of the selector');
 
 // ---- Wiring (greps: the DOM half can't run here) ----
+// ---- moved ----
+// The site moves the reading column without resizing anything the observers
+// watch (a footnote opening slides it left; the drawer closing widens the room
+// beside it), so the watch refits when the column moved since the last fit.
+console.log('moved:');
+const fitted = { left: 332, width: 876, areaLeft: 319, areaRight: 1220 };
+eq(P.moved(fitted, { ...fitted, left: 172 }), true, 'the footnote panel opened: the column slid left at the same width');
+eq(P.moved(fitted, { ...fitted, areaRight: 900 }), true, '...and the room on the right ends at the footnote panel');
+eq(P.moved(fitted, { ...fitted, areaLeft: 0 }), true, 'the navigation drawer closed: more room on the left');
+eq(P.moved(fitted, { ...fitted, width: 1196 }), true, 'the column changed width');
+eq(P.moved(fitted, { ...fitted, left: 332.4, width: 876.6 }), false, 'sub-pixel jitter is not a move');
+eq(P.moved(fitted, { ...fitted }), false, 'nothing moved: nothing to refit');
+eq(P.moved(null, fitted), true, 'never fitted: fit');
+eq(P.moved(fitted, null), true, 'the column is gone: fit (it finds nothing and stays interlinear)');
+eq(P.moved(null, null), false, 'no column before or now');
+
 console.log('Wiring (ADR-0007):');
 const src = fs.readFileSync(path.join(ROOT, 'src/content/page-split.js'), 'utf8').replace(/\r\n/g, '\n');
 const shell = src.slice(src.indexOf('// ---- DOM shell'));
@@ -131,6 +147,10 @@ check(!cs.js.some((f) => /prototype/.test(f)), 'no prototype ships in the manife
 const content = fs.readFileSync(path.join(ROOT, 'src/content/content.js'), 'utf8');
 check(/pageSplit\.wantsSplit\(/.test(content), 'the orchestrator asks the pure rule whether to split');
 check(/\+\+splitToken;\s*pageSplit\.hide\(\);/.test(content), 'a new chapter drops the split before anything else');
+check(/if \(moved\(s\.geo, geometry\(\)\)\) schedule\(\);/.test(shell) && /layout\(\);\s*s\.geo = geometry\(\);/.test(shell),
+  'the watch refits when the column moved since the last fit, measured after the fit\'s own writes');
+check(/const keep = anchor && s\.article && s\.article\.contains\(anchor\)[\s\S]*?unmount\(\);[\s\S]*?window\.scrollBy\(/.test(shell),
+  'hiding keeps the anchor verse in place: measured before the reflow, the page scrolled by its shift after');
 
 if (failures) {
   console.error(`\n${failures} check(s) failed.`);

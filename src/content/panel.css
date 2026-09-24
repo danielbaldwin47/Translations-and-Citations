@@ -332,12 +332,13 @@
   color: var(--btx-muted);
 }
 
-/* A Church language read in the panel: the way back into the page. */
+/* A Church language read in the panel: where to show it, the way back into
+   the page. */
 #btx-root .btx-article-tools {
   display: flex;
-  justify-content: flex-end;
-  margin: -4px 0 8px;
+  margin: -4px 0 12px;
 }
+#btx-root .btx-article-tools .btx-seg { flex: 1 1 auto; }
 
 /* The text's own font: the site styles bare h3s in its UI font. */
 #btx-root .btx-heading {
@@ -436,7 +437,15 @@
 #btx-root .btx-card-text { margin: 0; }
 #btx-root .btx-card-hint { margin: 0; font-size: 13px; color: var(--btx-muted); }
 #btx-root .btx-card [hidden] { display: none; }
+/* The setup card's language picker: the select takes the row, Add its end. */
+#btx-root .btx-card-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  align-self: stretch;
+}
 #btx-root .btx-card-select {
+  flex: 1 1 auto;
   width: 100%;
   min-width: 0;
   height: 34px;
@@ -467,7 +476,9 @@
   cursor: pointer;
   transition: background 0.12s;
 }
-#btx-root .btx-btn-outline:hover { background: color-mix(in srgb, var(--btx-accent) 10%, transparent); }
+#btx-root .btx-btn-outline:hover:not(:disabled) { background: color-mix(in srgb, var(--btx-accent) 10%, transparent); }
+#btx-root .btx-btn-outline:disabled { opacity: 0.45; cursor: default; }
+#btx-root .btx-card-add { flex: 0 0 auto; align-self: auto; height: 34px; padding: 0 16px; }
 
 /* A text action that reads as a link. */
 #btx-root .btx-link {
@@ -487,7 +498,6 @@
   cursor: pointer;
 }
 #btx-root .btx-link:hover { text-decoration-thickness: 2px; }
-#btx-root .btx-article-tools .btx-link { font-size: 13px; }
 
 /* Where a Church language shows: a segmented control whose labels may wrap
    at the narrowest panel rather than be cut off. */
@@ -582,6 +592,8 @@
   }
   #btx-root .btx-panel { border-left: none; border-top: 1px solid var(--btx-border); }
   #btx-root .btx-resize { display: none; }
-  /* The sheet reserves no page width, so collapsing widens nothing. */
-  #btx-root .btx-widen { display: none; }
+  /* A card (setup, beside) is short: the sheet takes its height, not 60vh,
+     so the page it describes stays in view above it. */
+  #btx-root[data-btx-card],
+  #btx-root[data-btx-card] .btx-panel { height: auto; max-height: 60vh; }
 }

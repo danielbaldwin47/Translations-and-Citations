@@ -49,6 +49,11 @@ for (const [slug, code] of Object.entries(spot)) {
 
 check(books.bookFullName('od') === 'Official Declaration',
   'the od book is "Official Declaration" (the site titles each one "Official Declaration 1/2")');
+check(books.bookFullName('dc') === 'Doctrine and Covenants',
+  'the dc book is "Doctrine and Covenants", spelled out as the site titles it ("Doctrine and Covenants 76")');
+for (const slug of Object.keys(books.NON_BIBLE_NAMES)) {
+  check(!/&/.test(books.bookFullName(slug)), `the ${slug} book's name has no "&" (got "${books.bookFullName(slug)}")`);
+}
 
 check(books.isBibleCollection('ot') && books.isBibleCollection('nt'), 'ot/nt are Bible collections');
 check(!books.isBibleCollection('bofm') && !books.isBibleCollection('pgp'), 'bofm/pgp are not Bible collections');

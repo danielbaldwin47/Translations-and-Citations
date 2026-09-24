@@ -8,18 +8,28 @@
  *    (loading, rate-limit wait, error, setup card, beside card, text); the
  *    dropdown's rows, labels and the pick among them are __BTX.churchText's
  *    pure textsFor / menuFor / pickText, the pick walking a most-recently-used
- *    list (btxSelectedTranslation in chrome.storage.local)
+ *    list (btxSelectedTranslation in chrome.storage.local). A rate-limited
+ *    load waits and retries only as panel.retryWait allows, counting its
+ *    automatic retries per chapter and version
  *  - writes the cards' picks through __BTX.settings (a Church language added
  *    from the setup card, the beside card's layout) and renders them itself,
  *    since its settings subscriber skips its own writes
- *  - keeps the page split (__BTX.pageSplit) in step with Translation mode
- *  - Citations: builds the list opened at the verse being read (readingVerse),
- *    moves that verse's mark as the page scrolls (citPanel.markVerse, By verse
- *    only), and keeps an open talk (openEntry) across a trip to Translation;
- *    Back returns focus to the row it came from (citPanel.refocus)
+ *  - keeps the page split (__BTX.pageSplit) in step with Translation mode; a
+ *    new chapter drops it, a same-chapter re-render keeps it unless what it
+ *    shows changed, and taking it away keeps the verse being read in place
+ *  - Citations: builds the list opened at the verse being read (readingVerse:
+ *    only in the article of the chapter being rendered, read before the split
+ *    goes), moves that verse's mark as the page scrolls (citPanel.markVerse,
+ *    By verse only), and brings a list re-mounted by a mode switch to that
+ *    verse when the reader has moved on (citPanel.revealVerse). An open talk
+ *    (openEntry) survives a trip to Translation under its stored view key; a
+ *    click on a citation row opens it afresh (a numbered key). Back returns
+ *    focus to the row it came from (citPanel.refocus)
  *  - answers the panel's renderMode event with fresh mode content
  *  - answers the toolbar icon (TOGGLE_PANEL): collapse or expand the panel; on
- *    a chapter the language preference hides, show it for this tab instead
+ *    a chapter the language preference hides, show it for this tab instead.
+ *    The reply's `shown` says whether a chapter shows (false: the worker
+ *    opens the options page)
  *  - asks the worker to open the options page, at a card when one is named
  *    (OPEN_OPTIONS { section: 'bible' })
  *  - names each view and supplies its content key; it holds no panel DOM
@@ -43,7 +53,6 @@
   const pageSplit = root.__BTX.pageSplit;
 
   const SELECTION_KEY = 'btxSelectedTranslation';
-  const MAX_WAIT_MS = 60000; // a rate-limit wait longer than this is the daily cap
 
   // Settings the panel reacts to by itself (owning some, e.g. panelMode, and
   // applying others, e.g. sidebarWidth). A change touching only these never
@@ -65,6 +74,9 @@
   let current = null; // parsed location
   let reqToken = 0; // guards against stale responses
   let retryTimer = null;
+  // Automatic rate-limit retries in a row, per chapter and version (panel's
+  // retryWait caps them): { key: transKey(), n }.
+  let retries = { key: null, n: 0 };
   // The toolbar icon clicked on a chapter the `actOnNonEngOnly` preference
   // hides: show chapters in this tab whatever their language. Never persisted.
   let forceShow = false;
@@ -74,8 +86,11 @@
   // The talk open in Citations mode, re-opened when Citations comes back; the
   // list's layout when it was built (another layout asks for the list).
   let openEntry = null;
+  let openKey = null; // its view key: a list click opens afresh, a re-show restores
+  let talkOpens = 0; // numbers each fresh open, so its key never hits the cache
   let citViewShown = null;
   let markedVerse = null; // the verse the mounted By-verse list was last told about
+  let revealedVerse = null; // the verse it was built opened at, or last revealed
   let markRaf = 0;
 
   function getStored(key) {
@@ -190,14 +205,17 @@
     const key = `${parsed.collection}/${parsed.ldsBook}/${parsed.chapter}/${parsed.lang}`;
     if (key === currentKey) return;
     currentKey = key;
-    // A talk stays open across a settings change, not across chapters.
-    if (key !== shownChapter) openEntry = null;
-    shownChapter = key;
     clearTimeout(retryTimer);
-    // A new chapter: the split's per-id rules would land on the incoming
-    // chapter's elements before its text arrives.
-    ++splitToken;
-    pageSplit.hide();
+    if (key !== shownChapter) {
+      // A talk stays open across a settings change, not across chapters.
+      openEntry = null;
+      // The split's per-id rules would land on the incoming chapter's
+      // elements before its text arrives. (The same chapter again keeps it:
+      // syncSplit replaces it only if the settings changed what it shows.)
+      ++splitToken;
+      pageSplit.hide();
+    }
+    shownChapter = key;
 
     const e = await loadEnabled();
 
@@ -216,14 +234,21 @@
     await renderActiveMode();
   }
 
-  function renderActiveMode() {
+  // `reveal`: the panel switched mode, so a re-mounted By-verse list is
+  // brought to the verse being read (a same-chapter settings change leaves
+  // the list as it was).
+  function renderActiveMode(opts) {
     if (!current) return undefined;
     if (panel.effectiveMode() === 'citations') {
-      syncSplit(); // the split belongs to Translation mode
+      // Read before the split goes: taking it away reflows the page (and
+      // keeps this verse where it was on screen).
+      const paragraph = readingParagraph();
+      syncSplit({ anchor: paragraph }); // the split belongs to Translation mode
       // A talk left open comes back where it was left — unless the reader has
       // since picked another citation layout, which asks for the list.
       if (panel.citationView() !== citViewShown) openEntry = null;
-      return openEntry ? openTalk(openEntry) : renderCitations(current);
+      if (openEntry) return openTalk(openEntry);
+      return renderCitations(current, { reading: verseOf(paragraph), reveal: !!(opts && opts.reveal) });
     }
     return renderTranslation();
   }
@@ -236,8 +261,9 @@
   // Church language whose layout is in-page, and goes with everything else —
   // Citations, an api.bible version, the panel closed, the page left. Called
   // wherever one of those inputs moves; pageSplit.show is a no-op for the key
-  // already showing.
-  async function syncSplit() {
+  // already showing. `anchor`: the paragraph to keep in place if the split
+  // goes (pageSplit.hide).
+  async function syncSplit(opts) {
     const e = enabled;
     const row = findTranslation(activeId);
     const layout = e && e.churchLanguageLayout;
@@ -249,7 +275,7 @@
     });
     if (!want) {
       ++splitToken;
-      pageSplit.hide();
+      pageSplit.hide({ anchor: opts && opts.anchor });
       return;
     }
     const parsed = current;
@@ -274,7 +300,7 @@
   // (Saving the outgoing view's scroll position is the panel's job.)
   function onRenderMode() {
     if (!current) return;
-    renderActiveMode();
+    renderActiveMode({ reveal: true });
   }
 
   async function renderTranslation() {
@@ -312,7 +338,7 @@
     await loadSelection();
     activeId = churchText.pickText(list, mru.concat(e.defaultId));
     panel.populateTranslations(churchText.menuFor(list), activeId);
-    syncSplit();
+    syncSplit({ anchor: readingParagraph() }); // another version may take the split away
     // Same chapter and same version -> the panel re-mounts what it has, and
     // loadChapter never runs.
     return panel.showView({ name: 'translation', key: transKey(), render: () => loadChapter() });
@@ -346,15 +372,25 @@
     return 0;
   }
 
-  function readingVerse() {
-    const article = document.getElementById('main') || document.querySelector('main article');
-    if (!article) return null;
+  // Only the chapter being rendered counts: right after an in-app
+  // navigation the site still shows the previous chapter's article.
+  function readingParagraph() {
+    const article = document.getElementById('main');
+    if (!article || !current || article.getAttribute('data-uri') !== churchText.chapterUri(current)) return null;
     const top = stickyBottom(article);
     for (const p of article.querySelectorAll('p[id^="p"]')) {
-      const m = /^p(\d+)/.exec(p.id);
-      if (m && p.getBoundingClientRect().bottom > top) return Number(m[1]);
+      if (/^p\d+/.test(p.id) && p.getBoundingClientRect().bottom > top) return p;
     }
     return null;
+  }
+
+  function verseOf(p) {
+    const m = p && /^p(\d+)/.exec(p.id);
+    return m ? Number(m[1]) : null;
+  }
+
+  function readingVerse() {
+    return verseOf(readingParagraph());
   }
 
   function wantsVerseMarks() {
@@ -376,14 +412,19 @@
     markRaf = requestAnimationFrame(() => { markRaf = 0; markReading(); });
   }
 
-  function renderCitations(parsed) {
+  // opts: { reading, reveal } — the verse being read, when the caller had to
+  // read it early (renderActiveMode, before the split goes), and whether a
+  // re-mounted list is brought to it (a mode switch; never Back).
+  function renderCitations(parsed, opts) {
+    const o = opts || {};
     const view = panel.citationView();
     citViewShown = view;
     // The layout is part of the content's identity, so flipping By source /
     // By verse rebuilds while a plain toggle re-mounts. Where the reader is
-    // on the page is not: a re-mounted list is only re-marked.
+    // on the page is not: a re-mounted list is revealed at it (a mode switch
+    // after the reader moved on) or only re-marked.
     const key = `${citKey(parsed)}::${view}`;
-    const reading = readingVerse();
+    const reading = 'reading' in o ? o.reading : readingVerse();
     let built = false;
     const out = panel.showView({
       name: 'citations',
@@ -391,31 +432,44 @@
       render: (host) => {
         built = true;
         markedVerse = reading;
+        revealedVerse = reading;
         return citPanel.render(host, {
           slug: parsed.ldsBook,
           chapter: parsed.chapter,
           fullName: bookLabel(parsed.ldsBook),
           // At the top of the chapter there is nothing to open at.
           focusVerse: reading > 1 ? reading : undefined,
-          onOpenTalk: openTalk,
+          onOpenTalk: (entry) => openTalk(entry, { fresh: true }),
           view,
         });
       },
     });
-    if (!built) markReading();
+    if (built) return out;
+    if (o.reveal && view === 'verse' && reading > 1 && reading !== revealedVerse && typeof citPanel.revealVerse === 'function') {
+      revealedVerse = reading;
+      markedVerse = reading;
+      citPanel.revealVerse(reading);
+    } else {
+      markReading();
+    }
     return out;
   }
 
   // The talk reader is a view like the others — which is what makes "‹ Back"
   // land on the citation list exactly where it was left, and a trip to
-  // Translation and back land on the talk where it was left (same key, so the
-  // panel re-mounts it at its scroll). The talk view marks a failed load
-  // not-worth-keeping itself.
-  function openTalk(entry) {
+  // Translation and back land on the talk where it was left (the stored key,
+  // so the panel re-mounts it at its scroll). A click on a citation row is a
+  // fresh open (`fresh`): a key never used before, so the talk is built again,
+  // revealed at the cite, with Back focused — even the talk just left. The
+  // talk view marks a failed load not-worth-keeping itself.
+  function openTalk(entry, opts) {
+    if ((opts && opts.fresh) || !openKey || openEntry !== entry) {
+      openKey = `${entry.talkId}#${entry.citId}#${++talkOpens}`;
+    }
     openEntry = entry;
     return panel.showView({
       name: 'talk',
-      key: `${entry.talkId}#${entry.citId}`,
+      key: openKey,
       render: (host) => talkView.open(host, {
         entry,
         source: entry.source || {},
@@ -426,8 +480,9 @@
 
   function backToList() {
     openEntry = null;
+    openKey = null;
     if (!current) return;
-    Promise.resolve(renderCitations(current)).then(() => {
+    Promise.resolve(renderCitations(current, { reveal: false })).then(() => {
       if (typeof citPanel.refocus === 'function') citPanel.refocus();
     });
   }
@@ -460,6 +515,7 @@
       handleError((res && res.error) || { code: C.ERR.UNKNOWN }, tr);
       return;
     }
+    retries = { key: null, n: 0 };
     panel.showTranslation({
       kind: 'content',
       blocks: res.blocks,
@@ -500,10 +556,13 @@
   }
 
   function handleError(error, tr) {
-    // The 30-second window is not an error to the reader: a wait, with a
-    // countdown to the retry. The daily allowance is (it lasts till midnight).
-    if (error.code === C.ERR.RATE_LIMITED && !(error.retryAfterMs > MAX_WAIT_MS)) {
-      const wait = Math.max(error.retryAfterMs || 2000, 1000);
+    // A short, stated rate-limit wait is not an error to the reader: a wait,
+    // with a countdown to the retry — a few times at most (panel.retryWait).
+    const key = transKey();
+    if (retries.key !== key) retries = { key, n: 0 };
+    const wait = panel.retryWait(error, retries.n);
+    if (wait !== null) {
+      retries.n += 1;
       panel.showTranslation({ kind: 'waiting', seconds: Math.ceil(wait / 1000) });
       retryTimer = setTimeout(loadChapter, wait);
       return;
@@ -515,6 +574,8 @@
       chapter: current ? chapterLabel(current) : '',
       church: tr.provider === churchText.PROVIDER,
       alternatives: texts.length > 1,
+      remote: error.remote === true,
+      retryAfterMs: error.retryAfterMs,
     });
   }
 
@@ -595,7 +656,7 @@
         // its own cache key rather than overwriting the mounted one.
         if (panel.effectiveMode() === 'translation') renderTranslation();
       },
-      onRetry: () => loadChapter(),
+      onRetry: () => { retries = { key: null, n: 0 }; loadChapter(); }, // the reader's own retry starts a fresh run
       onGear: (section) => send(section ? { type: C.MSG.OPEN_OPTIONS, section } : { type: C.MSG.OPEN_OPTIONS }),
       onAddLanguage: addLanguage,
       onLayoutChange: changeLayout,
@@ -621,9 +682,11 @@
 
     // The toolbar icon. Answered at once, so the worker can tell a tab with a
     // panel from one without (where it opens the options page instead).
+    // `shown`: whether a chapter shows once the click is acted on — false on a
+    // Gospel Library page with none, where the worker opens the options page.
     chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       if (!msg || msg.type !== C.MSG.TOGGLE_PANEL) return;
-      sendResponse({ ok: true });
+      sendResponse({ ok: true, shown: !!current });
       onToolbarClick();
     });
 
