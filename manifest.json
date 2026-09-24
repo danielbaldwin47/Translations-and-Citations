@@ -30,7 +30,8 @@
         "src/citations/talk-source.js",
         "src/citations/talk-view.js",
         "src/citations/cit-panel.js",
-        "src/content/content.js"
+        "src/content/content.js",
+        "src/content/split-prototype.js"
       ],
       "css": ["src/content/panel.css", "src/citations/citations.css", "src/content/page-split.css"],
       "run_at": "document_idle"
