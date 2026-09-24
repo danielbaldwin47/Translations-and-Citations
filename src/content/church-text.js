@@ -25,7 +25,8 @@
  *       the dropdown: 'Bible translations' then 'Church languages', headed only
  *       when both are there
  *     languagesToAdd({ collection, pageLang, enabled }) -> [{ code, label }]
- *       the setup card's list: languages publishing the volume, not yet on
+ *       the setup card's list: languages publishing the volume, not yet on,
+ *       A–Z by English name and labelled English first ("Spanish — Español")
  *
  *   what does that chapter say?
  *     load(parsed, lang) -> Promise<{ blocks, verses, title, bcp47, dir, uri } | { error }>
@@ -176,13 +177,17 @@
 
   // The languages the setup card offers to add: every Church language that
   // publishes this chapter's volume, minus the page's own and any already on.
-  //   -> [{ code, label }]  in C.CHURCH_LANGUAGES order, labelled as the dropdown will
+  // One A–Z list by English name, each label English first ("Spanish —
+  // Español"): the reader of an English page looks a language up by its
+  // English name, and a native <select>'s type-ahead matches a label's start.
+  //   -> [{ code, label }]
   function languagesToAdd(opts) {
     const o = opts || {};
     const on = Array.isArray(o.enabled) ? o.enabled : [];
     return C.CHURCH_LANGUAGES
       .filter((l) => l.code !== o.pageLang && on.indexOf(l.code) < 0 && publishes(l.code, o.collection))
-      .map((l) => ({ code: l.code, label: baseLabel(rowFor(l.code)) }));
+      .sort((a, b) => a.english.localeCompare(b.english, 'en'))
+      .map((l) => ({ code: l.code, label: l.name === l.english ? l.english : `${l.english} — ${l.name}` }));
   }
 
   // ---- Where the chapter lives ----------------------------------------------

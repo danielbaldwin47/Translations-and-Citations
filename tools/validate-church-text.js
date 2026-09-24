@@ -165,9 +165,14 @@ console.log('languagesToAdd:');
   const bofmLangs = T.languagesToAdd({ collection: 'bofm', pageLang: 'eng', enabled: [] });
   check(bofmLangs.length > 50, 'a Book of Mormon chapter offers every language publishing the Book of Mormon');
   check(!bofmLangs.some((l) => l.code === 'eng'), "the page's own language is not offered");
-  eq(bofmLangs.find((l) => l.code === 'spa'), { code: 'spa', label: 'Español — Spanish' }, 'each reads as it will in the dropdown');
-  eq(bofmLangs.map((l) => l.code), C.CHURCH_LANGUAGES.map((l) => l.code).filter((c) => bofmLangs.some((l) => l.code === c)),
-    'in the table order (the widest coverage first)');
+  eq(bofmLangs.find((l) => l.code === 'spa'), { code: 'spa', label: 'Spanish — Español' },
+    'each reads English name first, so type-ahead finds a language by the name an English reader knows');
+  const english = bofmLangs.map((l) => C.CHURCH_LANGUAGES.find((c) => c.code === l.code).english);
+  eq(english, english.slice().sort((a, b) => a.localeCompare(b, 'en')), 'one A–Z list by English name, not the table’s coverage groups');
+  check(bofmLangs.every((l) => l.label.startsWith(C.CHURCH_LANGUAGES.find((c) => c.code === l.code).english)),
+    'every label starts with the English name');
+  const all = T.languagesToAdd({ collection: 'bofm', pageLang: 'spa', enabled: [] });
+  eq(all.find((l) => l.code === 'eng'), { code: 'eng', label: 'English' }, 'a language named the same in English reads once');
   if (bofmOnly && bibleOnly) {
     const nt = T.languagesToAdd({ collection: 'nt', pageLang: 'eng', enabled: [] }).map((l) => l.code);
     check(nt.includes(bibleOnly.code) && !nt.includes(bofmOnly.code), 'a New Testament chapter offers only languages publishing the New Testament');
