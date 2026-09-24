@@ -27,9 +27,9 @@ free key from scripture.api.bible.
    The panel shows the talks that cite the chapter right away.
 
 To read the chapter in another language or translation, click **Translation** in
-the panel. It offers the Church languages that publish that chapter (pick one
-and it appears at once) and, on Bible chapters, a link to set up Bible
-translations.
+the panel. It offers the Church languages that publish that chapter (choose
+one and click **Add**; it appears at once) and, on Bible chapters, a link to
+set up Bible translations.
 
 ### Bible translations (optional)
 
@@ -39,7 +39,7 @@ Copyrighted translations can't be bundled, so the extension reads them from
 1. Create a free account at <https://scripture.api.bible/> and add the
    translations you want to your key (NIV, NKJV and NIrV, for example).
 2. Open the extension's settings (the gear in the panel, or the toolbar icon on
-   any page outside Gospel Library) and paste the key under **Bible translations**.
+   any page that isn't showing a chapter) and paste the key under **Bible translations**.
    It connects by itself; the translations you added are turned on, and NIV
    becomes the default when you have it.
 3. The key's free translations (KJV, ASV, WEB, …) wait under **more free

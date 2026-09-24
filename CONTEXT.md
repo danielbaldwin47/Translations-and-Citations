@@ -9,7 +9,7 @@ layout, rules, and commands live in `CLAUDE.md`.
 
 **Standard works**:
 The five scripture collections the extension covers: Old Testament, New
-Testament, Book of Mormon, Doctrine & Covenants, Pearl of Great Price.
+Testament, Book of Mormon, Doctrine and Covenants, Pearl of Great Price.
 
 **Volume**:
 One of the five standard-works collections. In the BYU data this is
@@ -31,7 +31,9 @@ only a slug.
 **Cite**:
 One record from the BYU Scripture Citation Index: talk X cites verse(s) Y.
 Keyed by `citId` in a shard's `cites` map. This is the unit `uniqueTotal`
-counts.
+counts; the panel itself counts talks (a talk may carry several cites of one
+chapter). A cite's own `v` field is the truth about which verses it cites —
+`citData.chapterData` clips the index's verse rows to it.
 _Avoid_: citation (overloaded — use cite for the data record, citation span for the HTML marker, citation row for the panel row)
 
 **Citation span**:
@@ -75,13 +77,15 @@ question for the reader: given a cite, hand back displayable talk HTML plus a
 way to locate that cite's **scroll target** in the rendered result. It owns the
 **corpus plan** — the per-corpus table of where the HTML comes from (live vs
 bundled) and what the scroll target is (paragraph anchor / citation span / body
-passage).
+passage), with the paragraph holding the cite's snippet as every corpus's
+fallback.
 _Avoid_: source (bare — that still means a source type or the BYU DBs); always say talk source
 
 **Scroll target**:
 The element in a rendered talk the reader scrolls to and marks for a cite:
 the paragraph anchor (live GC), the citation span (bundled E/J), or the body
-passage (STPJS).
+passage (STPJS) — else the paragraph that contains the cite's snippet (most
+2020s GC cites carry no paragraph anchor).
 
 **Snippet**:
 The short excerpt shown under a citation row. Normally the text around the
@@ -97,11 +101,13 @@ A run of consecutive verses covered by one cite (e.g. vv. 3–5).
 
 **Anchor verse**:
 The first verse of each contiguous range a cite covers. In the by-verse layout
-a cite appears once per anchor verse, not under every verse in the range.
+a talk appears once per anchor verse, not under every verse in the range.
+Verse 1000 is a chapter's closing note (JS—H 1), shown as "Note".
 
 **uniqueTotal**:
-The count of distinct cites in a chapter — the panel's headline number. A
-verse chip counts distinct cites anchored at that verse.
+The count of distinct cites in a chapter. It only decides the empty state; the
+panel's headline ("519 talks cite this chapter") and every count chip count
+distinct talks.
 
 ## Panel
 
@@ -110,16 +116,31 @@ The user's preferred panel feature: Translation or Citations. Stored as the
 `panelMode` setting, owned by the panel.
 
 **Translatable** (of a chapter):
-Has a text to show beside it: every Bible chapter (api.bible, even with nothing
-enabled yet — the panel then says so), and any chapter once a Church language
-is enabled. `content.js` decides it from `churchText.textsFor`; the panel only
-reads the flag (`showChapter({ translatable })`).
+Some enabled text offers it: an enabled api.bible translation on a Bible
+chapter, or an enabled Church language that publishes its volume. `content.js`
+decides it from `churchText.textsFor`; the panel only reads the flag
+(`showChapter({ key, translatable })`).
 
 **Effective mode**:
 The mode actually showing. Equals the mode on a translatable chapter; on any
-other only Citations exists, so citations is forced and the mode toggle is
-hidden — the stored preference survives untouched. `panel.effectiveMode()` is
-the one source of truth.
+other the panel opens on Citations. The Translation | Citations control always
+shows: Translation there sets a per-visit **override** that shows the **setup
+card**, without rewriting the stored preference — unless the chapter becomes
+translatable under it (a language added from the card), which commits
+`panelMode: 'translation'`. The next chapter or a Citations click clears the
+override. The pure rule is `effectiveMode` / `selectMode` / `setChapter`;
+`panel.effectiveMode()` is the one source of truth.
+
+**Setup card**:
+Translation mode's body on an untranslatable chapter: add a Church language
+(select + Add), or set up api.bible translations (opens settings at the
+`bible` card via `OPEN_OPTIONS {section}`), or go to the talks that cite the
+chapter.
+
+**Beside card**:
+Translation mode's body while the page split shows: where the text is (by the
+layout that actually fits), the split-layout control, and "Collapse panel for
+wider columns" when collapsing would make room (`pageSplit.collapseFits`).
 
 **Church language**:
 A language the Church publishes the standard works in, offered beside the
@@ -129,8 +150,9 @@ becomes a row in the translation dropdown after the api.bible versions, minus
 the page's own language and any language that hasn't published the chapter's
 collection. A chapter a language lacks is "not available", not an error to
 retry. In the reader, *translation* code (the `translation` view,
-`findTranslation`, `populateTranslations`, `btxSelectedTranslation`) handles
-both kinds of row — tell them apart by `provider` (`'church'`). In settings,
+`findTranslation`, `populateTranslations`, `btxSelectedTranslation` — a
+most-recently-used list of row ids, newest first) handles both kinds of row —
+tell them apart by `provider` (`'church'`). In settings,
 the options page and the worker, *translation* (`enabledTranslations`,
 `defaultTranslationId`) still means api.bible versions only.
 
@@ -138,8 +160,8 @@ the options page and the worker, *translation* (`enabledTranslations`,
 A Church-language chapter set into the site's own reading column, each block
 paired with the English element of the same id (`__BTX.pageSplit`,
 ADR-0007). It shows while the panel is in Translation mode with a Church
-language picked, and the panel body then only says so. The alternative to
-showing the text in the panel.
+language picked, and the panel body shows the **beside card**. The alternative
+to showing the text in the panel.
 _Avoid_: overlay (that's its mechanism, not the feature)
 
 **Split layout**:
@@ -157,8 +179,12 @@ mounted at a time.
 
 **View key**:
 The string identifying *which content* a view is showing — chapter + version
-for translation, chapter + citation layout (+ focus verse, if any) for
-citations. Same name and same key means the mounted DOM is still valid; a
+(+ `::page` or `::panel` for a Church-language row) for translation, chapter +
+citation layout for citations (the verse being read is passed only when the
+list is built, and moved with `citPanel.markVerse` / `revealVerse` after
+that), talk + cite + an open counter for the talk reader (a row click opens
+afresh; returning to Citations re-shows the stored key). Same name and same
+key means the mounted DOM is still valid; a
 different key means rebuild. The orchestrator supplies keys, the view host
 compares them. A view only becomes re-mountable once it has earned it: a
 spinner, an error, or a render that painted nothing is never cached.
@@ -166,7 +192,8 @@ spinner, an error, or a render that painted nothing is never cached.
 **View host**:
 The part of `__BTX.panel` that mounts views: it holds one cached body per view
 name, remembers where each view was scrolled, invalidates them
-all on a new chapter, and is the only writer of the panel body's scroll
+all on a new chapter (the same chapter shown again keeps `citations` and
+`talk`), and is the only writer of the panel body's scroll
 position. Callers name a view and say how to build it (`showView`) or ask for a
 node to be scrolled into sight (`scrollIntoView`); no module outside the panel holds
 panel DOM.
@@ -210,38 +237,43 @@ user keeps scrolling; the panel never trails the page.
 
 **Citation layout**:
 How the Citations mode arranges rows: **by verse** (verse → source-type group →
-talks) or **by source** (one deduped row per talk, grouped by source type).
-Stored as the `citationView` setting; flippable live via the in-panel
-sub-toggle.
+talks) or **by source** (one row per talk, grouped by source type). Talks are
+newest first in both. Stored as the `citationView` setting; the in-panel
+By source | By verse toggle is its only control.
 _Avoid_: view (bare — that is a hosted panel view; the `citationView` setting
 name predates the term)
 
 **Citation row**:
-One rendered `.btx-cit` row in the panel. In by-verse layout a row is one cite
-occurrence; in by-source layout rows are deduped to one per talk.
+One rendered `.btx-cit` row in the panel: one talk. In by-verse layout a
+talk's cites anchored at the same verse merge into one row; in by-source
+layout each talk is one row, opening at its earliest cite.
 
 **Citation view-model**:
 The pure module (`src/citations/cit-view-model.js`, `__BTX.citVM`) that turns a
 chapter's cites into descriptors. Every ordering, grouping, counting,
 open-state and data-derived label rule of Citations mode lives there;
-`cit-panel` only builds elements from what it returns, and owns nothing beyond
-fixed chrome (the loading and no-results lines, the filter placeholder, the
-quote marks around a snippet).
+`cit-panel` only builds elements from what it returns (display-ready
+snippets with their quote marks, the no-results line and the summary
+included), and owns nothing beyond fixed chrome (the loading line, the filter
+placeholder, the Clear filter label) and the verse excerpts it reads from the
+page.
 _Avoid_: renderer, formatter
 
 **Descriptor**:
 A plain object describing one thing the panel will render, carrying a **uid**
 stable within one built view-model. A group descriptor (verse or source-type)
-carries its label, count chip and pre-open flag; a citation-row descriptor
-carries the speaker, corpus tag, range badge, snippet and filter haystack. The
+carries its label, count chip, open flag, `a11yLabel` and (verse groups) its
+verse; a citation-row descriptor carries the talkId, speaker, title line,
+range badge, display-ready snippet, `a11yLabel` and filter haystack. The
 uid is how the DOM adapter maps element ↔ descriptor (`data-btx-uid`) and how
 toolbar state is keyed.
 
 **Plan**:
 The computed next state of the citations toolbar — which rows and groups hide,
-which groups open, what the expand/collapse-all button reads — returned by the
-view-model and applied by the panel. Filter clearing restores the open state
-captured when filtering began.
+which groups open, the visible counts and summary, the no-results line, and
+the Collapse all label (null hides the button) — returned by the view-model
+and applied by the panel. Filter clearing restores the open state captured
+when filtering began.
 
 **Highlight**:
 A user-made local text highlight inside the inline talk reader. Stored in
@@ -263,7 +295,8 @@ collapsed, … Owned end-to-end by `__BTX.settings`: schema, defaults,
 normalization, reads, writes and change events. The panel's own state
 (`panelMode`, `panelCollapsed`, `citationView`, `sidebarWidth`) is settings
 too: in the reader only `__BTX.panel` writes it, and the panel adopts any
-external write (the options page edits `citationView`/`sidebarWidth` as one).
+external write (the options page edits `sidebarWidth`; `citationView`'s only
+editor is the panel's toggle).
 What stays per-machine in `chrome.storage.local` (selected translation,
 highlights) is *not* a setting.
 _Avoid_: config, preference (as a code term)
