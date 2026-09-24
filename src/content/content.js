@@ -16,7 +16,8 @@
  *    since its settings subscriber skips its own writes
  *  - keeps the page split (__BTX.pageSplit) in step with Translation mode; a
  *    new chapter drops it, a same-chapter re-render keeps it unless what it
- *    shows changed, and taking it away keeps the verse being read in place
+ *    shows changed, and bringing it or taking it away keeps the paragraph at
+ *    the top of the screen in place
  *  - Citations: builds the list opened at the verse being read (readingVerse:
  *    only in the article of the chapter being rendered, read before the split
  *    goes), moves that verse's mark as the page scrolls (citPanel.markVerse,
@@ -241,9 +242,9 @@
     if (!current) return undefined;
     if (panel.effectiveMode() === 'citations') {
       // Read before the split goes: taking it away reflows the page (and
-      // keeps this verse where it was on screen).
+      // keeps the reader's place on screen).
       const paragraph = readingParagraph();
-      syncSplit({ anchor: paragraph }); // the split belongs to Translation mode
+      syncSplit({ anchor: splitAnchor() }); // the split belongs to Translation mode
       // A talk left open comes back where it was left — unless the reader has
       // since picked another citation layout, which asks for the list.
       if (panel.citationView() !== citViewShown) openEntry = null;
@@ -261,8 +262,8 @@
   // Church language whose layout is in-page, and goes with everything else —
   // Citations, an api.bible version, the panel closed, the page left. Called
   // wherever one of those inputs moves; pageSplit.show is a no-op for the key
-  // already showing. `anchor`: the paragraph to keep in place if the split
-  // goes (pageSplit.hide).
+  // already showing. `anchor`: the paragraph to keep in place while the split
+  // comes or goes (splitAnchor).
   async function syncSplit(opts) {
     const e = enabled;
     const row = findTranslation(activeId);
@@ -279,6 +280,7 @@
       return;
     }
     const parsed = current;
+    const anchor = opts && opts.anchor;
     const key = splitKey(parsed, row, layout);
     if (pageSplit.currentKey() === key) return;
     const token = ++splitToken;
@@ -290,6 +292,7 @@
       chapter: res,
       layout,
       uri: churchText.chapterUri(parsed),
+      anchor,
       // What actually fits changes with the window and the panel: the card
       // standing in for the text says which one the page shows.
       onLayout: (fit) => panel.updateBeside(fit),
@@ -338,7 +341,7 @@
     await loadSelection();
     activeId = churchText.pickText(list, mru.concat(e.defaultId));
     panel.populateTranslations(churchText.menuFor(list), activeId);
-    syncSplit({ anchor: readingParagraph() }); // another version may take the split away
+    syncSplit({ anchor: splitAnchor() }); // another version may bring the split or take it away
     // Same chapter and same version -> the panel re-mounts what it has, and
     // loadChapter never runs.
     return panel.showView({ name: 'translation', key: transKey(), render: () => loadChapter() });
@@ -372,14 +375,36 @@
     return 0;
   }
 
-  // Only the chapter being rendered counts: right after an in-app
-  // navigation the site still shows the previous chapter's article.
-  function readingParagraph() {
+  // The site's article, only while it is the chapter being rendered: right
+  // after an in-app navigation the site still shows the previous chapter's.
+  function chapterArticle() {
     const article = document.getElementById('main');
     if (!article || !current || article.getAttribute('data-uri') !== churchText.chapterUri(current)) return null;
+    return article;
+  }
+
+  function readingParagraph() {
+    const article = chapterArticle();
+    if (!article) return null;
     const top = stickyBottom(article);
     for (const p of article.querySelectorAll('p[id^="p"]')) {
       if (/^p\d+/.test(p.id) && p.getBoundingClientRect().bottom > top) return p;
+    }
+    return null;
+  }
+
+  // What the page split keeps in place while it comes or goes: the first of
+  // the chapter's paragraphs (heading and summary included) at least half on
+  // screen below the site's sticky header. Not the reading verse: a verse
+  // whose last line barely shows would push everything the reader sees down
+  // as it grows. At the top of the page, the top stays the top.
+  function splitAnchor() {
+    const article = chapterArticle();
+    if (!article) return null;
+    const top = stickyBottom(article);
+    for (const p of article.querySelectorAll('p[id]')) {
+      const r = p.getBoundingClientRect();
+      if ((r.top + r.bottom) / 2 > top) return p;
     }
     return null;
   }
@@ -606,7 +631,7 @@
     if (!current || panel.effectiveMode() !== 'translation' || after === before) return;
     if (before !== 'panel' && after !== 'panel') {
       panel.updateBeside({ layout: after });
-      syncSplit();
+      syncSplit({ anchor: splitAnchor() });
     } else {
       renderTranslation();
     }

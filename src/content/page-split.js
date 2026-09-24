@@ -4,14 +4,17 @@
  * extension's only write into the site's reader (ADR-0007).
  *
  * Interface:
- *   show({ key, chapter, layout, uri, onLayout })  split the page. `chapter`
- *                          is a __BTX.churchText load result (blocks carry
- *                          ids), `layout` 'columns' | 'interlinear', `uri` the
- *                          chapter's /scriptures/… path. Same key as the split
- *                          showing: nothing happens. Waits, as long as it
- *                          takes, for the site to render that chapter
+ *   show({ key, chapter, layout, uri, onLayout, anchor })  split the page.
+ *                          `chapter` is a __BTX.churchText load result (blocks
+ *                          carry ids), `layout` 'columns' | 'interlinear',
+ *                          `uri` the chapter's /scriptures/… path. Same key as
+ *                          the split showing: nothing happens. Waits, as long
+ *                          as it takes, for the site to render that chapter
  *                          (article#main[data-uri] === uri) — the site swaps
- *                          the whole article on navigation.
+ *                          the whole article on navigation. `anchor`
+ *                          (optional) is a chapter element kept at the same
+ *                          place on screen through the first mount's reflow,
+ *                          and through taking a split with another key away
  *                          `onLayout({ effective, collapseFits })` fires when
  *                          either changes — on mount, and when a resize or the
  *                          panel moves the room: `effective` is the layout
@@ -19,9 +22,8 @@
  *                          `collapseFits` whether collapsing the open panel
  *                          would give columns room (collapseFits, pure).
  *   hide({ anchor })       remove every trace: layer, CSS, <html> attribute.
- *                          `anchor` (optional) is a chapter element kept at
- *                          the same place on screen through the reflow (the
- *                          page scrolls by its shift)
+ *                          `anchor` (optional) as for show. An anchor is kept
+ *                          by scrolling the page by its shift (keepAt)
  *   currentKey()           the key showing (or waiting to show), else null
  *   currentLayout()        { effective, collapseFits } now, else null (not
  *                          mounted yet)
@@ -174,8 +176,8 @@
     'textTransform', 'textAlign', 'textIndent', 'fontVariant'];
   const WATCH_MS = 400;
 
-  // { key, chapter, layout, uri, effective, article, layer, items: [{id,node}],
-  //   fitStyle, rowStyle, ro, mo, watch, raf, geo }
+  // { key, chapter, layout, uri, anchor, effective, article, layer,
+  //   items: [{id,node}], fitStyle, rowStyle, ro, mo, watch, raf, geo }
   let s = null;
 
   function currentKey() { return s ? s.key : null; }
@@ -183,7 +185,7 @@
 
   function show(opts) {
     if (s && s.key === opts.key) return;
-    hide();
+    hide({ anchor: opts.anchor });
     s = Object.assign({}, opts, { effective: null, collapseFits: false, article: null, items: [] });
     s.watch = setInterval(watch, WATCH_MS);
     watch();
@@ -195,13 +197,23 @@
   function hide(opts) {
     if (!s) return;
     const anchor = opts && opts.anchor;
-    const keep = anchor && s.article && s.article.contains(anchor) ? anchor.getBoundingClientRect().top : null;
+    const keep = topIn(s.article, anchor);
     clearInterval(s.watch);
     if (s.raf) cancelAnimationFrame(s.raf);
     unmount();
     s = null;
-    if (keep === null || !anchor.isConnected) return;
-    const shift = anchor.getBoundingClientRect().top - keep;
+    keepAt(anchor, keep);
+  }
+
+  // Where `anchor` sits on screen now, if it is an element of `article`, else
+  // null; keepAt puts it back there after a reflow by scrolling the page.
+  function topIn(article, anchor) {
+    return anchor && article && article.contains(anchor) ? anchor.getBoundingClientRect().top : null;
+  }
+
+  function keepAt(anchor, top) {
+    if (top === null || !anchor.isConnected) return;
+    const shift = anchor.getBoundingClientRect().top - top;
     if (Math.abs(shift) >= 1) window.scrollBy({ top: shift, behavior: 'instant' });
   }
 
@@ -227,7 +239,12 @@
     return { left: r.left, width: r.width, areaLeft: area.left, areaRight: area.right };
   }
 
+  // The first mount keeps show's `anchor` where it was; a re-mount is the
+  // site's new article, with nothing of the old one to keep.
   function mount(article) {
+    const anchor = s.anchor;
+    s.anchor = null;
+    const keep = topIn(article, anchor);
     s.article = article;
     s.fitStyle = style();
     s.rowStyle = style();
@@ -255,6 +272,7 @@
     });
     s.mo.observe(article, { childList: true, subtree: true, characterData: true });
     refresh();
+    keepAt(anchor, keep);
   }
 
   function unmount() {

@@ -1401,7 +1401,10 @@
   // asked to see.
   function scrollIntoView(target, opts) {
     const o = opts || {};
-    ++placement; // this reveal is where the view goes, not a pending placement
+    // This reveal is where the mounted view goes, not a pending placement. (A
+    // stale view's reveal, aimed into a container already swapped out, leaves
+    // the mounted view's placement alone.)
+    if (ui && target && ui.body.contains(target)) ++placement;
     afterFrames(o.frames || 0, () => {
       if (!ui || !target || !ui.body.contains(target)) return;
       const delta = target.getBoundingClientRect().top - ui.body.getBoundingClientRect().top;

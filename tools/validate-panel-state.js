@@ -807,12 +807,16 @@ check(/onOpenTalk: \(entry\) => openTalk\(entry, \{ fresh: true \}\)/.test(conte
   'a click on a citation row is a fresh open: its key is numbered, so it builds, reveals the cite and focuses Back');
 // The verse being read is read from the chapter being rendered only: right
 // after an in-app navigation the site still shows the previous article.
-const readingSrc = (contentSrc.match(/function readingParagraph\(\) \{[\s\S]*?\n {2}\}\n/) || [''])[0];
-check(/getAttribute\('data-uri'\) !== churchText\.chapterUri\(current\)/.test(readingSrc),
-  'readingParagraph ignores an article that is not the chapter being rendered');
+const articleSrc = (contentSrc.match(/function chapterArticle\(\) \{[\s\S]*?\n {2}\}\n/) || [''])[0];
+check(/getAttribute\('data-uri'\) !== churchText\.chapterUri\(current\)/.test(articleSrc),
+  'chapterArticle ignores an article that is not the chapter being rendered');
+for (const fn of ['readingParagraph', 'splitAnchor']) {
+  const src = (contentSrc.match(new RegExp(`function ${fn}\\(\\) \\{[\\s\\S]*?\\n {2}\\}\\n`)) || [''])[0];
+  check(/const article = chapterArticle\(\);/.test(src), `${fn} reads only the chapter being rendered`);
+}
 // ...and read before the split goes, which reflows the page.
-check(/const paragraph = readingParagraph\(\);\s*syncSplit\(\{ anchor: paragraph \}\)/.test(contentSrc),
-  'Citations reads the verse being read before the split is taken away, and keeps it in place');
+check(/const paragraph = readingParagraph\(\);\s*syncSplit\(\{ anchor: splitAnchor\(\) \}\)/.test(contentSrc),
+  'Citations reads the verse being read before the split is taken away, which keeps the paragraph on screen in place');
 check(/typeof citPanel\.revealVerse === 'function'/.test(contentSrc), 'citPanel.revealVerse is called only where it exists');
 // The retry rule is the panel's pure retryWait, not a copy of it here.
 check(/panel\.retryWait\(error, retries\.n\)/.test(contentSrc) && !/MAX_WAIT_MS/.test(contentSrc),

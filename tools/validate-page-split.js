@@ -103,7 +103,6 @@ check(P.rowRules(rows, 'columns', false).split('\n').every((l) => l.startsWith('
 eq(P.cssId('p1.2'), 'article#main [id="p1.2"]', 'merged-verse ids (Turkish p1.2) stay one attribute selector');
 eq(P.cssId('a"b'), 'article#main [id="a\\"b"]', 'a quote in an id cannot break out of the selector');
 
-// ---- Wiring (greps: the DOM half can't run here) ----
 // ---- moved ----
 // The site moves the reading column without resizing anything the observers
 // watch (a footnote opening slides it left; the drawer closing widens the room
@@ -120,6 +119,7 @@ eq(P.moved(null, fitted), true, 'never fitted: fit');
 eq(P.moved(fitted, null), true, 'the column is gone: fit (it finds nothing and stays interlinear)');
 eq(P.moved(null, null), false, 'no column before or now');
 
+// ---- Wiring (greps: the DOM half can't run here) ----
 console.log('Wiring (ADR-0007):');
 const src = fs.readFileSync(path.join(ROOT, 'src/content/page-split.js'), 'utf8').replace(/\r\n/g, '\n');
 const shell = src.slice(src.indexOf('// ---- DOM shell'));
@@ -149,8 +149,17 @@ check(/pageSplit\.wantsSplit\(/.test(content), 'the orchestrator asks the pure r
 check(/\+\+splitToken;\s*pageSplit\.hide\(\);/.test(content), 'a new chapter drops the split before anything else');
 check(/if \(moved\(s\.geo, geometry\(\)\)\) schedule\(\);/.test(shell) && /layout\(\);\s*s\.geo = geometry\(\);/.test(shell),
   'the watch refits when the column moved since the last fit, measured after the fit\'s own writes');
-check(/const keep = anchor && s\.article && s\.article\.contains\(anchor\)[\s\S]*?unmount\(\);[\s\S]*?window\.scrollBy\(/.test(shell),
-  'hiding keeps the anchor verse in place: measured before the reflow, the page scrolled by its shift after');
+// The reader's place survives the split coming and going: the anchor is
+// measured before the reflow and the page scrolled by its shift after.
+check(/const keep = topIn\(s\.article, anchor\);[\s\S]*?unmount\(\);[\s\S]*?keepAt\(anchor, keep\);/.test(shell),
+  'hiding keeps the anchor in place across the unmount');
+check(/const keep = topIn\(article, anchor\);[\s\S]*?refresh\(\);\s*keepAt\(anchor, keep\);/.test(shell),
+  "the first mount keeps show's anchor in place across its first layout");
+check(/s\.anchor = null;/.test(shell), '...once: a re-mount is the site\'s new article');
+check(/hide\(\{ anchor: opts\.anchor \}\);/.test(shell), 'a split replaced by another key keeps the anchor through its removal too');
+check(/function keepAt\(anchor, top\) \{[\s\S]*?window\.scrollBy\(/.test(shell), 'keepAt scrolls the page by the shift');
+check(/anchor,\s*\n\s*\/\/ What actually fits/.test(content) && /syncSplit\(\{ anchor: splitAnchor\(\) \}\)/.test(content),
+  'the orchestrator hands the split the paragraph at the top of the screen when it shows it');
 
 if (failures) {
   console.error(`\n${failures} check(s) failed.`);
