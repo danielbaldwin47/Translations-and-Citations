@@ -103,6 +103,14 @@ eq(F.mergeVersions([NIV, KJV], [bare(NIV), KJV, NKJV]), [NIV, KJV, NKJV],
 eq(F.mergeVersions([], [bare(NIV)]), [bare(NIV)], 'nothing known: the refresh as it came');
 eq(F.mergeVersions([NIV], undefined), [], 'no refresh rows: no rows');
 
+// ---- listGuesses: a partial answer guesses only where it still must ----
+console.log('listGuesses:');
+check(F.listGuesses([bare(NIV), KJV], true), 'a partial list with a row still bare has to guess');
+check(!F.listGuesses(F.mergeVersions([NIV, KJV], [bare(NIV), KJV]), true),
+  'a partial recheck of a known list: every copyright is back, nothing is a guess (rows stay in their groups)');
+check(!F.listGuesses([bare(NIV)], false), 'a full list never guesses, bare rows and all (they are simply free)');
+check(!F.listGuesses([], true), 'no rows, no guess');
+
 // ---- withStored: a cached list never hides a stored version ----
 console.log('withStored:');
 eq(ids(F.withStored([NIV, NKJV], [NIV, { id: 'nasb', abbr: 'NASB', name: 'NASB' }])), ['niv', 'nkjv', 'nasb'],
@@ -204,7 +212,10 @@ eq(kc({ partial: true }), { connect: true, recheck: true }, 'the connected key w
 eq(kc({ field: 'k2' }), { connect: true, recheck: false }, 'another key in the field: Connect');
 eq(kc({ storedKey: '' , keyState: 'none' }), { connect: true, recheck: false }, 'a first key: Connect');
 eq(kc({ field: '' }), { connect: false, recheck: false }, 'an empty field: nothing to connect');
-eq(kc({ keyState: 'checking' }), { connect: false, recheck: false }, 'while checking: neither');
+eq(kc({ keyState: 'checking' }), { connect: false, recheck: false }, 'while checking a key with nothing listed yet: neither');
+eq(kc({ keyState: 'checking', listed: true }), { connect: false, recheck: true },
+  'while the connected key\'s list is rechecked: "Check for new translations" stays (a keyboard reader on it keeps focus)');
+eq(kc({ field: 'k2', keyState: 'checking', listed: true }), { connect: false, recheck: false }, 'while another key is checked: neither');
 eq(kc({ field: 'k1', keyState: 'error' }), { connect: true, recheck: false }, 'the stored key after an error: Connect retries it');
 
 // ---- fillPlan: what an incoming change is allowed to repaint ----
@@ -320,7 +331,7 @@ eq(['jpn', 'zhs', 'zho', 'yue', 'kor'].map((c) => lang(c).tag), ['ja', 'zh-Hans'
 console.log('Shell:');
 eq(Object.keys(F).sort(), [
   'commitPatch', 'connectedText', 'dedupeVersions', 'failedWrites', 'fillPlan', 'groupCount', 'initialChecks', 'isAdded',
-  'keyControls', 'keyErrorText', 'languageGroups', 'matchesLanguage', 'mergeVersions', 'moreLabel', 'offeredLanguages',
+  'keyControls', 'keyErrorText', 'languageGroups', 'listGuesses', 'matchesLanguage', 'mergeVersions', 'moreLabel', 'offeredLanguages',
   'patchLanded', 'pickDefaultId', 'stableGroups', 'translationPatch', 'versionGroups', 'versionLabel', 'withStored',
   'yoursNote',
 ].sort(), 'requiring the page in Node exposes the pure core and nothing else');
@@ -372,12 +383,20 @@ check(/type: C\.MSG\.LIST_BIBLES, key, refresh: !!explicit/.test(bodyOf('connect
   'Connect fetches the list afresh; an automatic try may take the cache');
 check(/await write\(partial, \['apiKey'\][\s\S]*\n {4}updateConnect\(\);/.test(bodyOf('connect')),
   'once a connect saves its key, Connect rests and "Check for new translations" shows');
+check((bodyOf('connect').match(/settleKeyFocus\(from\)/g) || []).length === 2 && /const from = document\.activeElement/.test(bodyOf('connect')),
+  'a connect that disables the button pressed puts keyboard focus back on the key row, on success and on error');
+check(/listed: versionsLoaded/.test(bodyOf('updateConnect')), '"Check for new translations" knows whether a list is on screen');
 check(/if \(!els\.connectKey\.disabled\) connect\(true\)/.test(shell), 'Enter in the key field rests with Connect (no refetch of the connected key)');
 check(/keyControls\(/.test(bodyOf('updateConnect')) && /els\.recheckKey\.hidden = !c\.recheck/.test(bodyOf('updateConnect')),
   'Connect and "Check for new translations" follow keyControls');
-check(/recheckKey\.addEventListener\('click', \(\) => connect\(true\)\)/.test(shell) && /id="recheckKey"[^>]*>Check for new translations</.test(html),
+check(/recheckKey\.addEventListener\('click', \(\) => \{ if \(keyState !== 'checking'\) connect\(true\); \}\)/.test(shell) && /id="recheckKey"[^>]*>Check for new translations</.test(html),
   '"Check for new translations" is the explicit refresh');
 check(/stableGroups\(shown, available/.test(bodyOf('renderTranslations')), 'a redraw keeps rows where they were (stableGroups)');
+check(/available = stored \? mergeVersions\(available, res\.bibles\)/.test(bodyOf('connect'))
+  && /listPartial = listGuesses\(available, res\.partial\)/.test(bodyOf('connect')),
+  'rechecking the stored key keeps the copyrights on screen, so failed lookups don\'t move known rows');
+check(/listPartial = listGuesses\(merged, res\.partial\)/.test(bodyOf('refreshList')),
+  'a refresh on open guesses only where the cached list can\'t fill a copyright');
 check(/anyAge: true/.test(bodyOf('cachedList')) && /const cached = await cachedList\(\);[\s\S]*showStoredList\(cached\);\s*fillForm\(\);/.test(bodyOf('init')),
   'the first fill draws the stored rows plus the worker\'s cached list, however old');
 check(/fillForm\(\);[\s\S]*reveal\(\);[\s\S]*listRefresh = refreshList\(\)/.test(bodyOf('init')) && /init\(\)\.finally\(reveal\)/.test(shell)
@@ -527,6 +546,8 @@ check(/groupCount\(g\.group, filtering \? n : null\)/.test(bodyOf('applyLanguage
 check(/aria-labelledby', summary\.id/.test(bodyOf('buildLanguageList')) && /aria-labelledby="moreSummary"/.test(html),
   'every <details> group is named by its summary');
 check(/\.summary-count \{ white-space: nowrap; \}/.test(css), 'a wrapping group label keeps "· 69 languages" on one line');
+check(/el\('span', 'summary-text', `\$\{group\.label\}\\u00a0`\)/.test(bodyOf('buildLanguageList')),
+  'the label\'s last word joins its count with a no-break space, so a wrapped line never starts with the dot');
 check(/span\.lang = lang\.tag/.test(bodyOf('nativeName')) && /span\.dir = 'auto'/.test(bodyOf('nativeName')),
   'native language names are tagged with their language and direction');
 

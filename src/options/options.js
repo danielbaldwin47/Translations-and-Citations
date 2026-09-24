@@ -26,7 +26,9 @@
  * refresh that follows only moves checkmarks or adds rows at the end of
  * "more" (stableGroups). The worker's rows carry copyrights, which decide
  * "yours" vs "more"; the stored rows are slim and simply count as on. A
- * `partial` list (a copyright lookup failed) groups by a guess and says so.
+ * `partial` list (a copyright lookup failed) takes back the copyrights the
+ * screen already had; only a row still missing one makes the grouping a
+ * guess, which the page says (listGuesses).
  *
  * Deep links: the worker parks a section in chrome.storage.session under
  * C.OPTIONS_FOCUS_KEY; the page takes (reads and clears) it on load and
@@ -113,6 +115,13 @@
     return (fresh || []).map((r) => (!r.copyright && known.has(r.id) ? Object.assign({}, r, { copyright: known.get(r.id) }) : r));
   }
 
+  // Does grouping this list have to guess? Only a `partial` answer can, and
+  // only for a row still missing its copyright once mergeVersions has put
+  // back the ones the screen knew.
+  function listGuesses(list, partial) {
+    return !!partial && (list || []).some((r) => r && !r.copyright);
+  }
+
   // A list from the worker's cache can predate a version the reader turned on
   // elsewhere; the stored rows ride along so the form still shows them on.
   function withStored(list, stored) {
@@ -189,12 +198,14 @@
   // while the field holds the key already connected (a refresh costs ~39
   // api.bible calls) unless that key's list came back `partial`, which the
   // page asks the reader to retry. "Check for new translations" is the
-  // deliberate refresh of a connected key.
-  function keyControls({ field, storedKey, keyState, partial }) {
-    const connected = !!field && field === storedKey && keyState === 'connected';
+  // deliberate refresh of a connected key, and stays put while that key's
+  // listed versions (`listed`) are rechecked, so the focus on it isn't lost.
+  function keyControls({ field, storedKey, keyState, partial, listed }) {
+    const storedField = !!field && field === storedKey;
+    const connected = storedField && keyState === 'connected';
     return {
       connect: !!field && keyState !== 'checking' && !(connected && !partial),
-      recheck: connected,
+      recheck: connected || (storedField && keyState === 'checking' && !!listed),
     };
   }
 
@@ -321,7 +332,7 @@
 
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = {
-      isAdded, dedupeVersions, versionGroups, stableGroups, mergeVersions, withStored, initialChecks, pickDefaultId,
+      isAdded, dedupeVersions, versionGroups, stableGroups, mergeVersions, listGuesses, withStored, initialChecks, pickDefaultId,
       translationPatch, commitPatch, patchLanded, failedWrites, fillPlan, keyControls,
       versionLabel, moreLabel, connectedText, yoursNote, keyErrorText,
       offeredLanguages, languageGroups, groupCount, matchesLanguage,
@@ -588,7 +599,9 @@
   }
 
   function updateConnect() {
-    const c = keyControls({ field: els.apiKey.value.trim(), storedKey: settings.apiKey, keyState, partial: listPartial });
+    const c = keyControls({
+      field: els.apiKey.value.trim(), storedKey: settings.apiKey, keyState, partial: listPartial, listed: versionsLoaded,
+    });
     els.connectKey.disabled = !c.connect;
     els.recheckKey.hidden = !c.recheck;
   }
@@ -631,8 +644,9 @@
     const wanted = versionsLoaded ? els.defaultTranslation.value : settings.defaultTranslationId;
     // Rows already drawn keep their groups; only a list drawn from scratch
     // is grouped from this answer, and only then can its guesses show.
-    if (!shown || !(shown.yours.length + shown.more.length)) listPartial = !!res.partial;
-    available = withStored(mergeVersions(available, res.bibles), settings.enabledTranslations);
+    const merged = mergeVersions(available, res.bibles);
+    if (!shown || !(shown.yours.length + shown.more.length)) listPartial = listGuesses(merged, res.partial);
+    available = withStored(merged, settings.enabledTranslations);
     versionsLoaded = true;
     keyState = 'connected';
     renderTranslations(onIds, wanted);
@@ -646,6 +660,7 @@
     clearTimeout(connectTimer);
     const key = els.apiKey.value.trim();
     if (!key) return;
+    const from = document.activeElement;
     lastTried = key;
     const seq = ++connectSeq;
     keyState = 'checking';
@@ -668,12 +683,16 @@
       }
       setKeyStatus(keyErrorText(res.error), 'error');
       updateConnect();
+      settleKeyFocus(from);
       return;
     }
 
-    available = res.bibles || [];
+    // The stored key's list keeps the copyrights already on screen, so a
+    // recheck whose lookups fail doesn't turn known rows into guesses (and
+    // move them). A new key's list is all it has.
+    available = stored ? mergeVersions(available, res.bibles) : (res.bibles || []);
     versionsLoaded = true;
-    listPartial = !!res.partial;
+    listPartial = listGuesses(available, res.partial);
     shown = null; // a new list, or one the reader asked for: grouped afresh
     keyState = 'connected';
     renderTranslations(initialChecks(available, settings.enabledTranslations, !stored, listPartial), settings.defaultTranslationId);
@@ -682,6 +701,21 @@
     if (SETTINGS.diff(settings, Object.assign({}, settings, partial)).length) await write(partial, ['apiKey'].concat(LIST_KEYS));
     else dirty.delete('apiKey');
     updateConnect(); // the key is the stored one now: Connect rests
+    settleKeyFocus(from);
+  }
+
+  // Connect rests while a list is fetched and once its key is connected, and
+  // a disabled button drops focus to the page. A keyboard reader who pressed
+  // Connect or "Check for new translations" lands back on it, else on
+  // whichever of the two can take focus, else the key field; focus they
+  // moved elsewhere meanwhile stays theirs.
+  function settleKeyFocus(from) {
+    if (from !== els.connectKey && from !== els.recheckKey) return;
+    const now = document.activeElement;
+    if (now && now !== document.body && now !== from) return;
+    const usable = (b) => !b.disabled && !b.hidden;
+    const to = [from, els.connectKey, els.recheckKey].find(usable) || els.apiKey;
+    if (to !== now) to.focus();
   }
 
   function scheduleConnect() {
@@ -716,7 +750,9 @@
   const groupOf = new Map(); // <details> -> { group, count }
 
   // Each group is a <details> named by its summary ("Bible · 1 language").
-  // A long label wraps; its count stays on one line with its dot.
+  // A long label wraps; its count stays on one line with its dot, and the
+  // label's last word goes with them (a no-break space), so no line starts
+  // with the dot.
   function buildLanguageList() {
     languageGroups(offeredLanguages(C.CHURCH_LANGUAGES)).forEach((group, i) => {
       const details = el('details', 'lang-group');
@@ -724,7 +760,7 @@
       const summary = el('summary');
       summary.id = `langGroup${i}`;
       details.setAttribute('aria-labelledby', summary.id);
-      const text = el('span', 'summary-text', `${group.label} `);
+      const text = el('span', 'summary-text', `${group.label}\u00a0`);
       const count = el('span', 'summary-count', `· ${groupCount(group)}`);
       text.appendChild(count);
       summary.appendChild(text);
@@ -1004,7 +1040,8 @@
       if (!els.connectKey.disabled) connect(true);
     });
     els.connectKey.addEventListener('click', () => connect(true));
-    els.recheckKey.addEventListener('click', () => connect(true));
+    // Shown (so it keeps focus) while its own recheck runs: a second press waits.
+    els.recheckKey.addEventListener('click', () => { if (keyState !== 'checking') connect(true); });
     els.toggleKey.addEventListener('click', () => {
       const show = els.apiKey.type === 'password';
       els.apiKey.type = show ? 'text' : 'password';
