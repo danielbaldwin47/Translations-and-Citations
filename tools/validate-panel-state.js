@@ -696,6 +696,17 @@ check(/const key = `\$\{citKey\(parsed\)\}::\$\{view\}`;/.test(contentSrc),
   'the citations key is chapter + layout only (the reading verse only marks a re-mounted list)');
 check(/typeof citPanel\.refocus === 'function'/.test(contentSrc) && /typeof citPanel\.markVerse === 'function'/.test(contentSrc),
   'the citation list hooks are called only where they exist');
+// The beside card claims the text is on the page, so whatever shows it asks
+// for the split too: after a Try again the split's own earlier load may have
+// failed.
+const churchSrc = (contentSrc.match(/async function loadChurchChapter\([^)]*\) \{[\s\S]*?\n {2}\}\n/) || [''])[0];
+check(/if \(layout !== 'panel'\) \{[\s\S]*?syncSplit\(\);[\s\S]*?kind: 'beside'/.test(churchSrc),
+  'the beside card is never shown without asking for the page split');
+// A pick made before the stored picks were read is written after them, not
+// over them (the setup card can add a language on a tab that never read them).
+const rememberSrc = (contentSrc.match(/function remember\(id\) \{[\s\S]*?\n {2}\}\n/) || [''])[0];
+check(/loadSelection\(\)\.then\([\s\S]*?storage\.local\.set/.test(rememberSrc),
+  'a remembered pick is stored only once the older picks are merged in');
 
 if (failures) {
   console.error(`\n${failures} check(s) failed.`);

@@ -339,7 +339,10 @@
   margin: -4px 0 8px;
 }
 
+/* The text's own font: the site styles bare h3s in its UI font. */
 #btx-root .btx-heading {
+  font-family: inherit;
+  letter-spacing: normal;
   font-size: 0.95em;
   font-weight: 700;
   margin: 1.1em 0 0.4em;
@@ -415,6 +418,8 @@
 }
 #btx-root .btx-card-title {
   margin: 0;
+  font-family: inherit;         /* the setup card's is an h2, which the site styles */
+  letter-spacing: normal;
   font-size: 16px;
   font-weight: 600;
   line-height: 1.35;

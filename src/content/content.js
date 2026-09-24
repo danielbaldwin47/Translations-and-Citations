@@ -58,7 +58,7 @@
   // pick shows the newest one it does, or a fallback, and rewrites nothing —
   // see pickText.
   let mru = [];
-  let selectionLoaded = false;
+  let selectionRead = null; // the stored list, merged in once (loadSelection)
   let texts = []; // the rows the current chapter offers (textsFor)
   let activeId = null; // the row showing now (pickText)
   let splitToken = 0; // guards the page split against stale chapter loads
@@ -152,9 +152,24 @@
     return forceShow || e.actOnNonEngOnly === false || parsed.lang === 'eng';
   }
 
+  // Merge the stored list in behind any pick made before it was read, once.
+  function loadSelection() {
+    if (!selectionRead) {
+      selectionRead = getStored(SELECTION_KEY).then((stored) => {
+        mru = churchText.mruFrom(mru.concat(churchText.mruFrom(stored)));
+      });
+    }
+    return selectionRead;
+  }
+
+  // The pick counts at once; the write waits for the stored list, so a pick
+  // made before anything was read (the setup card, on a tab that opened in
+  // Citations) doesn't replace the reader's older picks.
   function remember(id) {
     mru = churchText.rememberPick(mru, id);
-    try { chrome.storage.local.set({ [SELECTION_KEY]: mru }); } catch (e) { /* ignore */ }
+    loadSelection().then(() => {
+      try { chrome.storage.local.set({ [SELECTION_KEY]: mru }); } catch (e) { /* ignore */ }
+    });
   }
 
   async function render() {
@@ -294,11 +309,7 @@
         });
       } });
     }
-    if (!selectionLoaded) {
-      // A pick made while this was loading is newer than anything stored.
-      mru = churchText.mruFrom(mru.concat(churchText.mruFrom(await getStored(SELECTION_KEY))));
-      selectionLoaded = true;
-    }
+    await loadSelection();
     activeId = churchText.pickText(list, mru.concat(e.defaultId));
     panel.populateTranslations(churchText.menuFor(list), activeId);
     syncSplit();
@@ -470,6 +481,10 @@
     }
     const layout = placement();
     if (layout !== 'panel') {
+      // The split's own load may have failed where this one (a Try again)
+      // worked: ask for it again, or the card would say the text is on the
+      // page when it isn't. A no-op while it is showing.
+      syncSplit();
       const fit = pageSplit.currentKey() === splitKey(parsed, tr, layout) ? pageSplit.currentLayout() : null;
       panel.showTranslation(Object.assign({ kind: 'beside', name: nameOf(tr), layout }, fit));
       return;

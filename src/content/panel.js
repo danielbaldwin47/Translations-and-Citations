@@ -1239,9 +1239,11 @@
   // layout control and the page split can restate it in place (updateBeside)
   // without rebuilding it under a keyboard user's focus.
   let beside = null;
-  // A layout pick made from the keyboard moves the text between the page and
-  // the panel, which rebuilds the view; the control that brings it back gets
-  // focus in the rebuilt one, so focus never falls out of the panel.
+  // A keyboard pick that rebuilds the view — a layout moving the text between
+  // the page and the panel, or a language added from the setup card — would
+  // drop focus out of the panel with the control it was on. The rebuilt view's
+  // layout control (the beside card's pressed choice, or the panel text's
+  // "Show beside the chapter") takes it instead.
   let refocusLayout = false;
 
   function pickLayout(value) {
@@ -1316,6 +1318,7 @@
       }
       select.addEventListener('change', () => {
         if (!select.value) return;
+        refocusLayout = document.activeElement === select; // read before disabling drops it
         select.disabled = true; // one pick; the chapter re-renders with it
         cbs.onAddLanguage && cbs.onAddLanguage(select.value);
       });
@@ -1329,7 +1332,13 @@
       block.appendChild(button('btx-btn-outline', copy.bible.button, () => cbs.onGear && cbs.onGear('bible')));
       card.appendChild(block);
     }
-    card.appendChild(button('btx-link', copy.talks, () => onModeClick('citations')));
+    // The card goes with the mode; focus lands on the mode it switched to.
+    const talks = button('btx-link', copy.talks, () => {
+      const hadFocus = document.activeElement === talks;
+      onModeClick('citations');
+      if (hadFocus) ui.modeCitations.focus();
+    });
+    card.appendChild(talks);
     host.appendChild(card);
   }
 
