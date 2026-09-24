@@ -56,7 +56,7 @@
     omni: 'Omni', 'w-of-m': 'Words of Mormon', mosiah: 'Mosiah', alma: 'Alma', hel: 'Helaman',
     '3-ne': '3 Nephi', '4-ne': '4 Nephi', morm: 'Mormon', ether: 'Ether', moro: 'Moroni',
   };
-  const DC_NAMES = { dc: 'Doctrine & Covenants', od: 'Official Declarations' };
+  const DC_NAMES = { dc: 'Doctrine & Covenants', od: 'Official Declaration' };
   const PGP_NAMES = {
     moses: 'Moses', abr: 'Abraham', 'js-m': 'Joseph Smith—Matthew',
     'js-h': 'Joseph Smith—History', 'a-of-f': 'Articles of Faith',

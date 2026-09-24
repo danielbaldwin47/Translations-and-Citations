@@ -2,6 +2,15 @@
  * Network layer. All fetches happen here, in the service worker, where
  * host_permissions let us call the APIs without content-script CORS problems.
  *
+ *   listBibles(key)                      -> { bibles: [{ id, name, abbr, description, copyright, provider }] } | { error }
+ *   fetchApiBibleChapter(key, id, chap)  -> { payload: { blocks, copyright, reference }, fums } | { error }
+ *   fetchBibleApiChapter(id, book, chap) -> { payload } | { error }
+ *
+ * Errors are { error: { code, message } } with a code from C.ERR. api.bible
+ * answers both a wrong key and a version the key isn't licensed for with 403,
+ * so `errorFor` reads the body: "Invalid API key" is INVALID_KEY (as is 401,
+ * a missing key); any other 403 is FORBIDDEN.
+ *
  * Both providers are normalized to one simple, safe intermediate representation
  * (IR) that the content script renders with text nodes only (no innerHTML):
  *
@@ -34,14 +43,15 @@
     } catch (e) {
       return err(ERR.NETWORK, String(e));
     }
-    if (res.status === 401) return err(ERR.INVALID_KEY, 'Invalid API key');
-    if (res.status === 403) return err(ERR.FORBIDDEN);
-    if (!res.ok) return err(ERR.UNKNOWN, `HTTP ${res.status}`);
+    if (!res.ok) return errorFor(res);
     const json = await res.json();
     const bibles = (json.data || []).map((b) => ({
       id: b.id,
       name: b.name,
       abbr: b.abbreviationLocal || b.abbreviation || '',
+      // api.bible's edition note ('Protestant', 'Catholic', …): the only thing
+      // that tells apart rows sharing an abbreviation and name.
+      description: b.description || '',
       copyright: b.copyrightStatement || b.copyright || '',
       provider: C.PROVIDER_APIBIBLE,
     }));
@@ -78,7 +88,19 @@
     await Promise.all(workers);
   }
 
-  // ---- Map HTTP status -> error code ----
+  // ---- Map a failed response -> error ----
+  // api.bible: see the header for why the body decides between INVALID_KEY
+  // and FORBIDDEN.
+  async function errorFor(res) {
+    const status = res.status;
+    if (status === 403) {
+      const body = await res.json().catch(() => ({}));
+      const invalid = /invalid api key/i.test((body && body.message) || '');
+      return err(invalid ? ERR.INVALID_KEY : ERR.FORBIDDEN, `HTTP ${status}`);
+    }
+    return err(statusToErr(status), `HTTP ${status}`);
+  }
+
   function statusToErr(status) {
     if (status === 401) return ERR.INVALID_KEY;
     if (status === 403) return ERR.FORBIDDEN;
@@ -105,7 +127,7 @@
     } catch (e) {
       return err(ERR.NETWORK, String(e));
     }
-    if (!res.ok) return err(statusToErr(res.status), `HTTP ${res.status}`);
+    if (!res.ok) return errorFor(res);
     const json = await res.json();
     const data = json.data || {};
     const meta = json.meta || {};
