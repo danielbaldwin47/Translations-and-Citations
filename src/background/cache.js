@@ -2,9 +2,18 @@
  * Chapter + bibles-list cache backed by chrome.storage.local.
  * Loaded into the service worker via importScripts -> attaches to self.__BTX.cache.
  *
+ *   getChapter(provider, bibleId, chapterId) / setChapter(…, payload)
+ *   getBibles(key) / setBibles(bibles, key) / dropBibles()
+ *
  * Chapters are static text, so they get a long TTL; the cache mainly exists to
  * relieve the api.bible rate limits and make re-navigation instant. An index of
  * { key, ts } records enables simple LRU eviction when the entry count grows.
+ *
+ * The bibles list has one slot, stamped with a fingerprint of the api.bible key
+ * it came from: a list is only ever handed back for the same key. The
+ * fingerprint is a hash, so the key itself is stored only in settings. A key
+ * api.bible has since rejected (regenerated, revoked) still fingerprints the
+ * same, so the worker drops the slot when that happens.
  */
 (function (root) {
   'use strict';
@@ -81,16 +90,31 @@
     }
   }
 
-  async function getBibles() {
+  // FNV-1a over the key, plus its length: an identity check, not a secret.
+  function keyPrint(key) {
+    const s = String(key || '');
+    let h = 0x811c9dc5;
+    for (let i = 0; i < s.length; i++) {
+      h ^= s.charCodeAt(i);
+      h = Math.imul(h, 0x01000193);
+    }
+    return (h >>> 0).toString(36) + '.' + s.length;
+  }
+
+  async function getBibles(key) {
     const data = await localGet(C.BIBLES_CACHE_KEY);
     const entry = data[C.BIBLES_CACHE_KEY];
     if (!entry || typeof entry !== 'object') return null;
+    if (entry.keyPrint !== keyPrint(key)) return null;
     if (Date.now() - entry.ts > C.BIBLES_TTL_MS) return null;
     return entry.bibles;
   }
-  async function setBibles(bibles) {
-    await localSet({ [C.BIBLES_CACHE_KEY]: { bibles, ts: Date.now() } });
+  async function setBibles(bibles, key) {
+    await localSet({ [C.BIBLES_CACHE_KEY]: { bibles, keyPrint: keyPrint(key), ts: Date.now() } });
+  }
+  async function dropBibles() {
+    await localRemove(C.BIBLES_CACHE_KEY);
   }
 
-  root.__BTX.cache = { getChapter, setChapter, getBibles, setBibles };
+  root.__BTX.cache = { getChapter, setChapter, getBibles, setBibles, dropBibles };
 })(self);

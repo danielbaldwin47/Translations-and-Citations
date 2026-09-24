@@ -2,6 +2,24 @@
  * Background service worker: message router between content scripts / options
  * page and the network + cache + rate-limit layers.
  *
+ * Messages (C.MSG):
+ *   GET_ENABLED_TRANSLATIONS -> what the panel may offer (translations, Church
+ *                               languages, default, hasKey, …)
+ *   GET_CHAPTER              -> one chapter as IR, cache first, rate-limited;
+ *                               a rejected key also drops the cached version list
+ *   LIST_BIBLES { key?, refresh? }
+ *                            -> the versions on a key (default: the stored one).
+ *                               Served from the cache when it holds that key's
+ *                               list; `refresh` skips the cache (the options
+ *                               page's explicit Connect).
+ *   OPEN_OPTIONS { section? } -> opens (or focuses) the options page; a section
+ *                               from C.OPTIONS_SECTIONS is parked in
+ *                               chrome.storage.session for the page to scroll to.
+ *
+ * Browser events: the toolbar icon sends TOGGLE_PANEL to the tab, and opens
+ * the options page on a tab without our content script; a fresh install opens
+ * the options page.
+ *
  * Classic (non-module) worker so a single IIFE authoring style works everywhere;
  * dependencies are pulled in with importScripts in dependency order.
  */
@@ -40,14 +58,15 @@ async function handleGetEnabledTranslations() {
 }
 
 async function handleListBibles(msg) {
-  // Used by the options page to test a key before saving. Prefer the key from
-  // the message (the one being tested); fall back to the stored key.
+  // The options page names the key it is connecting; with none, the stored key.
   const s = await SETTINGS.get();
   const key = msg.key || s.apiKey;
-  const cached = !msg.key ? await CACHE.getBibles() : null;
-  if (cached) return { bibles: cached };
+  if (!msg.refresh) {
+    const cached = await CACHE.getBibles(key);
+    if (cached) return { bibles: cached };
+  }
   const result = await API.listBibles(key);
-  if (!result.error && result.bibles) await CACHE.setBibles(result.bibles);
+  if (!result.error && result.bibles) await CACHE.setBibles(result.bibles, key);
   return result;
 }
 
@@ -72,12 +91,25 @@ async function handleGetChapter(msg) {
     }
     result = await API.fetchApiBibleChapter(s.apiKey, bibleId, chapterId);
     await RATE.consume();
+    // The stored key stopped working: its cached version list would still tell
+    // the options page "Connected", so the page fetches afresh and says why.
+    if (result.error && result.error.code === C.ERR.INVALID_KEY) await CACHE.dropBibles();
   }
 
   if (result.error) return result;
   await CACHE.setChapter(provider, bibleId, chapterId, result.payload);
   // Forward FUMS only on a fresh fetch (cache hits return above without it).
   return Object.assign({}, result.payload, { fums: result.fums || null });
+}
+
+// openOptionsPage reuses an open options tab, which then learns the section
+// through storage.session's change event rather than a reload.
+async function openOptions(section) {
+  if (C.OPTIONS_SECTIONS.indexOf(section) >= 0) {
+    try { await chrome.storage.session.set({ [C.OPTIONS_FOCUS_KEY]: section }); } catch (e) { /* page opens at the top */ }
+  }
+  await chrome.runtime.openOptionsPage();
+  return { ok: true };
 }
 
 // ---- Message router ----
@@ -95,8 +127,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       promise = handleListBibles(msg);
       break;
     case C.MSG.OPEN_OPTIONS:
-      chrome.runtime.openOptionsPage();
-      promise = Promise.resolve({ ok: true });
+      promise = openOptions(msg.section);
       break;
     default:
       return false;
@@ -107,9 +138,21 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   return true; // async response
 });
 
-// ---- Toolbar icon toggles the panel on the active tab ----
+// ---- Toolbar icon: show or collapse the panel on this tab ----
+// A tab without our content script (another site, a Gospel Library tab opened
+// before the extension loaded) has no receiving end; the icon then opens the
+// options page, where setup lives. A content script that simply doesn't reply
+// is not that case, so only "no receiving end" counts.
 chrome.action.onClicked.addListener((tab) => {
-  if (tab && tab.id != null) {
-    chrome.tabs.sendMessage(tab.id, { type: C.MSG.TOGGLE_PANEL }).catch(() => {});
-  }
+  if (!tab || tab.id == null) return;
+  chrome.tabs.sendMessage(tab.id, { type: C.MSG.TOGGLE_PANEL }).catch((e) => {
+    if (/receiving end does not exist|could not establish connection/i.test(String(e && e.message))) {
+      chrome.runtime.openOptionsPage();
+    }
+  });
+});
+
+// ---- First install: open the options page (what works, and where to start) ----
+chrome.runtime.onInstalled.addListener((details) => {
+  if (details && details.reason === 'install') chrome.runtime.openOptionsPage();
 });
