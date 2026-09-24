@@ -242,7 +242,7 @@
   function errorState(url, onRetry) {
     const s = el('div', 'btx-state btx-talk-error');
     s.setAttribute('role', 'status');
-    s.appendChild(el('p', 'btx-state-text', "Couldn't load this talk."));
+    s.appendChild(el('p', 'btx-state-text', 'Couldn’t load this talk.'));
     if (url) s.appendChild(el('p', 'btx-state-hint', 'Check your connection and try again.'));
     const again = el('button', 'btx-cta', 'Try again');
     again.type = 'button';
