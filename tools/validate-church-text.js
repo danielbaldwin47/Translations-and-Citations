@@ -211,6 +211,9 @@ eq(ch.blocks.map((b) => b.type + ':' + (b.style || '')),
 eq(ch.blocks[2], { type: 'heading', text: 'Capítulo 5', id: 'title_number1' }, 'the title number is a heading');
 eq(ch.blocks.map((b) => b.id), ['intro1', 'study_intro1', 'title_number1', 'study_summary1', 'p1', 'p2'],
   "every block keeps its element's id — the same in every language, which is what the page split pairs on");
+eq(T.blockElements(parse(ALMA5)).map((el) => el.getAttribute('id')),
+  ['intro1', 'study_intro1', 'title_number1', 'study_summary1', 'p1', 'p2'],
+  "blockElements: the elements chapterFrom reads, in page order (the page split walks the English article with it) — the footer's notes aren't blocks");
 eq(ch.blocks[4].runs, [
   { t: 'v', n: '1' },
   { t: 'txt', s: 'Aconteció, pues, que Alma empezó a proclamar la palabra de Dios al pueblo.' },

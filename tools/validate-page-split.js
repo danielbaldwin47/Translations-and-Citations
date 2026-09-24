@@ -98,7 +98,19 @@ check(!/min-height/.test(P.rowRules(rows, 'columns', true)), 'columns, measuring
 eq(P.rowRules(rows, 'interlinear', true), '', 'interlinear, measuring: no rules at all');
 check(/\[id="p1"\] \{ margin-bottom: 147px !important; \}/.test(P.rowRules(rows, 'interlinear', false)),
   'interlinear: room under the English = its margin + the translation + a gap');
-check(P.rowRules(rows, 'columns', false).split('\n').every((l) => l.startsWith('html[data-btx-split="columns"] article#main ')),
+// An English block the translation has no block for (Japanese Daniel 1 has no
+// chapter summary) keeps to the English column instead of running across both.
+eq(P.soloIds(['title1', 'title_number1', 'study_summary1', 'p1', ''], ['title1', 'title_number1', 'p1']),
+  ['study_summary1'], 'soloIds: English blocks with no pair, in page order; id-less ones cannot be styled');
+eq(P.soloIds(['p1', 'p2'], ['p1', 'p2']), [], 'soloIds: every English block paired, none solo');
+eq(P.soloIds(['title1', 'p1'], []), ['title1', 'p1'], 'soloIds: nothing paired, every English block keeps to its column');
+check(/\[id="study_summary1"\] \{ width: calc\(50% - 14px\) !important; box-sizing: border-box !important; \}/.test(P.rowRules(rows, 'columns', false, ['study_summary1'])),
+  'columns: a solo English block gets the column width and no min-height');
+check(/\[id="study_summary1"\] \{ width/.test(P.rowRules(rows, 'columns', true, ['study_summary1'])),
+  'columns, measuring: the solo width holds while measuring too, so nothing jumps between passes');
+check(!/study_summary1/.test(P.rowRules(rows, 'interlinear', false, ['study_summary1'])),
+  'interlinear: a solo English block is left alone (no gap for a translation that is not there)');
+check(P.rowRules(rows, 'columns', false, ['study_summary1']).split('\n').every((l) => l.startsWith('html[data-btx-split="columns"] article#main ')),
   'every rule is scoped to a mounted split and to the site article');
 eq(P.cssId('p1.2'), 'article#main [id="p1.2"]', 'merged-verse ids (Turkish p1.2) stay one attribute selector');
 eq(P.cssId('a"b'), 'article#main [id="a\\"b"]', 'a quote in an id cannot break out of the selector');
@@ -151,6 +163,11 @@ check(/if \(moved\(s\.geo, geometry\(\)\)\) schedule\(\);/.test(shell) && /layou
   'the watch refits when the column moved since the last fit, measured after the fit\'s own writes');
 // The reader's place survives the split coming and going: the anchor is
 // measured before the reflow and the page scrolled by its shift after.
+check(/BLOCKS\(article\)\.filter\(\(el\) => !s\.layer\.contains\(el\)\)/.test(shell)
+  && /soloIds\(english, rows\.map\(\(row\) => row\.id\)\)/.test(shell),
+  'solo English blocks: the translation\'s block rule walks the article (its own layer excluded), minus every pair');
+check(/rowRules\(rows, s\.effective, true, solo\)/.test(shell) && /rowRules\(measured, s\.effective, false, solo\)/.test(shell),
+  '...and both passes give them the column width, so nothing jumps between measuring and placing');
 check(/const keep = topIn\(s\.article, anchor\);[\s\S]*?unmount\(\);[\s\S]*?keepAt\(anchor, keep\);/.test(shell),
   'hiding keeps the anchor in place across the unmount');
 check(/const keep = topIn\(article, anchor\);[\s\S]*?refresh\(\);\s*keepAt\(anchor, keep\);/.test(shell),
