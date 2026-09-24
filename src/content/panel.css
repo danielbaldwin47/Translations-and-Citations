@@ -28,7 +28,7 @@
      theme.js keeps owning --btx-size/--btx-line (the site's size); the two are
      composed here, so a theme re-apply and a scale change never overwrite each
      other. Body text reads --btx-body-size / --btx-body-line; panel chrome
-     (header, toggles, chips, footer) keeps its fixed px and does not scale.
+     (header, toolbar, chips, cards) keeps its fixed px and does not scale.
      --btx-line is always an absolute length (theme.js's lineHeightOf states
      even `normal` in px), so it has to scale with the text or the lines
      collide at 1.6x — a ratio would scale itself and apply the multiplier
@@ -139,11 +139,21 @@
   border-radius: 6px;
   padding: 0 6px;
 }
+#btx-root .btx-select[hidden] { display: none; }
 /* Theme the native dropdown list (otherwise it's white-on-white in dark mode). */
-#btx-root .btx-select option {
+#btx-root select option,
+#btx-root select optgroup {
   background: var(--btx-bg);
   color: var(--btx-fg);
 }
+
+/* While a card fills the body (the setup card, or the one standing in for a
+   language split into the page), the stepper has no text to size — the split
+   takes the site's own size. The setup card has no dropdown either, so its
+   toolbar goes altogether; so does a chapter no talk cites. */
+#btx-root[data-btx-card] .btx-font-step { display: none; }
+#btx-root[data-btx-card='setup'] .btx-toolbar,
+#btx-root[data-btx-mode='citations']:has(.btx-body [data-btx-cit-empty]) .btx-toolbar { display: none; }
 
 /* A quiet button (the talk reader's Back uses it too). */
 #btx-root .btx-btn {
@@ -312,10 +322,21 @@
 
 #btx-root .btx-article { font-family: var(--btx-font); }
 
-#btx-root .btx-reference {
-  font-weight: 600;
-  margin-bottom: 10px;
-  opacity: 0.85;
+/* The copyright line closes the text; UI-sized, since it isn't the text. */
+#btx-root .btx-copyright {
+  margin: 24px 0 0;
+  padding-top: 10px;
+  border-top: 1px solid var(--btx-border);
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--btx-muted);
+}
+
+/* A Church language read in the panel: the way back into the page. */
+#btx-root .btx-article-tools {
+  display: flex;
+  justify-content: flex-end;
+  margin: -4px 0 8px;
 }
 
 #btx-root .btx-heading {
@@ -343,43 +364,154 @@
 /* Japanese furigana: small, and not given the reading line's full height. */
 #btx-root rt { font-size: 0.5em; opacity: 0.8; }
 
+/* Inline and bold, like the site's own verse numbers, so verse N is easy to
+   find inside a multi-verse paragraph. (The renderer adds the space after.) */
 #btx-root .btx-vnum {
-  font-size: 0.62em;
+  font-size: 0.85em;
   font-weight: 700;
-  vertical-align: super;
-  line-height: 0;
-  color: var(--btx-accent);
-  margin-inline-end: 2px;
+  vertical-align: baseline;
+  line-height: inherit;
+  color: inherit;
+  margin: 0;
 }
 
 #btx-root .btx-wj { color: #b3261e; }
 #btx-root[data-btx-theme='dark'] .btx-wj { color: #ff8a80; }
 
-#btx-root .btx-footer {
-  flex: 0 0 auto;
-  padding: 8px 16px;
-  border-top: 1px solid var(--btx-border);
-  font-size: 11px;
-  line-height: 1.4;
-  color: var(--btx-muted);
-  max-height: 30%;
-  overflow-y: auto;
-}
-
-/* ---- States ---- */
+/* ---- States: loading, waiting, error ----
+   UI text at fixed px (the stepper sizes reading text, not messages). */
 #btx-root .btx-state {
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 12px;
+  gap: 10px;
   text-align: center;
   padding: 32px 12px;
+  font-size: 14px;
+  line-height: 1.45;
   color: var(--btx-muted);
 }
 #btx-root .btx-state-text { margin: 0; }
-#btx-root .btx-beside .btx-state-text { color: var(--btx-text); font-weight: 600; }
-#btx-root .btx-state-hint { margin: 0; font-size: 0.9em; line-height: 1.45; max-width: 30em; }
+#btx-root .btx-error .btx-state-text { color: var(--btx-fg); font-weight: 600; }
+#btx-root .btx-state-hint { margin: 0; font-size: 13px; max-width: 30em; }
+#btx-root .btx-state .btx-cta { margin-top: 4px; }
+/* A cached chapter arrives within a frame or two: the spinner only shows for
+   a load that is actually slow, so fast ones don't flash. */
+#btx-root .btx-loading { animation: btx-appear 0.15s ease-out 0.2s both; }
+@keyframes btx-appear { from { opacity: 0; } to { opacity: 1; } }
+
+/* ---- Cards: setup, beside ----
+   Left-aligned blocks at the top of the body, UI font at fixed px. */
+#btx-root .btx-card {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 12px;
+  padding: 4px 0 16px;
+  font-size: 14px;
+  line-height: 1.45;
+  color: var(--btx-fg);
+}
+#btx-root .btx-card-title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.35;
+}
+#btx-root .btx-card-block {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  padding-top: 12px;
+  border-top: 1px solid var(--btx-border);
+}
+#btx-root .btx-card-title + .btx-card-block { padding-top: 4px; border-top: 0; }
+#btx-root .btx-card-text { margin: 0; }
+#btx-root .btx-card-hint { margin: 0; font-size: 13px; color: var(--btx-muted); }
+#btx-root .btx-card [hidden] { display: none; }
+#btx-root .btx-card-select {
+  width: 100%;
+  min-width: 0;
+  height: 34px;
+  padding: 0 8px;
+  font-family: inherit;
+  font-size: 14px;
+  color: var(--btx-fg);
+  background: transparent;
+  border: 1px solid var(--btx-border);
+  border-radius: 6px;
+}
+#btx-root .btx-card-select:disabled { opacity: 0.6; }
+
+/* A secondary action: outlined in the accent. */
+#btx-root .btx-btn-outline {
+  appearance: none;
+  align-self: flex-start;
+  max-width: 100%;
+  padding: 6px 12px;
+  border: 1px solid var(--btx-accent);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--btx-accent);
+  font-family: inherit;
+  font-size: 14px;
+  line-height: 1.3;
+  text-align: start;
+  cursor: pointer;
+  transition: background 0.12s;
+}
+#btx-root .btx-btn-outline:hover { background: color-mix(in srgb, var(--btx-accent) 10%, transparent); }
+
+/* A text action that reads as a link. */
+#btx-root .btx-link {
+  appearance: none;
+  align-self: flex-start;
+  padding: 2px 0;
+  border: 0;
+  background: none;
+  color: var(--btx-accent);
+  font-family: inherit;
+  font-size: 14px;
+  line-height: 1.35;
+  text-align: start;
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+#btx-root .btx-link:hover { text-decoration-thickness: 2px; }
+#btx-root .btx-article-tools .btx-link { font-size: 13px; }
+
+/* Where a Church language shows: a segmented control whose labels may wrap
+   at the narrowest panel rather than be cut off. */
+#btx-root .btx-seg { display: flex; }
+#btx-root .btx-seg-btn {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 32px;
+  appearance: none;
+  border: 1px solid var(--btx-border);
+  background: transparent;
+  color: var(--btx-muted);
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 1.2;
+  padding: 4px 8px;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+}
+#btx-root .btx-seg-btn + .btx-seg-btn { border-left-width: 0; }
+#btx-root .btx-seg-btn:first-child { border-radius: 7px 0 0 7px; }
+#btx-root .btx-seg-btn:last-child { border-radius: 0 7px 7px 0; }
+#btx-root .btx-seg-btn:hover:not(.btx-active) { color: var(--btx-fg); background: var(--btx-border); }
+#btx-root .btx-seg-btn.btx-active {
+  color: var(--btx-accent);
+  background: color-mix(in srgb, var(--btx-accent) 12%, transparent);
+  box-shadow: inset 0 0 0 1px var(--btx-accent);
+  font-weight: 600;
+}
 
 #btx-root .btx-cta {
   appearance: none;
@@ -445,4 +577,6 @@
   }
   #btx-root .btx-panel { border-left: none; border-top: 1px solid var(--btx-border); }
   #btx-root .btx-resize { display: none; }
+  /* The sheet reserves no page width, so collapsing widens nothing. */
+  #btx-root .btx-widen { display: none; }
 }

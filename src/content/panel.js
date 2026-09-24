@@ -38,25 +38,43 @@
  *                                  declares (instant: callers reveal a target
  *                                  as part of opening a view)
  *   showTranslation(state)         render a translation-mode body state into
- *                                  the mounted view:
+ *                                  the mounted view (copy: the pure setupCopy,
+ *                                  besideCopy, errorCopy):
  *                                    { kind:'loading', label }
- *                                    { kind:'nokey' }
- *                                    { kind:'error', message, retry }
- *                                    { kind:'content', blocks, copyright, reference, lang, dir }
- *                                    { kind:'beside', label }  the text is split
- *                                      into the page instead (__BTX.pageSplit)
+ *                                    { kind:'waiting', seconds }  rate-limited;
+ *                                      counts down to the orchestrator's retry
+ *                                    { kind:'setup', chapter, bible, languages }
+ *                                      nothing offers the chapter: add a Church
+ *                                      language (`languages` [{ code, label }]),
+ *                                      set up api.bible (`bible` 'nokey' |
+ *                                      'noversions' | null), or see the talks
+ *                                    { kind:'error', code, name, chapter, church, alternatives }
+ *                                    { kind:'content', blocks, copyright, lang, dir, besideLink }
+ *                                    { kind:'beside', name, layout, effective, collapseFits }  the text
+ *                                      is split into the page (__BTX.pageSplit);
+ *                                      the card sets where it shows
  *                                  (`lang` is the text's BCP 47 tag, if it
  *                                  isn't English — CJK glyphs and hyphenation
- *                                  depend on it; `dir` 'rtl' for Arabic, …)
- *   populateTranslations(list, selectedId)
+ *                                  depend on it; `dir` 'rtl' for Arabic, …;
+ *                                  `besideLink` offers the page split back)
+ *   updateBeside({ layout, effective, collapseFits })  restate a mounted beside card in place
+ *                                  (no-op otherwise): the reader picked another
+ *                                  in-page layout, or the split fit another
+ *   populateTranslations(menu, selectedId)  the dropdown, from
+ *                                  __BTX.churchText.menuFor; hidden when empty
  *   getRootEl()
  *
- * handlers: { renderMode(mode), onTranslationChange(id), onGear, onRetry }.
+ * handlers: { renderMode(mode), onTranslationChange(id), onGear(section),
+ *   onRetry, onAddLanguage(code), onLayoutChange(layout) }.
  *   `renderMode` fires whenever the panel invalidated its own body content
  *   (mode toggle, citation-layout toggle, a synced change from another
  *   context); the orchestrator answers by rendering that mode's content.
  *   After showChapter() the orchestrator renders the current effectiveMode()
- *   itself — showChapter never fires events.
+ *   itself — showChapter never fires events. `onGear(section)` opens the
+ *   options page, at a card when `section` names one ('bible' from the setup
+ *   card and the key errors; none from the header's Settings button).
+ *   `onAddLanguage` and `onLayoutChange` are the cards' picks; the panel
+ *   writes no setting for them, the orchestrator does.
  *
  * Body scroll has exactly one owner and one writer. Each view either *owns* its
  * position (Citations, the talk reader: restored on the way back to where it
@@ -167,6 +185,88 @@
     return next === scale ? null : next;
   }
 
+  // ---- Pure translation-state copy (Node-testable) ------------------------
+  // What each Translation-mode card and error says, and which action it
+  // offers. `chapter` is the chapter as the reader names it ("Psalm 23"),
+  // `name` the text as a sentence names it ("NIV", "Spanish").
+
+  // The setup card, for a chapter no enabled text offers. `bible` is null off
+  // the Bible, else what the api.bible path is missing: 'nokey' (no key yet)
+  // or 'noversions' (none turned on).
+  function setupCopy(o) {
+    const chapter = (o && o.chapter) || 'this chapter';
+    const bible = o && o.bible;
+    return {
+      heading: `Read ${chapter} in another ${bible ? 'translation or language' : 'language'}`,
+      languages: 'Add a Church language…',
+      languagesHint: 'Published by the Church. No key needed.',
+      bible: !bible ? null : bible === 'noversions'
+        ? { text: 'No Bible translations are turned on yet.', button: 'Choose Bible translations' }
+        : { text: 'Bible translations such as NIV and NKJV need a free api.bible key.', button: 'Set up Bible translations' },
+      talks: `See the talks that cite ${chapter}`,
+    };
+  }
+
+  // The card shown while a Church language is split into the page. `layout` is
+  // the reader's setting ('columns' | 'interlinear'); `effective` is what the
+  // page split could actually lay out (null until it has mounted), and
+  // `collapseFits` whether collapsing the panel would give columns room.
+  // Collapsing is offered only where it delivers columns: it widens columns
+  // already there, or makes room for them.
+  function besideCopy(o) {
+    const c = o || {};
+    const name = c.name || 'The translation';
+    const layout = c.layout === 'interlinear' ? 'interlinear' : 'columns';
+    const shown = c.effective === 'columns' || c.effective === 'interlinear' ? c.effective : layout;
+    return {
+      status: shown === 'columns' ? `${name} is shown beside the chapter.` : `${name} is shown under each verse.`,
+      note: layout === 'columns' && shown === 'interlinear' ? 'Not enough room for side by side.' : '',
+      widen: layout === 'columns' && (shown === 'columns' || c.collapseFits === true),
+    };
+  }
+
+  // A chapter that failed to load. `code` is a C.ERR code; `church` says it
+  // came from the Church's site rather than api.bible; `alternatives` that the
+  // dropdown offers something else to pick. action: 'settings' | 'retry' | null.
+  function errorCopy(o) {
+    const e = o || {};
+    const name = e.name || 'this translation';
+    const chapter = e.chapter || 'this chapter';
+    const other = e.church ? 'language' : 'translation';
+    switch (e.code) {
+      case 'NO_KEY':
+        return { message: 'Bible translations need an api.bible key.', hint: '', action: 'settings' };
+      case 'INVALID_KEY':
+        return { message: 'api.bible didn’t accept your key.', hint: 'Check that you copied all of it.', action: 'settings' };
+      case 'FORBIDDEN':
+        return {
+          message: `${name} isn’t included with your api.bible key.`,
+          hint: e.alternatives ? 'Add it at scripture.api.bible, or choose another translation above.' : 'Add it at scripture.api.bible.',
+          action: 'settings',
+        };
+      case 'NOT_FOUND':
+        return {
+          message: e.church ? `${chapter} isn’t available in ${name}.` : `${name} doesn’t include ${chapter}.`,
+          hint: e.alternatives ? `Choose another ${other} above.` : '',
+          action: null,
+        };
+      case 'RATE_LIMITED': // the daily allowance; a short wait is the 'waiting' state instead
+        return {
+          message: 'You’ve used today’s api.bible allowance.',
+          hint: 'Chapters you’ve already read still open. Others will load again tomorrow.',
+          action: null,
+        };
+      case 'NETWORK':
+        return {
+          message: e.church ? 'Couldn’t reach churchofjesuschrist.org.' : 'Couldn’t reach api.bible.',
+          hint: 'Check your connection.',
+          action: 'retry',
+        };
+      default:
+        return { message: `Something went wrong loading ${name}.`, hint: '', action: 'retry' };
+    }
+  }
+
   // ---- Pure view-host core (Node-testable) --------------------------------
   // A *view* is a named body of panel content: 'translation', 'citations',
   // 'talk'. The host keeps at most one cached body per name, tagged with a
@@ -225,13 +325,13 @@
 
   // Choose between re-mounting the cached body and building a fresh one, and
   // make `name` the mounted view either way. `cacheable === false` marks the
-  // fresh body as throwaway (the talk reader, which re-opens from scratch).
+  // fresh body as throwaway: it is rebuilt on every request.
   function selectView(v, name, key, cacheable) {
     const hit = v.entries[name];
     v.active = name;
     if (hit && hit.keep === true && hit.node && hit.key === key) return { action: 'restore', entry: hit };
     // keep starts undecided: a body earns its cache slot, it isn't given one.
-    const entry = { key, node: null, scrollTop: 0, footer: '', cacheable: cacheable !== false, keep: null };
+    const entry = { key, node: null, scrollTop: 0, cacheable: cacheable !== false, keep: null };
     v.entries[name] = entry;
     return { action: 'build', entry };
   }
@@ -453,7 +553,7 @@
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = {
       createState, effectiveMode, selectMode, selectCitationView, setChapter,
-      stepFontScale,
+      stepFontScale, setupCopy, besideCopy, errorCopy,
       createViews, saveViewScroll, selectView, keepView, settleView, dropViews,
       viewRestoresScroll, wantsScrollSync,
       scrollStep, easeRamp, floorStep, carryScroll, realignmentDone, isForeignScroll,
@@ -604,7 +704,6 @@
     toolbar.appendChild(larger);
 
     const body = el('div', 'btx-body');
-    const footer = el('div', 'btx-footer');
 
     // Drag-to-resize grip on the panel's left (inner) edge.
     const resize = el('div', 'btx-resize');
@@ -614,7 +713,6 @@
     panel.appendChild(header);
     panel.appendChild(toolbar);
     panel.appendChild(body);
-    panel.appendChild(footer);
 
     // The collapsed panel: one icon tab on the window's right edge.
     const tab = labelled(el('button', 'btx-tab'), 'Show Translations & Citations');
@@ -648,7 +746,7 @@
       scrollFadeTimer = setTimeout(() => body.classList.remove('btx-scrolling'), 1000);
     }, { passive: true });
 
-    ui = { rootEl, panel, header, toolbar, select, smaller, larger, modes, modeTranslation, modeCitations, citModes, citViewSource, citViewVerse, body, footer, tab, collapse, resize };
+    ui = { rootEl, panel, header, toolbar, select, smaller, larger, modes, modeTranslation, modeCitations, citModes, citViewSource, citViewVerse, body, tab, collapse, resize };
     return ui;
   }
 
@@ -659,7 +757,6 @@
     setPressed(ui.modeTranslation, !cit);
     setPressed(ui.modeCitations, cit);
     ui.select.style.display = cit ? 'none' : '';
-    ui.footer.style.display = cit ? 'none' : '';
     ui.rootEl.setAttribute('data-btx-mode', cit ? 'citations' : 'translation');
     refreshScrollSync();
   }
@@ -1001,7 +1098,7 @@
     stopBodyScroll(); // a chase aimed at the outgoing view must not survive it
     ui.body.textContent = '';
     ui.body.appendChild(entry.node);
-    ui.footer.textContent = entry.footer || '';
+    setCard(null); // a card belongs to the view that drew it
   }
 
   // Position a view that has just mounted, twice: once now and once next frame.
@@ -1031,7 +1128,7 @@
   // Mount the named view.
   //   name    'translation' | 'citations' | 'talk' — one cache slot each
   //   key     content identity; a different key rebuilds
-  //   cache   false for a view that must never be re-mounted (the talk reader)
+  //   cache   false for a view that must never be re-mounted
   //   render(node)  fills the fresh container; may be async. Called only on a
   //                 rebuild, and only after the container is in the document.
   // Returns render's result (so callers can await it), or undefined on a hit.
@@ -1107,75 +1204,230 @@
 
   // ---- Body content (translation mode) --------------------------------------
 
-  // The footer (copyright line) belongs to the view, so it comes back with it.
-  function setFooter(text) {
-    const e = views.active && views.entries[views.active];
-    if (e) e.footer = text || '';
-    ui.footer.textContent = text || '';
+  // Which card, if any, the mounted view is showing: 'setup' | 'beside' | null.
+  // Mirrored onto the root so the chrome can make room for it — neither card
+  // is text the A− / A+ stepper sizes (the split takes the site's own size),
+  // and the setup card has no dropdown to show either.
+  function setCard(kind) {
+    if (!ui) return;
+    if (kind) ui.rootEl.setAttribute('data-btx-card', kind);
+    else ui.rootEl.removeAttribute('data-btx-card');
   }
 
   function clearBody() {
     viewNode().textContent = '';
-    setFooter('');
+    setCard(null);
+    beside = null;
+  }
+
+  // A centred state (loading, waiting, error). The container is a polite live
+  // region, so a screen reader hears the state that replaced the last one.
+  function stateWrap(cls) {
+    const wrap = el('div', 'btx-state' + (cls ? ' ' + cls : ''));
+    wrap.setAttribute('role', 'status');
+    return wrap;
+  }
+
+  function button(cls, text, onClick) {
+    const b = el('button', cls, text);
+    b.type = 'button';
+    b.addEventListener('click', onClick);
+    return b;
+  }
+
+  // The beside card on screen: { node, name, layout, effective, parts }, so the
+  // layout control and the page split can restate it in place (updateBeside)
+  // without rebuilding it under a keyboard user's focus.
+  let beside = null;
+  // A layout pick made from the keyboard moves the text between the page and
+  // the panel, which rebuilds the view; the control that brings it back gets
+  // focus in the rebuilt one, so focus never falls out of the panel.
+  let refocusLayout = false;
+
+  function pickLayout(value) {
+    refocusLayout = !!ui && ui.rootEl.contains(document.activeElement);
+    if (cbs.onLayoutChange) cbs.onLayoutChange(value);
+  }
+
+  function buildBeside(card) {
+    const parts = {};
+    parts.status = el('p', 'btx-card-title');
+    parts.status.setAttribute('role', 'status');
+    card.node.appendChild(parts.status);
+    const choices = [['columns', 'Side by side'], ['interlinear', 'Under each verse'], ['panel', 'In this panel']];
+    parts.choices = choices.map(([value, text]) => {
+      const b = button('btx-seg-btn', text, () => { if (value !== card.layout) pickLayout(value); });
+      b.dataset.btxLayout = value;
+      return b;
+    });
+    card.node.appendChild(segmented('btx-seg', 'Where to show it', parts.choices));
+    parts.note = el('p', 'btx-card-hint');
+    card.node.appendChild(parts.note);
+    parts.widen = button('btx-btn-outline btx-widen', 'Collapse panel for wider columns', () => setCollapsed(true));
+    card.node.appendChild(parts.widen);
+    card.parts = parts;
+  }
+
+  function fillBeside(card) {
+    const copy = besideCopy(card);
+    const p = card.parts;
+    p.status.textContent = copy.status;
+    for (const b of p.choices) setPressed(b, b.dataset.btxLayout === card.layout);
+    p.note.textContent = copy.note;
+    p.note.hidden = !copy.note;
+    p.widen.hidden = !copy.widen;
+  }
+
+  // Restate the mounted beside card: the reader picked another in-page layout
+  // (`layout`), or the page split fit a different one (`effective`,
+  // `collapseFits` — a resize, the panel collapsing). A no-op while no beside
+  // card is on screen.
+  function updateBeside(change) {
+    if (!ui || !beside || !ui.body.contains(beside.node)) return;
+    const c = change || {};
+    if (c.layout === 'columns' || c.layout === 'interlinear') {
+      if (c.layout !== beside.layout) Object.assign(beside, { effective: null, collapseFits: null }); // the split lays out afresh
+      beside.layout = c.layout;
+    }
+    if (c.effective !== undefined) beside.effective = c.effective;
+    if (c.collapseFits !== undefined) beside.collapseFits = c.collapseFits;
+    refocusLayout = false; // restated in place: focus never left
+    fillBeside(beside);
+  }
+
+  function renderSetup(host, st) {
+    const copy = setupCopy({ chapter: st.chapter, bible: st.bible });
+    const card = el('div', 'btx-card btx-setup');
+    card.appendChild(el('h2', 'btx-card-title', copy.heading));
+    const langs = Array.isArray(st.languages) ? st.languages : [];
+    if (langs.length) {
+      const block = el('div', 'btx-card-block');
+      const select = el('select', 'btx-card-select');
+      select.setAttribute('aria-label', 'Add a Church language');
+      const prompt = el('option', null, copy.languages);
+      prompt.value = '';
+      prompt.disabled = true;
+      prompt.selected = true;
+      select.appendChild(prompt);
+      for (const l of langs) {
+        const opt = el('option', null, l.label);
+        opt.value = l.code;
+        select.appendChild(opt);
+      }
+      select.addEventListener('change', () => {
+        if (!select.value) return;
+        select.disabled = true; // one pick; the chapter re-renders with it
+        cbs.onAddLanguage && cbs.onAddLanguage(select.value);
+      });
+      block.appendChild(select);
+      block.appendChild(el('p', 'btx-card-hint', copy.languagesHint));
+      card.appendChild(block);
+    }
+    if (copy.bible) {
+      const block = el('div', 'btx-card-block');
+      block.appendChild(el('p', 'btx-card-text', copy.bible.text));
+      block.appendChild(button('btx-btn-outline', copy.bible.button, () => cbs.onGear && cbs.onGear('bible')));
+      card.appendChild(block);
+    }
+    card.appendChild(button('btx-link', copy.talks, () => onModeClick('citations')));
+    host.appendChild(card);
+  }
+
+  function renderError(host, st) {
+    const copy = errorCopy(st);
+    const wrap = stateWrap('btx-error');
+    wrap.appendChild(el('p', 'btx-state-text', copy.message));
+    if (copy.hint) wrap.appendChild(el('p', 'btx-state-hint', copy.hint));
+    if (copy.action === 'settings') wrap.appendChild(button('btx-cta', 'Open settings', () => cbs.onGear && cbs.onGear('bible')));
+    if (copy.action === 'retry') wrap.appendChild(button('btx-cta', 'Try again', () => cbs.onRetry && cbs.onRetry()));
+    host.appendChild(wrap);
+  }
+
+  // Rate-limited: the orchestrator retries by itself; this only counts down to
+  // it. The countdown is hidden from screen readers (a live region announcing
+  // every second is noise) and stops once its view is gone.
+  function renderWaiting(host, st) {
+    const wrap = stateWrap('btx-loading');
+    wrap.appendChild(el('div', 'btx-spinner'));
+    wrap.appendChild(el('p', 'btx-state-text', 'Waiting for api.bible…'));
+    const hint = el('p', 'btx-state-hint');
+    hint.setAttribute('aria-hidden', 'true');
+    wrap.appendChild(hint);
+    host.appendChild(wrap);
+    let left = Math.max(1, Math.ceil(Number(st.seconds) || 1));
+    const tick = () => { hint.textContent = left > 0 ? `Trying again in ${left} s` : 'Trying again…'; };
+    tick();
+    const timer = setInterval(() => {
+      left -= 1;
+      if (!wrap.isConnected || left < 0) { clearInterval(timer); return; }
+      tick();
+    }, 1000);
+  }
+
+  function renderContent(host, st) {
+    if (st.besideLink) {
+      const tools = el('div', 'btx-article-tools');
+      const back = button('btx-link', 'Show beside the chapter', () => pickLayout('columns'));
+      tools.appendChild(back);
+      host.appendChild(tools);
+      if (refocusLayout) back.focus();
+    }
+    refocusLayout = false;
+    const article = el('div', 'btx-article');
+    if (st.lang) article.lang = st.lang;
+    if (st.dir) article.dir = st.dir;
+    article.appendChild(SAN().renderBlocks(st.blocks));
+    host.appendChild(article);
+    // After the text, outside the article: it is the panel's English, not the
+    // translation's language.
+    if (st.copyright) host.appendChild(el('p', 'btx-copyright', st.copyright));
   }
 
   function showTranslation(st) {
     ensureRoot();
     const host = viewNode();
-    switch (st && st.kind) {
+    const kind = st && st.kind;
+    clearBody();
+    if (kind !== 'loading' && kind !== 'beside' && kind !== 'content') refocusLayout = false;
+    // Only a finished chapter is worth re-mounting; every other state must
+    // render again (a spinner, an error to retry, a card that re-checks).
+    keepView(views, kind === 'content');
+    switch (kind) {
       case 'loading': {
-        clearBody();
-        keepView(views, false);
-        const wrap = el('div', 'btx-state btx-loading');
+        const wrap = stateWrap('btx-loading');
         wrap.appendChild(el('div', 'btx-spinner'));
-        wrap.appendChild(el('div', 'btx-state-text', st.label ? `Loading ${st.label}…` : 'Loading…'));
+        wrap.appendChild(el('p', 'btx-state-text', st.label ? `Loading ${st.label}…` : 'Loading…'));
         host.appendChild(wrap);
         return;
       }
-      case 'nokey': {
-        clearBody();
-        keepView(views, false);
-        const wrap = el('div', 'btx-state');
-        wrap.appendChild(el('p', 'btx-state-text', 'Add a free scripture.api.bible API key to load translations, or turn on a Church language in settings.'));
-        const btn = el('button', 'btx-cta', 'Add your API key');
-        btn.addEventListener('click', () => cbs.onGear && cbs.onGear());
-        wrap.appendChild(btn);
-        host.appendChild(wrap);
+      case 'waiting':
+        renderWaiting(host, st);
         return;
-      }
-      case 'error': {
-        clearBody();
-        keepView(views, false);
-        const wrap = el('div', 'btx-state btx-error');
-        wrap.appendChild(el('p', 'btx-state-text', st.message || 'Something went wrong.'));
-        if (st.retry !== false) {
-          const btn = el('button', 'btx-cta', 'Retry');
-          btn.addEventListener('click', () => cbs.onRetry && cbs.onRetry());
-          wrap.appendChild(btn);
-        }
-        host.appendChild(wrap);
+      case 'setup':
+        setCard('setup');
+        renderSetup(host, st);
         return;
-      }
+      case 'error':
+        renderError(host, st);
+        return;
       case 'beside': {
-        clearBody();
-        keepView(views, false); // cheap, and it must re-render to re-check the chapter
-        const wrap = el('div', 'btx-state btx-beside');
-        wrap.appendChild(el('p', 'btx-state-text', `${st.label || 'The translation'} is beside the chapter.`));
-        wrap.appendChild(el('p', 'btx-state-hint',
-          'Side by side when there’s room, otherwise under each verse — collapse this panel (») for wider columns. Change how it’s shown in settings (⚙).'));
-        host.appendChild(wrap);
+        setCard('beside');
+        beside = {
+          node: el('div', 'btx-card btx-beside'),
+          name: st.name,
+          layout: st.layout,
+          effective: st.effective || null,
+          collapseFits: st.collapseFits === undefined ? null : st.collapseFits,
+        };
+        buildBeside(beside);
+        fillBeside(beside);
+        host.appendChild(beside.node);
+        if (refocusLayout) beside.parts.choices.find((b) => b.dataset.btxLayout === beside.layout)?.focus();
+        refocusLayout = false;
         return;
       }
-      case 'content': {
-        clearBody();
-        const article = el('div', 'btx-article');
-        if (st.lang) article.lang = st.lang;
-        if (st.dir) article.dir = st.dir;
-        if (st.reference) article.appendChild(el('div', 'btx-reference', st.reference));
-        article.appendChild(SAN().renderBlocks(st.blocks));
-        host.appendChild(article);
-        if (st.copyright) setFooter(st.copyright);
-        keepView(views, true); // a loaded chapter is worth re-mounting
+      case 'content':
+        renderContent(host, st);
         // The chapter is only now measurable, so this is where the view gets
         // placed against the page. A no-op when the setting is off: syncNow
         // won't move a view that owns its scroll, and with sync off Translation
@@ -1183,25 +1435,28 @@
         // was left at (re-mounted). (No refreshScrollSync: none of its four
         // inputs moved — rendering content is not a state change.)
         placeSyncedView(viewNode());
-      }
     }
   }
 
-  function populateTranslations(list, selectedId) {
+  // The translation dropdown, from __BTX.churchText.menuFor: headed groups when
+  // both kinds are on offer. Empty, it hides — the setup card is showing.
+  function populateTranslations(menu, selectedId) {
     ensureRoot();
     ui.select.textContent = '';
-    if (!list || !list.length) {
-      const opt = el('option', null, 'No translations');
-      opt.value = '';
-      ui.select.appendChild(opt);
-      ui.select.disabled = true;
-      return;
-    }
-    ui.select.disabled = false;
-    for (const t of list) {
-      const opt = el('option', null, t.abbr ? `${t.abbr} — ${t.name}` : t.name);
-      opt.value = t.id;
-      ui.select.appendChild(opt);
+    const groups = Array.isArray(menu) ? menu : [];
+    ui.select.hidden = !groups.some((g) => g.items && g.items.length);
+    for (const g of groups) {
+      let parent = ui.select;
+      if (g.label) {
+        parent = el('optgroup');
+        parent.label = g.label;
+        ui.select.appendChild(parent);
+      }
+      for (const item of g.items || []) {
+        const opt = el('option', null, item.label);
+        opt.value = item.id;
+        parent.appendChild(opt);
+      }
     }
     if (selectedId) ui.select.value = selectedId;
   }
@@ -1351,6 +1606,7 @@
       keepView: (keep) => keepView(views, keep),
       scrollIntoView,
       showTranslation,
+      updateBeside,
       populateTranslations,
       getRootEl,
     },

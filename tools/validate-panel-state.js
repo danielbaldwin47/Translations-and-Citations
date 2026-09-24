@@ -9,9 +9,11 @@
  * click means, when the citation-layout toggle acts, how an untranslatable
  * chapter shows citations and how the reader's Translation override for one
  * visit works — plus the view host's caching rules, which used to be the
- * orchestrator's citCache/transCache bookkeeping, and a few DOM-shell rules
- * read from the source (toggle state and aria-pressed move together; icons
- * are built from nodes).
+ * orchestrator's citCache/transCache bookkeeping, the copy the Translation
+ * cards and errors show (setupCopy / besideCopy / errorCopy), and a few
+ * DOM-shell and orchestrator rules read from the source (toggle state and
+ * aria-pressed move together; icons are built from nodes; the talk view is
+ * cached; the citation-list hooks are guarded).
  *
  * Exits non-zero on any failure so it can gate a commit.
  */
@@ -205,7 +207,17 @@ eq(r.action, 'build', 'a different key rebuilds instead of re-mounting');
 r = show(v, 'citations', 'john/3::source');
 eq(r.action, 'build', '...and the superseded body is gone (one slot per name)');
 
-// cache:false — the talk reader, which must re-open from scratch every time.
+// The talk reader is cached like the rest: a trip to Translation and back
+// re-mounts the same talk at the offset it was left at.
+v = P.createViews();
+show(v, 'talk', 'talk-1#c9', { produced: true });
+P.saveViewScroll(v, 3200);
+show(v, 'translation', 'john/3::niv');
+r = show(v, 'talk', 'talk-1#c9');
+eq(r.action, 'restore', 'the talk that was open comes back');
+eq(r.entry.scrollTop, 3200, '...where it was left');
+
+// cache:false — a view that must be rebuilt every time.
 v = P.createViews();
 show(v, 'talk', 'talk-1#c9', { cache: false });
 r = show(v, 'talk', 'talk-1#c9', { cache: false });
@@ -578,6 +590,65 @@ for (let next = step(walk, 1); next !== null; next = step(walk, 1)) {
 eq(walk, SCALE.max, 'stepping up from the minimum ends at the maximum');
 eq(notches, Math.round((SCALE.max - SCALE.min) / SCALE.step), 'the walk hits every notch on the grid, once');
 
+// ---- What the Translation cards and errors say ----
+// Copy rules the DOM shell renders verbatim: which heading, which action.
+console.log('setupCopy:');
+{
+  const bible = P.setupCopy({ chapter: 'John 3', bible: 'nokey' });
+  eq(bible.heading, 'Read John 3 in another translation or language', 'a Bible chapter offers translations and languages');
+  eq(bible.bible, { text: 'Bible translations such as NIV and NKJV need a free api.bible key.', button: 'Set up Bible translations' },
+    'no key yet: the api.bible block says what is needed and sets it up');
+  eq(P.setupCopy({ chapter: 'John 3', bible: 'noversions' }).bible.button, 'Choose Bible translations',
+    'a key but nothing turned on: the button goes to choosing');
+  const bofm = P.setupCopy({ chapter: 'Alma 5', bible: null });
+  eq(bofm.heading, 'Read Alma 5 in another language', 'off the Bible only languages are offered');
+  eq(bofm.bible, null, '...and there is no api.bible block');
+  eq(bofm.talks, 'See the talks that cite Alma 5', 'the talks link names the chapter');
+  eq(bofm.languages, 'Add a Church language…', 'the language picker prompts to add one');
+}
+
+console.log('besideCopy:');
+{
+  const b = (o) => P.besideCopy(Object.assign({ name: 'Spanish' }, o));
+  eq(b({ layout: 'columns', effective: 'columns' }),
+    { status: 'Spanish is shown beside the chapter.', note: '', widen: true }, 'columns that fit: beside, and collapsing widens them');
+  eq(b({ layout: 'columns', effective: 'interlinear', collapseFits: true }),
+    { status: 'Spanish is shown under each verse.', note: 'Not enough room for side by side.', widen: true },
+    'columns asked for but not fitting: the card says what the page really shows, and why — and collapsing makes room');
+  eq(b({ layout: 'columns', effective: 'interlinear', collapseFits: false }).widen, false,
+    'collapsing is not offered where it would not make room for columns either');
+  eq(b({ layout: 'interlinear', effective: 'interlinear' }),
+    { status: 'Spanish is shown under each verse.', note: '', widen: false }, 'under each verse: nothing to widen');
+  eq(b({ layout: 'columns', effective: null }).status, 'Spanish is shown beside the chapter.',
+    'before the split has mounted, the card states what was asked for');
+  eq(b({ layout: 'interlinear', effective: 'columns' }).status, 'Spanish is shown beside the chapter.',
+    'the effective layout wins over the setting');
+}
+
+console.log('errorCopy:');
+{
+  const C = require(path.join(ROOT, 'src/shared/constants.js'));
+  const e = (code, o) => P.errorCopy(Object.assign({ code, name: 'NIV', chapter: 'Psalm 23' }, o));
+  // The copy keys on C.ERR's values; they must stay the strings the core names.
+  for (const k of ['NO_KEY', 'INVALID_KEY', 'FORBIDDEN', 'NOT_FOUND', 'NETWORK', 'UNKNOWN']) eq(C.ERR[k], k, `C.ERR.${k} is '${k}'`);
+  eq(e('INVALID_KEY').action, 'settings', 'a rejected key points to settings');
+  eq(e('INVALID_KEY').message, 'api.bible didn’t accept your key.', '...in plain words, not a licensing problem');
+  eq(e('FORBIDDEN').message, 'NIV isn’t included with your api.bible key.', 'an unlicensed version names the version');
+  eq(e('FORBIDDEN', { alternatives: true }).hint, 'Add it at scripture.api.bible, or choose another translation above.',
+    '...and offers the dropdown only when it has something else');
+  eq(e('FORBIDDEN').hint, 'Add it at scripture.api.bible.', '...not when it has nothing else');
+  eq(e('NOT_FOUND'), { message: 'NIV doesn’t include Psalm 23.', hint: '', action: null }, 'a missing api.bible chapter: no action to take');
+  eq(e('NOT_FOUND', { church: true, name: 'Chinese, Simplified (Mandarin)', alternatives: true }),
+    { message: 'Psalm 23 isn’t available in Chinese, Simplified (Mandarin).', hint: 'Choose another language above.', action: null },
+    'a missing Church chapter names the language in English');
+  eq(e('NETWORK').action, 'retry', 'a network failure can be retried');
+  eq(e('NETWORK', { church: true }).message, 'Couldn’t reach churchofjesuschrist.org.', '...and names the site that failed');
+  eq(e('UNKNOWN'), { message: 'Something went wrong loading NIV.', hint: '', action: 'retry' }, 'anything else: retry');
+  eq(e('NO_KEY').action, 'settings', 'a key removed under enabled versions points to settings');
+  eq(e('RATE_LIMITED').action, null, 'the daily api.bible allowance used up: nothing to do but wait for tomorrow');
+  eq(C.ERR.RATE_LIMITED, 'RATE_LIMITED', "C.ERR.RATE_LIMITED is 'RATE_LIMITED'");
+}
+
 // ---- Telling our own scroll from the user's ----
 // The panel must never fight the user for the body. Every write records where
 // it left the body; a 'scroll' event that doesn't match that is the user's, and
@@ -610,6 +681,21 @@ check(/createElementNS\(SVG_NS/.test(panelSrc), 'icons are built with createElem
 // One way to put the panel away: Collapse (and the toolbar icon, which
 // toggles the same persisted state). There is no second, unpersisted "close".
 check(!/onClose|btx-close|userClosed/.test(panelSrc), 'the panel has no close control besides Collapse');
+// The cards are the only Translation states that hide the stepper, and a
+// card never outlives its view.
+check(/function mountView\(entry\) \{[\s\S]*?setCard\(null\)/.test(panelSrc), 'mounting any view clears the card flag');
+check(/keepView\(views, kind === 'content'\)/.test(panelSrc), 'only a finished chapter earns a cache slot; every card and state re-renders');
+
+// Orchestrator wiring for the talk reader and the citation list.
+const contentSrc = fs.readFileSync(path.join(ROOT, 'src/content/content.js'), 'utf8');
+const openTalkSrc = (contentSrc.match(/function openTalk\(entry\) \{[\s\S]*?\n {2}\}\n/) || [''])[0];
+check(openTalkSrc && !/cache:\s*false/.test(openTalkSrc), 'the talk view is cached, so it re-mounts where it was left');
+check(/openEntry \? openTalk\(openEntry\) : renderCitations\(current\)/.test(contentSrc),
+  'Citations coming back re-opens the talk that was open');
+check(/const key = `\$\{citKey\(parsed\)\}::\$\{view\}`;/.test(contentSrc),
+  'the citations key is chapter + layout only (the reading verse only marks a re-mounted list)');
+check(/typeof citPanel\.refocus === 'function'/.test(contentSrc) && /typeof citPanel\.markVerse === 'function'/.test(contentSrc),
+  'the citation list hooks are called only where they exist');
 
 if (failures) {
   console.error(`\n${failures} check(s) failed.`);
