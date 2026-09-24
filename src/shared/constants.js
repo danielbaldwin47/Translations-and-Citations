@@ -60,7 +60,11 @@
 
     // --- Cache TTLs (ms) ---
     CHAPTER_TTL_MS: 30 * 24 * 60 * 60 * 1000, // 30 days (chapters are static)
-    BIBLES_TTL_MS: 24 * 60 * 60 * 1000, // 1 day
+    // The version list: one refresh costs ~39 api.bible calls (the list plus
+    // one per version) against a key's 5,000-a-month quota, and a key's
+    // versions change only when its owner adds one (the options page's
+    // "Check for new translations" refreshes on demand).
+    BIBLES_TTL_MS: 7 * 24 * 60 * 60 * 1000, // 7 days
     CACHE_MAX_ENTRIES: 500,
 
     // --- Rate limits (api.bible) ---
@@ -70,7 +74,9 @@
 
     // --- Which translation becomes the default, in order of preference ---
     // The options page picks the first of these the reader has turned on, and
-    // falls back to the first one on the list.
+    // falls back to the first one on the list. With NIrV, they are also the
+    // versions it guesses a reader added to their key when the worker's list
+    // is `partial` (copyrights unknown).
     DEFAULT_ABBRS: ['NIV', 'NKJV', 'NRSV', 'ESV', 'KJV'],
 
     // --- Public-domain translations available on bible-api.com (no key) ---

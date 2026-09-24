@@ -41,22 +41,20 @@
         </div>
         <button id="connectKey" type="button" class="primary">Connect</button>
       </div>
-      <p id="keyStatus" class="status" role="status" aria-live="polite"></p>
+      <div class="status-row">
+        <p id="keyStatus" class="status" role="status" aria-live="polite"></p>
+        <button id="recheckKey" type="button" class="text-button" hidden>Check for new translations</button>
+      </div>
 
       <div id="versions" class="versions" hidden>
         <fieldset class="checklist" id="translationsList">
           <legend class="field-label">Your translations</legend>
-          <p id="yoursEmpty" class="hint" hidden>
-            This key has no NIV, NKJV or other copyrighted translations yet. Add them at
-            scripture.api.bible, then press Connect again — or turn on a free one below.
-          </p>
+          <p id="yoursNote" class="hint" hidden></p>
           <div id="yoursRows" class="rows"></div>
         </fieldset>
-        <details id="moreVersions" class="more">
+        <details id="moreVersions" class="more" aria-labelledby="moreSummary">
           <summary id="moreSummary"></summary>
-          <fieldset class="checklist" aria-labelledby="moreSummary">
-            <div id="moreRows" class="rows"></div>
-          </fieldset>
+          <div id="moreRows" class="rows"></div>
         </details>
 
         <div id="defaultRow" class="field" hidden>
@@ -81,9 +79,11 @@
 
       <fieldset id="churchLanguageLayout" class="radio-group">
         <legend class="field-label">Show them</legend>
+        <!-- A hint sits inside its label (so it is part of the target) but is
+             aria-hidden there: it is the input's description, not its name. -->
         <label class="check radio">
-          <input type="radio" name="churchLanguageLayout" value="columns" />
-          <span>Beside the English<span class="hint">Side by side when there's room, otherwise under each verse.</span></span>
+          <input type="radio" name="churchLanguageLayout" value="columns" aria-describedby="columnsHint" />
+          <span>Side by side<span class="hint" id="columnsHint" aria-hidden="true">When there’s room; otherwise under each verse.</span></span>
         </label>
         <label class="check radio">
           <input type="radio" name="churchLanguageLayout" value="interlinear" />
@@ -91,7 +91,7 @@
         </label>
         <label class="check radio">
           <input type="radio" name="churchLanguageLayout" value="panel" />
-          <span>In the side panel</span>
+          <span>In the panel</span>
         </label>
       </fieldset>
     </section>
@@ -106,7 +106,7 @@
         </div>
         <!-- min/max/step are set from __BTX.settings at init -->
         <input type="range" id="fontScale" aria-describedby="fontScaleHint" />
-        <p class="hint" id="fontScaleHint">Relative to the page's text. The panel's A− and A+ buttons change it too.</p>
+        <p class="hint" id="fontScaleHint">Relative to the page’s text. The panel’s A− and A+ buttons change it too.</p>
       </div>
 
       <div class="field">
@@ -116,12 +116,12 @@
         </div>
         <!-- min/max are set from __BTX.settings at init -->
         <input type="range" id="sidebarWidth" step="10" aria-describedby="widthHint" />
-        <p class="hint" id="widthHint">You can also drag the panel's edge.</p>
+        <p class="hint" id="widthHint">You can also drag the panel’s edge.</p>
       </div>
 
       <label class="check">
-        <input type="checkbox" id="scrollSync" />
-        <span>Scroll the translation with the page<span class="hint">Turn off to scroll the panel on its own.</span></span>
+        <input type="checkbox" id="scrollSync" aria-describedby="scrollSyncHint" />
+        <span>Scroll the translation with the page<span class="hint" id="scrollSyncHint" aria-hidden="true">Turn off to scroll the panel on its own.</span></span>
       </label>
       <label class="check">
         <input type="checkbox" id="showOnOtherLanguages" />
@@ -133,6 +133,8 @@
   <!-- Shared modules first (plain scripts attach to window.__BTX), then page logic. -->
   <script src="../shared/constants.js"></script>
   <script src="../shared/settings.js"></script>
+  <!-- The worker's cache module, for the version list's first paint. -->
+  <script src="../background/cache.js"></script>
   <script src="options.js"></script>
 </body>
 </html>

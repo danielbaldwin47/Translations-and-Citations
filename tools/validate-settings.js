@@ -4,8 +4,10 @@
  *   node tools/validate-settings.js
  *
  * Covers the pure parts of `__BTX.settings` — the schema, the per-field
- * normalizers, and `diff` — the parts every context (content script, options
- * page, service worker) shares. The chrome.storage side is not exercised here.
+ * normalizers (incl. slim, deduped translation rows and the sync item's 8 KB
+ * budget), and `diff` — the parts every context (content script, options
+ * page, service worker) shares — plus the storage layer against a fake
+ * chrome.storage.sync.
  *
  * Exits non-zero on any failure so it can gate a commit.
  */
@@ -152,6 +154,73 @@ const trs = [{ id: 'a', name: 'A' }, { id: '', name: 'empty' }, null, 'nope', { 
 eq(S.normalize({ enabledTranslations: trs }).enabledTranslations, [{ id: 'a', name: 'A' }],
   'enabledTranslations keeps only entries with a non-empty id');
 eq(S.normalize({ enabledTranslations: 'nope' }).enabledTranslations, [], 'non-array enabledTranslations -> []');
+
+// Slim rows: the string fields every reader uses, and nothing else. A
+// copyright line per row filled the 8 KB sync item at ~21 translations.
+console.log('normalize (enabledTranslations: slim rows, twins):');
+const COPYRIGHT = 'Holy Bible, New International Version®, NIV® Copyright © 1973, 1978, 1984, 2011 by Biblica, Inc.® Used by permission. All rights reserved worldwide.';
+const fat = { id: 'niv', abbr: 'NIV', name: 'New International Version', provider: 'api.bible', description: 'Holy Bible', copyright: COPYRIGHT, extra: { big: true } };
+eq(S.normalize({ enabledTranslations: [fat] }).enabledTranslations,
+  [{ id: 'niv', abbr: 'NIV', name: 'New International Version', provider: 'api.bible', description: 'Holy Bible' }],
+  'a stored row keeps id, abbr, name, provider and description (copyright and anything else dropped)');
+eq(S.normalize({ enabledTranslations: [{ id: 'x', abbr: 5, name: null }] }).enabledTranslations, [{ id: 'x' }],
+  'a field that is not a string is dropped, not coerced');
+eq(S.diff({ enabledTranslations: [fat] }, { enabledTranslations: [Object.assign({}, fat, { copyright: '' })] }), [],
+  'a row that differs only in copyright is not a change (both read slim)');
+
+const W = (id, description) => ({ id, abbr: 'WEBU', name: 'World English Bible Updated', provider: 'api.bible', description });
+eq(S.normalize({ enabledTranslations: [W('w1', 'Ecumenical'), fat, W('w2', 'Protestant'), W('w3', 'Catholic')] })
+  .enabledTranslations.map((t) => t.id), ['w2', 'niv'],
+'twins (same abbreviation and name) collapse to the Protestant edition, in the first twin\'s place');
+eq(S.normalize({ enabledTranslations: [W('w1'), W('w2'), W('w3')] }).enabledTranslations.map((t) => t.id), ['w1'],
+  'twins with no Protestant edition (rows stored without a description) collapse to the first');
+eq(S.normalize({ enabledTranslations: [fat, fat] }).enabledTranslations.length, 1, 'a repeated id is kept once');
+eq(S.normalize({ enabledTranslations: [W('w1', 'Protestant'), Object.assign(W('b1'), { provider: 'bible-api.com' })] })
+  .enabledTranslations.length, 2, 'the same label from two providers is two rows');
+eq(S.normalize({ enabledTranslations: [W('w1'), W('w2'), W('w3')], defaultTranslationId: 'w3' }).defaultTranslationId, 'w1',
+  'a default naming a dropped twin follows it to the kept row');
+eq(S.normalize({ enabledTranslations: [W('w1'), fat], defaultTranslationId: 'niv' }).defaultTranslationId, 'niv',
+  'a default whose row survived is untouched');
+eq(S.normalize({ enabledTranslations: [fat], defaultTranslationId: 'gone' }).defaultTranslationId, 'gone',
+  'a default naming no stored row is left for the reader of it to repair');
+const upgraded = S.normalize({ enabledTranslations: [W('w1', 'Ecumenical'), W('w2', 'Protestant'), fat], defaultTranslationId: 'w1' });
+eq(S.normalize(upgraded), upgraded, 'normalize is idempotent once twins have collapsed');
+
+// Every setting shares one sync item: chrome.storage.sync.QUOTA_BYTES_PER_ITEM
+// is 8192 bytes, counted as the key plus the JSON of the value. Rows shaped
+// like api.bible's English list (abbreviation ~4, name ~32, edition note ~10
+// characters on average), each still carrying its copyright line as the
+// worker hands it over.
+const QUOTA_BYTES_PER_ITEM = 8192;
+const EDITIONS = ['Protestant', 'Ecumenical', 'Catholic', 'Holy Bible', 'common'];
+const listRow = (i) => ({
+  id: `${(0x10000000 + i * 7919).toString(16)}${'a'.repeat(8)}-0${i % 4 + 1}`,
+  abbr: `V${i}`.padEnd(4, 'X'),
+  name: `English Version Number ${String(i).padStart(2, '0')} Updated`,
+  provider: 'api.bible',
+  description: EDITIONS[i % EDITIONS.length],
+  copyright: COPYRIGHT,
+});
+const itemBytes = (settings) => C.SETTINGS_KEY.length
+  + JSON.stringify(Object.assign({}, S.normalize(settings), { __btxWrite: 'abcdefgh:9999' })).length;
+const forty = Array.from({ length: 40 }, (_, i) => listRow(i));
+const reader = Object.assign(S.defaults(), {
+  apiKey: 'k'.repeat(32),
+  enabledTranslations: forty,
+  defaultTranslationId: forty[0].id,
+  churchLanguages: ['spa', 'jpn', 'fra', 'deu', 'por', 'kor'],
+});
+eq(S.normalize(reader).enabledTranslations.length, 40, 'the quota case really holds 40 rows');
+check(itemBytes(reader) < QUOTA_BYTES_PER_ITEM * 0.75,
+  `40 translations on stay well under the sync item's 8 KB (${itemBytes(reader)} bytes)`);
+const everything = Object.assign({}, reader, { churchLanguages: C.CHURCH_LANGUAGES.map((l) => l.code) });
+check(itemBytes(everything) < QUOTA_BYTES_PER_ITEM * 0.9,
+  `...and still fit with every Church language on too (${itemBytes(everything)} bytes)`);
+const prose = 'The Holy Bible in English, Douay-Rheims American Edition of 1899, translated from the Latin Vulgate';
+eq(S.normalize({ enabledTranslations: [Object.assign({}, fat, { description: prose })] }).enabledTranslations[0].description, undefined,
+  'a description longer than an edition note is prose, and is not stored');
+eq(S.normalize({ enabledTranslations: [W('w1', 'Ecumenical'), W('w2', `Protestant ${prose}`)] }).enabledTranslations.map((t) => t.id), ['w2'],
+  'the Protestant edition is still preferred when its description is too long to store');
 
 // ---- normalize: Church languages ----
 console.log('normalize (churchLanguages):');

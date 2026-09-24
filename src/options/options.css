@@ -37,6 +37,9 @@
     --toast-bg: #e8e8e8;
     --toast-fg: #1c1c1e;
   }
+  /* The dark accent is light, like the ring would be: a checked box takes
+     the text colour instead, so focus still shows on it. */
+  .check input:checked:focus-visible { outline-color: var(--fg); }
 }
 
 * { box-sizing: border-box; }
@@ -48,6 +51,9 @@ body {
   color: var(--fg);
   font: 15px/1.5 system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif;
 }
+/* options.js sets data-ready after the first fill: the unfilled skeleton
+   (no language groups, sliders at their HTML defaults) never paints. */
+body:not([data-ready]) { visibility: hidden; }
 .wrap { max-width: 640px; margin: 0 auto; padding: 32px 20px 72px; }
 a { color: var(--accent); text-underline-offset: 2px; }
 
@@ -64,7 +70,8 @@ h1 { font-size: 22px; line-height: 1.25; margin: 0 0 6px; }
 
 /* Autosave feedback: a toast pinned to the bottom of the window, so it shows
    next to wherever the change was made. Hidden by opacity, never display:none:
-   a live region has to stay in the accessibility tree to be announced. */
+   a live region has to stay in the accessibility tree to be announced. Clicks
+   pass through it to the form, except the error's, which has Try again. */
 .save-status {
   position: fixed;
   left: 50%;
@@ -83,7 +90,8 @@ h1 { font-size: 22px; line-height: 1.25; margin: 0 0 6px; }
   pointer-events: none;
   transition: opacity 0.2s ease, transform 0.2s ease;
 }
-.save-status.show { opacity: 1; transform: translate(-50%, 0); pointer-events: auto; }
+.save-status.show { opacity: 1; transform: translate(-50%, 0); }
+.save-status.show.error { pointer-events: auto; }
 .save-status.error { background: var(--error); color: var(--on-error); }
 .save-status .retry {
   margin-left: 4px;
@@ -162,6 +170,8 @@ button.primary:disabled { border-color: var(--accent); }
 
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 input:focus-visible, select:focus-visible { outline-offset: 1px; }
+/* A checked box is filled with the accent, so its ring stands off it. */
+.check input:focus-visible { outline-offset: 2px; }
 
 /* The key field, with Show inside its right edge. */
 .key-row { display: flex; gap: 8px; align-items: stretch; }
@@ -186,6 +196,7 @@ input:focus-visible, select:focus-visible { outline-offset: 1px; }
 
 /* Status lines (the key's). Empty, it takes no room but stays in the
    accessibility tree, so its first message is announced. */
+.status-row { display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 12px; }
 .status { font-size: 14px; margin: 8px 0 0; }
 .status:empty { margin: 0; }
 .status.ok { color: var(--ok); }
@@ -205,6 +216,20 @@ input:focus-visible, select:focus-visible { outline-offset: 1px; }
   animation: spin 0.8s linear infinite;
 }
 @keyframes spin { to { transform: rotate(360deg); } }
+
+/* A quiet action beside a status line ("Check for new translations"). */
+.text-button {
+  min-height: 24px;
+  margin-top: 8px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font-size: 14px;
+  font-weight: 600;
+  text-underline-offset: 2px;
+}
+.text-button:hover { text-decoration: underline; }
 
 /* ---- Check and radio rows ---- */
 /* The whole row is the target; its hover wash bleeds 8px past the text so the
@@ -228,11 +253,12 @@ input:focus-visible, select:focus-visible { outline-offset: 1px; }
 .versions { margin-top: 20px; }
 .rows { display: flex; flex-direction: column; }
 .checklist .hint { margin: 0 0 8px; }
+.hint.warn { color: var(--warn); }
 
 /* Disclosure groups: "more free translations", the language groups. */
 details > summary {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 8px;
   min-height: 36px;
   margin: 0 -8px;
@@ -244,12 +270,14 @@ details > summary {
   list-style: none;
 }
 details > summary::-webkit-details-marker { display: none; }
+/* The chevron centres on the first line (21px), so a wrapped label hangs
+   under its own text. */
 details > summary::before {
   content: '';
   flex: 0 0 auto;
   width: 7px;
   height: 7px;
-  margin: 0 5px 0 3px;
+  margin: 6px 5px 0 3px;
   border-right: 2px solid currentColor;
   border-bottom: 2px solid currentColor;
   transform: rotate(-45deg);
@@ -259,7 +287,7 @@ details[open] > summary::before { transform: rotate(45deg); }
 details > summary:hover { background: var(--accent-soft); }
 .more { margin-top: 4px; }
 .more > summary { color: var(--accent); }
-.more > fieldset { margin-top: 2px; }
+.more > .rows { margin-top: 2px; }
 
 /* ---- Church languages ---- */
 .summary { margin: -4px 0 12px; font-weight: 600; font-size: 14px; }
@@ -267,6 +295,7 @@ details > summary:hover { background: var(--accent-soft); }
 .search { margin-bottom: 8px; }
 .lang-groups { display: flex; flex-direction: column; gap: 2px; }
 .lang-group > summary { color: var(--fg); }
+.summary-count { white-space: nowrap; }
 .checklist-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));

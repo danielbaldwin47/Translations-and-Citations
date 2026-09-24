@@ -6,9 +6,14 @@
  * src/options/options.js exports the decisions the form makes that are not
  * about the DOM (the shell is skipped when `document` is undefined): which
  * versions lead the list and which are duplicates, which start checked, which
- * default wins, what an autosave may write, which controls a change arriving
- * from another context may repaint, the language search, and the status copy.
+ * default wins, where a refreshed list's rows go, what an autosave may write
+ * and retry, which controls a change arriving from another context may
+ * repaint, when Connect rests, the language search, and the status copy.
  * Those are the rules the stale-list and wrong-default bugs lived in.
+ *
+ * It also covers the worker's side of what the page is told
+ * (src/background/api.js, loaded in Node against a stubbed fetch): a
+ * `partial` version list, and a 429's `remote` flag and Retry-After wait.
  *
  * Exits non-zero on any failure so it can gate a commit.
  */
@@ -50,6 +55,13 @@ console.log('versionGroups:');
 check(F.isAdded(NIV) && F.isAdded(NKJV), '"All rights reserved" marks a version the reader added to the key');
 check(!F.isAdded(KJV) && !F.isAdded(WEBU1) && !F.isAdded(OKE), 'public-domain, "No copyright" and bare citations are the free tier');
 check(!F.isAdded({ id: 'x' }), 'a row with no copyright is not "added"');
+// A partial list: rows the worker couldn't look up carry no copyright.
+const bare = (r) => Object.assign({}, r, { copyright: '' });
+check(!F.isAdded(bare(NIV)), 'a full list: no copyright, not added');
+check(F.isAdded(bare(NIV), true) && F.isAdded(bare(NIRV), true) && F.isAdded(bare(NKJV), true),
+  'a partial list: a bare NIV, NIrV or NKJV counts as added (C.DEFAULT_ABBRS or NIrV)');
+check(!F.isAdded(bare(OKE), true) && !F.isAdded(bare(WEBU1), true), 'a partial list: other bare rows stay free');
+check(!F.isAdded(KJV, true), 'a partial list: a row whose copyright was looked up is still judged by it');
 
 eq(ids(F.dedupeVersions([WEBU1, WEBU2, WEBU3])), ['webu-02'],
   'one row per abbreviation + name, preferring the Protestant edition');
@@ -68,6 +80,28 @@ const gOn = F.versionGroups(KEY_LIST, ['niv', 'oke']);
 eq([ids(gOn.yours), ids(gOn.more)], [['nirv', 'niv', 'nkjv', 'oke'], ['kjv', 'webu-02']],
   'a free version the reader has on leads too, so everything the panel offers is in view');
 eq(F.versionGroups([], []), { yours: [], more: [] }, 'no list, no groups');
+const PARTIAL_LIST = [bare(NIRV), NIV, bare(NKJV), bare(OKE), KJV];
+const gPart = F.versionGroups(PARTIAL_LIST, [], true);
+eq([ids(gPart.yours), ids(gPart.more)], [['nirv', 'niv', 'nkjv'], ['oke', 'kjv']],
+  'a partial list still leads with the versions a reader adds, by abbreviation');
+
+// ---- stableGroups: a refreshed list never reshuffles the screen ----
+console.log('stableGroups:');
+const SHOWN = { yours: ['niv', 'nkjv', 'oke'], more: ['kjv', 'webu-02'] };
+const sg = F.stableGroups(SHOWN, [NIRV, NIV, NKJV, OKE, KJV, WEBU1, WEBU2, WEBU3], ['niv', 'nkjv']);
+eq([ids(sg.yours), ids(sg.more)], [['niv', 'nkjv', 'oke'], ['kjv', 'webu-02', 'nirv']],
+  'rows keep their group and place (OKE stays with yours though now off); a new row, even an added one, joins the end of "more"');
+const sgGone = F.stableGroups(SHOWN, [NIV, OKE, KJV], ['niv']);
+eq([ids(sgGone.yours), ids(sgGone.more)], [['niv', 'oke'], ['kjv']], 'a row the list no longer has drops out, the rest stay put');
+eq(F.stableGroups(null, KEY_LIST, ['oke']), F.versionGroups(KEY_LIST, ['oke']), 'nothing on screen yet: versionGroups decides');
+eq(F.stableGroups({ yours: [], more: [] }, PARTIAL_LIST, [], true), gPart, 'an empty screen groups afresh, guesses and all');
+
+// ---- mergeVersions: a refresh keeps copyrights it couldn't look up ----
+console.log('mergeVersions:');
+eq(F.mergeVersions([NIV, KJV], [bare(NIV), KJV, NKJV]), [NIV, KJV, NKJV],
+  'a row the refresh left bare takes the copyright the screen had; the rest are the refresh\'s');
+eq(F.mergeVersions([], [bare(NIV)]), [bare(NIV)], 'nothing known: the refresh as it came');
+eq(F.mergeVersions([NIV], undefined), [], 'no refresh rows: no rows');
 
 // ---- withStored: a cached list never hides a stored version ----
 console.log('withStored:');
@@ -88,6 +122,9 @@ eq(F.initialChecks(KEY_LIST, [{ id: 'esv' }], true), ['nirv', 'niv', 'nkjv'],
   'a new key sharing nothing with the stored selection starts from its added versions');
 eq(F.initialChecks([], [NIV], true), [], 'no versions -> nothing checked');
 eq(F.initialChecks([NIV, NKJV], [NKJV, NIV], false), ['niv', 'nkjv'], 'checks come back in list order');
+eq(F.initialChecks(PARTIAL_LIST, [], true, true), ['nirv', 'niv', 'nkjv'],
+  'first connect on a partial list: the versions a reader adds are checked, not none');
+eq(F.initialChecks(PARTIAL_LIST, [], true, false), ['niv'], 'the same list read as full checks only what says "All rights reserved"');
 
 // ---- pickDefaultId: which default survives ----
 console.log('pickDefaultId:');
@@ -142,6 +179,33 @@ check(!F.patchLanded(before, { sidebarWidth: '520' }, S.normalize),
   'a failed write resolves with the old settings -> not landed');
 check(F.patchLanded(before, { scrollSync: true }, S.normalize), 'rewriting the value already stored has landed');
 check(F.patchLanded(before, { notASetting: 1 }, S.normalize), 'a key the schema drops is not held against the write');
+const fatNiv = Object.assign({}, NIV, { provider: 'api.bible' });
+check(F.patchLanded(S.normalize({ enabledTranslations: [fatNiv] }), { enabledTranslations: [fatNiv] }, S.normalize),
+  'a list written with copyrights landed once storage holds it slim');
+
+// ---- failedWrites: what "Try again" sends ----
+console.log('failedWrites:');
+const f1 = F.failedWrites(null, { enabledTranslations: [NIV], defaultTranslationId: 'niv' }, ['enabledTranslations', 'defaultTranslationId']);
+eq(f1, { partial: { enabledTranslations: [NIV], defaultTranslationId: 'niv' }, keys: ['enabledTranslations', 'defaultTranslationId'] },
+  'the first failure is kept whole');
+const f2 = F.failedWrites(f1, { churchLanguages: ['spa'] }, ['churchLanguages']);
+eq(f2.keys, ['enabledTranslations', 'defaultTranslationId', 'churchLanguages'], 'a later failure adds its keys (a union, not the last one)');
+eq(Object.keys(f2.partial), ['enabledTranslations', 'defaultTranslationId', 'churchLanguages'], '...and its values');
+const f3 = F.failedWrites(f2, { enabledTranslations: [NIV, NKJV], defaultTranslationId: 'niv' }, ['enabledTranslations', 'defaultTranslationId']);
+eq(f3.partial.enabledTranslations, [NIV, NKJV], 'the same key failing again keeps the value last asked for');
+eq(f3.keys.length, 3, 'without naming the key twice');
+
+// ---- keyControls: when Connect rests ----
+console.log('keyControls:');
+const kc = (o) => F.keyControls(Object.assign({ field: 'k1', storedKey: 'k1', keyState: 'connected', partial: false }, o));
+eq(kc({}), { connect: false, recheck: true },
+  'the connected key: Connect rests (a refetch costs ~39 calls); "Check for new translations" offers the refresh');
+eq(kc({ partial: true }), { connect: true, recheck: true }, 'the connected key with a partial list: Connect is offered again, as the note says');
+eq(kc({ field: 'k2' }), { connect: true, recheck: false }, 'another key in the field: Connect');
+eq(kc({ storedKey: '' , keyState: 'none' }), { connect: true, recheck: false }, 'a first key: Connect');
+eq(kc({ field: '' }), { connect: false, recheck: false }, 'an empty field: nothing to connect');
+eq(kc({ keyState: 'checking' }), { connect: false, recheck: false }, 'while checking: neither');
+eq(kc({ field: 'k1', keyState: 'error' }), { connect: true, recheck: false }, 'the stored key after an error: Connect retries it');
 
 // ---- fillPlan: what an incoming change is allowed to repaint ----
 console.log('fillPlan:');
@@ -183,16 +247,25 @@ eq(F.moreLabel(23), '23 more free translations', 'the "more" summary counts');
 eq(F.moreLabel(1), '1 more free translation', 'and pluralizes');
 eq(F.connectedText([NIV, NKJV, NIRV]), 'Connected — 3 translations: NIV, NKJV, NIrV', 'connected, with what the panel offers');
 eq(F.connectedText([NIV]), 'Connected — 1 translation: NIV', 'one translation is singular');
+eq(F.connectedText([NIV, NKJV, NIRV, OKE, KJV]), 'Connected — 5 translations: NIV, NKJV, NIrV, OKE, KJV', 'up to five are named');
+eq(F.connectedText([NIV, NKJV, NIRV, OKE, KJV, WEBU1]), 'Connected — 6 translations', 'more than five are counted, so the line stays a line');
 eq(F.connectedText([]), 'Connected. Choose the translations to show in the panel.', 'connected with nothing on says what to do');
-const bad = "api.bible didn't accept that key. Check that you copied all of it.";
+eq(F.yoursNote({ partial: true, yours: 3 }), 'Couldn’t check which translations are yours. Try Connect again later.',
+  'a partial list owns up to its guess, whatever it guessed');
+eq(F.yoursNote({ partial: true, yours: 0 }), F.yoursNote({ partial: true, yours: 3 }),
+  'a partial list never claims the key has no copyrighted translations');
+check(/^This key has no NIV, NKJV or other copyrighted translations yet\. .*Check for new translations/.test(F.yoursNote({ partial: false, yours: 0 })),
+  'an empty "yours" says how to fill it, through the button that refetches (Connect rests on a connected key)');
+eq(F.yoursNote({ partial: false, yours: 2 }), '', 'a full list with versions in "yours" needs no note');
+const bad = 'api.bible didn’t accept that key. Check that you copied all of it.';
 eq(F.keyErrorText({ code: C.ERR.INVALID_KEY }), bad, 'a wrong key says so in plain words');
 eq(F.keyErrorText({ code: C.ERR.FORBIDDEN }), bad, 'a 403 on the list is a key problem too');
-eq(F.keyErrorText({ code: C.ERR.NETWORK, message: 'Failed to fetch' }), "Couldn't reach api.bible. Check your connection and try again.",
+eq(F.keyErrorText({ code: C.ERR.NETWORK, message: 'Failed to fetch' }), 'Couldn’t reach api.bible. Check your connection and try again.',
   'offline says to check the connection');
 eq(F.keyErrorText({ code: C.ERR.RATE_LIMITED }), 'api.bible is busy. Try again in a minute.', 'rate-limited says to wait');
-eq(F.keyErrorText({ code: C.ERR.UNKNOWN, message: 'HTTP 500' }), "Couldn't check the key (HTTP 500). Try again.",
+eq(F.keyErrorText({ code: C.ERR.UNKNOWN, message: 'HTTP 500' }), 'Couldn’t check the key (HTTP 500). Try again.',
   'anything else names what happened, never a bare error code');
-eq(F.keyErrorText(undefined), "Couldn't check the key (no answer). Try again.", 'no response at all is still a sentence');
+eq(F.keyErrorText(undefined), 'Couldn’t check the key (no answer). Try again.', 'no response at all is still a sentence');
 for (const code of Object.values(C.ERR)) {
   check(!/^[A-Z_]+$/.test(F.keyErrorText({ code })) && !new RegExp(`^Error: `).test(F.keyErrorText({ code })),
     `${code} reads as a sentence`);
@@ -221,11 +294,12 @@ eq(groups.map((x) => [x.label, x.langs.map((l) => l.code)]), [
 eq(F.languageGroups(undefined), [], 'no table, no groups');
 eq(F.languageGroups(offered).reduce((n, x) => n + x.langs.length, 0), offered.length,
   'every offered language lands in exactly one group');
-eq(F.groupSummary(groups[0]), 'All standard works · 2 languages', 'a group summary counts its languages');
-eq(F.groupSummary(groups[1]), 'Bible and Book of Mormon · 1 language', 'and pluralizes');
-eq(F.groupSummary(groups[0], 1), 'All standard works · 1 of 2 languages', 'while searching, it counts the matches left in view');
-eq(F.groupSummary(groups[0], 2), 'All standard works · 2 languages', 'a search that leaves the whole group reads as no search');
-eq(F.groupSummary(groups[0], null), 'All standard works · 2 languages', 'no search: the plain count');
+eq(F.groupCount(groups[0]), '2 languages', 'a group summary counts its languages');
+eq(F.groupCount(groups[1]), '1 language', 'and pluralizes');
+eq(F.groupCount(groups[0], 1), '1 of 2 languages', 'while searching, it counts the matches left in view');
+eq(F.groupCount(groups[0], 2), '2 languages', 'a search that leaves the whole group reads as no search');
+eq(F.groupCount(groups[0], null), '2 languages', 'no search: the plain count');
+check(F.languageGroups(offered).every((x) => !/&/.test(x.label)), 'group labels name books in full ("Doctrine and Covenants", never "D&C")');
 
 const lang = (code) => C.CHURCH_LANGUAGES.find((l) => l.code === code);
 check(F.matchesLanguage(lang('spa'), 'espanol'), 'the search ignores accents (espanol finds Español)');
@@ -245,9 +319,10 @@ eq(['jpn', 'zhs', 'zho', 'yue', 'kor'].map((c) => lang(c).tag), ['ja', 'zh-Hans'
 // ---- the DOM shell stays out of Node ----
 console.log('Shell:');
 eq(Object.keys(F).sort(), [
-  'commitPatch', 'connectedText', 'dedupeVersions', 'fillPlan', 'groupSummary', 'initialChecks', 'isAdded',
-  'keyErrorText', 'languageGroups', 'matchesLanguage', 'moreLabel', 'offeredLanguages', 'patchLanded',
-  'pickDefaultId', 'translationPatch', 'versionGroups', 'versionLabel', 'withStored',
+  'commitPatch', 'connectedText', 'dedupeVersions', 'failedWrites', 'fillPlan', 'groupCount', 'initialChecks', 'isAdded',
+  'keyControls', 'keyErrorText', 'languageGroups', 'matchesLanguage', 'mergeVersions', 'moreLabel', 'offeredLanguages',
+  'patchLanded', 'pickDefaultId', 'stableGroups', 'translationPatch', 'versionGroups', 'versionLabel', 'withStored',
+  'yoursNote',
 ].sort(), 'requiring the page in Node exposes the pure core and nothing else');
 
 // ---- the shell actually uses the core ----
@@ -273,6 +348,12 @@ check(!/enabledTranslations:/.test(shell), 'the shell never writes the translati
 check(/if \(res\.error\) \{[\s\S]*?return;\n {4}\}/.test(bodyOf('connect')) && !/write\(/.test((bodyOf('connect').match(/if \(res\.error\) \{[\s\S]*?return;\n {4}\}/) || [''])[0]),
   'a failed connect writes nothing');
 check(/patchLanded\(/.test(bodyOf('write')), 'a write checks it landed before saying "Saved"');
+check(/failed = failedWrites\(failed, partial, keys\)/.test(bodyOf('write')) && /adopt\(keys\)/.test(bodyOf('write')),
+  'a write that fails joins the retry and puts its controls back to what storage holds');
+check(/if \(failed\) \{ failed = null; hideSaveError\(\); \}/.test(bodyOf('write'))
+  && /if \(failed\) \{ failed = null; hideSaveError\(\); \}/.test((shell.match(/SETTINGS\.subscribe\([\s\S]*?\n {4}\}\);/) || [''])[0]),
+  'the error retires after a write that lands or a change adopted from elsewhere');
+check(/write\(f\.partial, f\.keys\)/.test(bodyOf('showSaveError')), '"Try again" re-sends every failed write, not the controls (which show storage again)');
 check(/pagehide', flush/.test(shell), 'a pending write still lands when the tab closes');
 
 const refreshBody = bodyOf('refreshDefaultOptions');
@@ -289,6 +370,22 @@ check(!/write\(/.test(bodyOf('refreshList')),
   'refreshing the list on open writes nothing (a cached list can be a day old)');
 check(/type: C\.MSG\.LIST_BIBLES, key, refresh: !!explicit/.test(bodyOf('connect')),
   'Connect fetches the list afresh; an automatic try may take the cache');
+check(/await write\(partial, \['apiKey'\][\s\S]*\n {4}updateConnect\(\);/.test(bodyOf('connect')),
+  'once a connect saves its key, Connect rests and "Check for new translations" shows');
+check(/if \(!els\.connectKey\.disabled\) connect\(true\)/.test(shell), 'Enter in the key field rests with Connect (no refetch of the connected key)');
+check(/keyControls\(/.test(bodyOf('updateConnect')) && /els\.recheckKey\.hidden = !c\.recheck/.test(bodyOf('updateConnect')),
+  'Connect and "Check for new translations" follow keyControls');
+check(/recheckKey\.addEventListener\('click', \(\) => connect\(true\)\)/.test(shell) && /id="recheckKey"[^>]*>Check for new translations</.test(html),
+  '"Check for new translations" is the explicit refresh');
+check(/stableGroups\(shown, available/.test(bodyOf('renderTranslations')), 'a redraw keeps rows where they were (stableGroups)');
+check(/anyAge: true/.test(bodyOf('cachedList')) && /const cached = await cachedList\(\);[\s\S]*showStoredList\(cached\);\s*fillForm\(\);/.test(bodyOf('init')),
+  'the first fill draws the stored rows plus the worker\'s cached list, however old');
+check(/fillForm\(\);[\s\S]*reveal\(\);[\s\S]*listRefresh = refreshList\(\)/.test(bodyOf('init')) && /init\(\)\.finally\(reveal\)/.test(shell)
+  && /body:not\(\[data-ready\]\) \{ visibility: hidden; \}/.test(css),
+  'the page stays hidden until the first fill (and is revealed even if init fails)');
+check(/<script src="\.\.\/background\/cache\.js"><\/script>\s*(<!--[^>]*-->\s*)?<script src="options\.js">/.test(html)
+  || /cache\.js"><\/script>\s*<script src="options\.js">/.test(html),
+  'the options page loads the worker\'s cache module before its own script');
 check(/again\.focus\(/.test(bodyOf('renderTranslations')),
   'rebuilding the list puts focus back on the row that had it (a refresh must not drop a keyboard reader)');
 check(/listRefresh\.then\(/.test(bodyOf('focusSection')) && /listRefresh = refreshList\(\)/.test(bodyOf('init')),
@@ -296,6 +393,64 @@ check(/listRefresh\.then\(/.test(bodyOf('focusSection')) && /listRefresh = refre
 const worker = fs.readFileSync(path.join(ROOT, 'src/background/service-worker.js'), 'utf8');
 check(/code === C\.ERR\.INVALID_KEY\) await CACHE\.dropBibles\(\)/.test(worker),
   'the worker drops the cached version list once api.bible rejects the stored key (else the page says "Connected")');
+
+// ---- the worker's side: what the page and panel are told ----
+console.log('Worker (api.js, service-worker.js):');
+const API = require(path.join(ROOT, 'src/background/api.js'));
+const NOW = Date.parse('2026-09-24T12:00:00Z');
+eq(API.retryAfterMs('120', NOW), 120000, 'Retry-After in seconds');
+eq(API.retryAfterMs(' 7 ', NOW), 7000, 'with stray spaces');
+eq(API.retryAfterMs('Thu, 24 Sep 2026 12:00:30 GMT', NOW), 30000, 'Retry-After as an HTTP date');
+eq(API.retryAfterMs('Thu, 24 Sep 2026 11:00:00 GMT', NOW), 0, 'a date already past is no wait');
+eq(API.retryAfterMs('soon', NOW), undefined, 'an unreadable header names no wait');
+eq(API.retryAfterMs(null, NOW), undefined, 'no header names no wait');
+eq(API.retryAfterMs('-5', NOW), undefined, 'a negative number is not delta-seconds');
+const response = (status, headers, body) => ({
+  status, ok: status >= 200 && status < 300,
+  headers: { get: (n) => (headers || {})[n.toLowerCase()] || null },
+  json: async () => body,
+});
+
+const workerSrc = fs.readFileSync(path.join(ROOT, 'src/background/service-worker.js'), 'utf8');
+check(/!result\.error && result\.bibles && !result\.partial\) await CACHE\.setBibles/.test(workerSrc),
+  'the worker never caches a partial version list');
+check(/reply && reply\.shown === false\) chrome\.runtime\.openOptionsPage\(\)/.test(workerSrc),
+  'the toolbar icon opens the options page when the tab shows no chapter');
+eq(C.BIBLES_TTL_MS, 7 * 24 * 60 * 60 * 1000, 'the version list is cached for a week (a refresh costs ~39 calls of a monthly quota)');
+
+async function workerChecks() {
+  const e429 = await API.errorFor(response(429, { 'retry-after': '30' }));
+  eq(e429.error, { code: C.ERR.RATE_LIMITED, message: 'HTTP 429', remote: true, retryAfterMs: 30000 },
+    'a 429 from api.bible is RATE_LIMITED, marked remote, with the wait it named');
+  const bare429 = await API.errorFor(response(429, {}));
+  check(bare429.error.remote === true && !('retryAfterMs' in bare429.error), 'a 429 with no Retry-After names no wait');
+  eq((await API.errorFor(response(403, {}, { message: 'Invalid API key' }))).error.code, C.ERR.INVALID_KEY, 'a 403 "Invalid API key" is INVALID_KEY');
+  check(!('remote' in (await API.errorFor(response(500, {}))).error), 'only a 429 is marked remote');
+
+  // listBibles against a stubbed fetch: the list, then one lookup per version.
+  const LIST = { data: [
+    { id: 'niv', name: 'New International Version', abbreviationLocal: 'NIV', description: 'Holy Bible' },
+    { id: 'kjv', name: 'King James', abbreviationLocal: 'KJV', description: 'Protestant' },
+  ] };
+  const realFetch = global.fetch;
+  const stub = (failId) => async (url) => {
+    if (/\/bibles\?language=eng$/.test(url)) return response(200, {}, LIST);
+    const id = decodeURIComponent(url.split('/').pop());
+    if (id === failId) return response(429, {});
+    return response(200, {}, { data: { copyright: `${id} copyright` } });
+  };
+  global.fetch = stub(null);
+  const full = await API.listBibles('key');
+  check(!full.partial && full.bibles.every((b) => b.copyright), 'every copyright looked up: a full list, no `partial`');
+  global.fetch = stub('kjv');
+  const part = await API.listBibles('key');
+  check(part.partial === true, 'a failed copyright lookup flags the list `partial`');
+  eq(part.bibles.map((b) => b.copyright), ['niv copyright', ''], 'the rows it did look up keep their copyrights');
+  global.fetch = async () => { throw new Error('offline'); };
+  const offline = await API.listBibles('key');
+  eq(offline.error && offline.error.code, C.ERR.NETWORK, 'no list at all is an error, not a partial list');
+  global.fetch = realFetch;
+}
 
 // Every single-value setting this form edits belongs in FIELDS — that table is
 // what makes the autosave and fillForm (and so the dirty flag) agree about it.
@@ -334,6 +489,30 @@ check(/area === 'session' && changes\[C\.OPTIONS_FOCUS_KEY\]/.test(shell),
 // The language search must not live inside the churchLanguages FIELDS node, or
 // typing in it would mark the setting dirty.
 check(/<div id="churchLanguages"[^>]*><\/div>/.test(html), 'the churchLanguages container starts empty (only checkboxes go in)');
+
+// Accessibility: sliders speak the value the page shows; a hint is its
+// input's description, not part of its name.
+check(/setAttribute\('aria-valuetext', pct\(v\)\)/.test(bodyOf('showFontScale')), 'Text size is announced as the percentage on screen');
+check(/setAttribute\('aria-valuetext', `\$\{v\} pixels`\)/.test(bodyOf('showWidth')), 'Panel width is announced in pixels');
+check(/live: showFontScale,/.test(fieldsTable) && /showFontScale\(v\)/.test(fieldsTable) && /live: showWidth,/.test(fieldsTable) && /showWidth\(v\)/.test(fieldsTable),
+  'both sliders set it while dragging and when a value is adopted');
+for (const m of html.matchAll(/<label class="check[^"]*">([\s\S]*?)<\/label>/g)) {
+  const hint = m[1].match(/<span class="hint" id="([^"]+)"([^>]*)>/);
+  if (!hint) continue;
+  check(/aria-hidden="true"/.test(hint[2]) && new RegExp(`aria-describedby="${hint[1]}"`).test(m[1]),
+    `hint #${hint[1]} describes its input and is kept out of the label's name`);
+}
+check(!/<label class="check[^"]*">(?:(?!<\/label>)[\s\S])*<span class="hint"(?![^>]*aria-hidden)/.test(html), 'no hint inside a label is part of its name');
+
+// Vocabulary shared with the panel's beside card, and curly apostrophes.
+const layoutLabels = [...html.matchAll(/value="(columns|interlinear|panel)"[^>]*\/>\s*<span>([^<]+)/g)].map((m) => [m[1], m[2]]);
+eq(layoutLabels, [['columns', 'Side by side'], ['interlinear', 'Under each verse'], ['panel', 'In the panel']],
+  'the layouts read Side by side · Under each verse · In the panel (the panel\'s words)');
+check(/id="columnsHint"[^>]*>When there’s room; otherwise under each verse\.</.test(html), 'Side by side says when it gives way');
+const htmlText = html.replace(/<!--[\s\S]*?-->/g, '').replace(/<[^>]+>/g, ' ');
+check(!/[A-Za-z]'[A-Za-z]/.test(htmlText), 'the page\'s copy uses curly apostrophes (’)');
+const jsStrings = [...shell.replace(/^\s*\/\/.*$/gm, '').matchAll(/(['"`])((?:(?!\1)[^\\\n]|\\.)*)\1/g)].map((m) => m[2]);
+check(!jsStrings.some((t) => /[A-Za-z]'[A-Za-z]|n't\b/.test(t)), 'the script\'s copy uses curly apostrophes too');
 check(/id="langFilter"/.test(html), 'the language list has a search box');
 check(/for \(const group of |languageGroups\(offeredLanguages\(C\.CHURCH_LANGUAGES\)\)/.test(bodyOf('buildLanguageList')),
   'the checklist is built from the extension\'s own language table, minus English');
@@ -343,8 +522,11 @@ for (const name of ['connect', 'renderTranslations', 'refreshList']) {
   const body = bodyOf(name);
   check(body && !/buildLanguageList|churchLanguages/.test(body), `${name} never builds or touches the Church-language list`);
 }
-check(/groupSummary\(g\.group, filtering \? n : null\)/.test(bodyOf('applyLanguageFilter')),
+check(/groupCount\(g\.group, filtering \? n : null\)/.test(bodyOf('applyLanguageFilter')),
   'a search updates each group\'s count to the languages it leaves in view');
+check(/aria-labelledby', summary\.id/.test(bodyOf('buildLanguageList')) && /aria-labelledby="moreSummary"/.test(html),
+  'every <details> group is named by its summary');
+check(/\.summary-count \{ white-space: nowrap; \}/.test(css), 'a wrapping group label keeps "· 69 languages" on one line');
 check(/span\.lang = lang\.tag/.test(bodyOf('nativeName')) && /span\.dir = 'auto'/.test(bodyOf('nativeName')),
   'native language names are tagged with their language and direction');
 
@@ -352,6 +534,8 @@ check(/span\.lang = lang\.tag/.test(bodyOf('nativeName')) && /span\.dir = 'auto'
 check(!/max-height|overflow(-y)?:\s*(auto|scroll)/.test(css), 'options.css has no nested scroll box');
 check(!/(\.status|\.save-status)(:empty)?\s*\{[^}]*display:\s*none/.test(css),
   'the live regions (key status, autosave toast) are never display:none, so their messages are announced');
+check(!/\.save-status\.show \{[^}]*pointer-events: auto/.test(css) && /\.save-status\.show\.error \{ pointer-events: auto; \}/.test(css),
+  'the Saved toast lets clicks through to the form; only the error (Try again) takes them');
 check(/--on-accent/.test(css) && /button\.primary \{[^}]*color: var\(--on-accent\)/.test(css),
   'text on the accent uses --on-accent (readable in dark mode)');
 check(/accent-color: var\(--accent\)/.test(css), 'checkboxes, radios and sliders take the page accent');
@@ -365,8 +549,13 @@ check(/els\.fontScale\.min = String\(SETTINGS\.FONT_SCALE_MIN\)/.test(src)
   && /els\.fontScale\.step = String\(SETTINGS\.FONT_SCALE_STEP\)/.test(src),
   'the text-size slider range comes from the settings module at init');
 
-if (failures) {
-  console.error(`\n${failures} check(s) failed.`);
+workerChecks().then(() => {
+  if (failures) {
+    console.error(`\n${failures} check(s) failed.`);
+    process.exit(1);
+  }
+  console.log('\nAll checks passed.');
+}, (e) => {
+  console.error(e);
   process.exit(1);
-}
-console.log('\nAll checks passed.');
+});

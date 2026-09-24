@@ -11,12 +11,22 @@
  * the panel, another synced machine — is adopted through subscribe. A control
  * shows a value storage doesn't hold only while it is `dirty`: changed on
  * screen and not yet written (a slider mid-drag, a write waiting out its
- * debounce, a key being typed).
+ * debounce, a key being typed). A write that doesn't land puts its controls
+ * back to what storage holds; "Try again" re-sends every failed write
+ * (failedWrites), and any write that lands retires the error.
  *
  * The api.bible key is the one exception to write-as-you-go: it is connected
  * (the worker lists its versions) on paste, on change or on Connect, and
- * saved together with the translation list only when that succeeds. On open,
- * the stored list shows at once and is refreshed from the worker's cache.
+ * saved together with the translation list only when that succeeds. Connect
+ * rests while the field holds the connected key — a list costs ~39 calls of
+ * a monthly quota — and "Check for new translations" refetches it on demand.
+ *
+ * On open, the page stays hidden until the first fill, which draws the stored
+ * rows plus the worker's cached list (chrome.storage.local, any age); the
+ * refresh that follows only moves checkmarks or adds rows at the end of
+ * "more" (stableGroups). The worker's rows carry copyrights, which decide
+ * "yours" vs "more"; the stored rows are slim and simply count as on. A
+ * `partial` list (a copyright lookup failed) groups by a guess and says so.
  *
  * Deep links: the worker parks a section in chrome.storage.session under
  * C.OPTIONS_FOCUS_KEY; the page takes (reads and clears) it on load and
@@ -42,8 +52,14 @@
 
   // A version the reader added to their key. api.bible's copyrighted versions
   // all say "All rights reserved"; the free versions every key gets never do.
-  function isAdded(row) {
-    return /all rights reserved/i.test((row && row.copyright) || '');
+  // A `partial` list (the worker couldn't look every copyright up) leaves
+  // rows with none; those count as added when their abbreviation is one a
+  // reader adds (C.DEFAULT_ABBRS, NIrV) — a guess the page owns up to.
+  const LIKELY_ADDED = C.DEFAULT_ABBRS.concat(['NIRV']);
+  function isAdded(row, partial) {
+    const copyright = (row && row.copyright) || '';
+    if (copyright) return /all rights reserved/i.test(copyright);
+    return !!partial && LIKELY_ADDED.indexOf(String((row && row.abbr) || '').toUpperCase()) >= 0;
   }
 
   // One row per abbreviation + name: api.bible lists some Bibles once per
@@ -66,12 +82,35 @@
   // The checklist and what waits under "more": versions the reader added to
   // the key lead, and so does anything they have on, so every translation the
   // panel offers is in view. The rest are the key's free versions.
-  function versionGroups(list, onIds) {
+  function versionGroups(list, onIds, partial) {
     const on = new Set(onIds || []);
     const yours = [];
     const more = [];
-    for (const r of dedupeVersions(list, onIds)) (isAdded(r) || on.has(r.id) ? yours : more).push(r);
+    for (const r of dedupeVersions(list, onIds)) (isAdded(r, partial) || on.has(r.id) ? yours : more).push(r);
     return { yours, more };
+  }
+
+  // A list landing on the one already on screen (`shown`: the ids in each
+  // group, in order) changes checkmarks and grows "more", nothing else: every
+  // row keeps its group and place, and rows the screen hasn't shown join the
+  // end of "more". Nothing on screen yet: versionGroups decides.
+  function stableGroups(shown, list, onIds, partial) {
+    const prev = shown || { yours: [], more: [] };
+    if (!prev.yours.length && !prev.more.length) return versionGroups(list, onIds, partial);
+    const byId = new Map(dedupeVersions(list, onIds).map((r) => [r.id, r]));
+    const keep = (ids) => ids.filter((id) => byId.has(id)).map((id) => byId.get(id));
+    const yours = keep(prev.yours);
+    const more = keep(prev.more);
+    const placed = new Set(prev.yours.concat(prev.more));
+    for (const [id, r] of byId) if (!placed.has(id)) more.push(r);
+    return { yours, more };
+  }
+
+  // A refreshed list, keeping what the screen already knew: a row whose
+  // copyright the refresh couldn't look up keeps the one the shown row had.
+  function mergeVersions(prev, fresh) {
+    const known = new Map((prev || []).filter((r) => r && r.copyright).map((r) => [r.id, r.copyright]));
+    return (fresh || []).map((r) => (!r.copyright && known.has(r.id) ? Object.assign({}, r, { copyright: known.get(r.id) }) : r));
   }
 
   // A list from the worker's cache can predate a version the reader turned on
@@ -85,11 +124,11 @@
   // decides, empty or not (the reader may have turned everything off). The one
   // exception is a `fresh` key — not the stored one — whose list shares nothing
   // with that selection: it starts with the versions the reader added to it.
-  function initialChecks(list, stored, fresh) {
+  function initialChecks(list, stored, fresh, partial) {
     const want = new Set((stored || []).map((t) => t && t.id));
     const kept = (list || []).filter((t) => want.has(t.id)).map((t) => t.id);
     if (kept.length || !fresh) return kept;
-    return (list || []).filter(isAdded).map((t) => t.id);
+    return (list || []).filter((t) => isAdded(t, partial)).map((t) => t.id);
   }
 
   // The default has to be one of the enabled versions: the wanted one if it
@@ -137,6 +176,28 @@
       !Object.prototype.hasOwnProperty.call(want, k) || JSON.stringify(want[k]) === JSON.stringify(result[k]));
   }
 
+  // Writes that didn't land, merged: every key any of them named, each with
+  // the value last asked for. "Try again" sends exactly this.
+  function failedWrites(prev, partial, keys) {
+    const p = prev || { partial: {}, keys: [] };
+    const union = p.keys.slice();
+    for (const k of keys || []) if (union.indexOf(k) < 0) union.push(k);
+    return { partial: Object.assign({}, p.partial, partial), keys: union };
+  }
+
+  // The key row's two buttons. Connect tries the key in the field; it rests
+  // while the field holds the key already connected (a refresh costs ~39
+  // api.bible calls) unless that key's list came back `partial`, which the
+  // page asks the reader to retry. "Check for new translations" is the
+  // deliberate refresh of a connected key.
+  function keyControls({ field, storedKey, keyState, partial }) {
+    const connected = !!field && field === storedKey && keyState === 'connected';
+    return {
+      connect: !!field && keyState !== 'checking' && !(connected && !partial),
+      recheck: connected,
+    };
+  }
+
   // What an incoming settings change is allowed to repaint. `changed` is the
   // list of keys that actually moved (omit it for the initial fill, which
   // predates any edit); `dirty` is the Set of keys changed on screen and not
@@ -168,11 +229,26 @@
     return `${plural(n, 'more free translation', 'more free translations')}`;
   }
 
-  // The key's status line once connected, from the versions turned on.
+  // The key's status line once connected, from the versions turned on: their
+  // abbreviations while they fit on a line, else just how many.
+  const STATUS_ABBRS_MAX = 5;
   function connectedText(on) {
     const list = on || [];
     if (!list.length) return 'Connected. Choose the translations to show in the panel.';
-    return `Connected — ${plural(list.length, 'translation', 'translations')}: ${list.map((t) => t.abbr || t.name).join(', ')}`;
+    const count = `Connected — ${plural(list.length, 'translation', 'translations')}`;
+    if (list.length > STATUS_ABBRS_MAX) return count;
+    return `${count}: ${list.map((t) => t.abbr || t.name).join(', ')}`;
+  }
+
+  // The note under "Your translations": a list the worker couldn't fully
+  // check is a guess, and says so; an empty group says how to fill it.
+  function yoursNote({ partial, yours }) {
+    if (partial) return 'Couldn’t check which translations are yours. Try Connect again later.';
+    if (!yours) {
+      return 'This key has no NIV, NKJV or other copyrighted translations yet. Add them at scripture.api.bible, '
+        + 'then choose Check for new translations — or turn on a free one below.';
+    }
+    return '';
   }
 
   // A failed connect, in words that say what to do. api.bible answers a
@@ -180,12 +256,12 @@
   function keyErrorText(error) {
     const code = error && error.code;
     if (code === C.ERR.INVALID_KEY || code === C.ERR.FORBIDDEN) {
-      return "api.bible didn't accept that key. Check that you copied all of it.";
+      return 'api.bible didn’t accept that key. Check that you copied all of it.';
     }
-    if (code === C.ERR.NETWORK) return "Couldn't reach api.bible. Check your connection and try again.";
+    if (code === C.ERR.NETWORK) return 'Couldn’t reach api.bible. Check your connection and try again.';
     if (code === C.ERR.RATE_LIMITED) return 'api.bible is busy. Try again in a minute.';
     const detail = (error && error.message && error.message !== code ? error.message : code) || 'no answer';
-    return `Couldn't check the key (${detail}). Try again.`;
+    return `Couldn’t check the key (${detail}). Try again.`;
   }
 
   // ---- Church languages ----
@@ -225,11 +301,12 @@
     }
     return groups;
   }
-  // `shown` is how many of the group's languages a search leaves in view.
-  function groupSummary(group, shown) {
+  // A group's summary reads "{label} · {count}"; this is the count. `shown`
+  // is how many of the group's languages a search leaves in view.
+  function groupCount(group, shown) {
     const n = group.langs.length;
-    if (shown == null || shown === n) return `${group.label} · ${plural(n, 'language', 'languages')}`;
-    return `${group.label} · ${shown} of ${n} languages`;
+    if (shown == null || shown === n) return plural(n, 'language', 'languages');
+    return `${shown} of ${n} languages`;
   }
 
   // The language search: case-, accent- and apostrophe-insensitive, over the
@@ -244,10 +321,10 @@
 
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = {
-      isAdded, dedupeVersions, versionGroups, withStored, initialChecks, pickDefaultId,
-      translationPatch, commitPatch, patchLanded, fillPlan,
-      versionLabel, moreLabel, connectedText, keyErrorText,
-      offeredLanguages, languageGroups, groupSummary, matchesLanguage,
+      isAdded, dedupeVersions, versionGroups, stableGroups, mergeVersions, withStored, initialChecks, pickDefaultId,
+      translationPatch, commitPatch, patchLanded, failedWrites, fillPlan, keyControls,
+      versionLabel, moreLabel, connectedText, yoursNote, keyErrorText,
+      offeredLanguages, languageGroups, groupCount, matchesLanguage,
     };
   }
   if (typeof document === 'undefined') return; // Node: the pure core only.
@@ -255,6 +332,7 @@
   // ---- DOM shell ---------------------------------------------------------
 
   const SETTINGS = root.__BTX.settings;
+  const CACHE = root.__BTX.cache; // the worker's version-list cache, read for the first paint
   const COMMIT_DELAY_MS = 250; // coalesces a burst of clicks or arrow-key steps into one write
   const CONNECT_DELAY_MS = 400; // after a paste or change, before the key is tried
   const SAVED_MS = 1500;
@@ -266,8 +344,9 @@
     toggleKey: $('toggleKey'),
     connectKey: $('connectKey'),
     keyStatus: $('keyStatus'),
+    recheckKey: $('recheckKey'),
     versions: $('versions'),
-    yoursEmpty: $('yoursEmpty'),
+    yoursNote: $('yoursNote'),
     yoursRows: $('yoursRows'),
     moreVersions: $('moreVersions'),
     moreSummary: $('moreSummary'),
@@ -290,6 +369,8 @@
   let settings = SETTINGS.defaults();
   let available = []; // the versions the list is drawn from: [{ id, name, abbr, description, copyright, provider }]
   let versionsLoaded = false; // is the list on screen a faithful view (loaded, or the stored rows)?
+  let listPartial = false; // did the grouping on screen have to guess (a `partial` list)?
+  let shown = null; // { yours: [ids], more: [ids] } as last drawn; null = draw from scratch
   let keyState = 'none'; // 'none' | 'checking' | 'connected' | 'error'
   let connectSeq = 0; // the newest list request owns the status line
   let lastTried = ''; // the key a paste/change last tried, so a blur doesn't retry it
@@ -320,7 +401,7 @@
 
   const queued = new Set();
   let flushTimer = 0;
-  let failedKeys = null;
+  let failed = null; // failedWrites(): what "Try again" sends
   let savedTimer = 0;
 
   function queueCommit(keys) {
@@ -339,7 +420,10 @@
     return write(commitPatch({ keys, values, list: listState() }), keys);
   }
 
-  // The one path to storage. `quiet` skips the "Saved" flash.
+  // The one path to storage. `quiet` skips the "Saved" flash. A write that
+  // doesn't land puts its controls back to what storage holds and joins
+  // `failed`; any write that lands (or a change adopted from elsewhere)
+  // retires the error.
   async function write(partial, keys, quiet) {
     let ok = true;
     if (Object.keys(partial).length) {
@@ -350,13 +434,33 @@
     }
     for (const k of keys) if (!queued.has(k)) dirty.delete(k);
     if (ok) {
-      failedKeys = null;
+      if (failed) { failed = null; hideSaveError(); }
       if (!quiet && Object.keys(partial).length) showSaved();
     } else {
-      failedKeys = keys;
+      failed = failedWrites(failed, partial, keys);
       showSaveError();
+      adopt(keys);
     }
     return ok;
+  }
+
+  // Paint settings that moved (`changed`, setting keys) from storage. A new
+  // stored key brings its own list: its cached versions, then a refresh.
+  function adopt(changed) {
+    if (changed.indexOf('apiKey') >= 0 && !dirty.has('apiKey')) {
+      adoptStoredKey(changed);
+      return;
+    }
+    fillForm(changed);
+  }
+
+  async function adoptStoredKey(changed) {
+    const seq = ++connectSeq;
+    const cached = await cachedList();
+    if (seq !== connectSeq) return;
+    showStoredList(cached);
+    fillForm(changed.concat(LIST_KEYS));
+    listRefresh = refreshList();
   }
 
   function showSaved() {
@@ -373,18 +477,27 @@
   function showSaveError() {
     clearTimeout(savedTimer);
     const s = els.saveStatus;
-    s.textContent = "Couldn't save. ";
+    s.textContent = 'Couldn’t save. ';
     const retry = el('button', 'retry', 'Try again');
     retry.type = 'button';
-    retry.addEventListener('click', () => {
-      const keys = failedKeys || [];
-      failedKeys = null;
+    retry.addEventListener('click', async () => {
+      const f = failed;
+      if (!f) return;
+      failed = null;
       s.className = 'save-status';
-      queueCommit(keys);
-      flush();
+      // The controls show storage again, so the retry sends what was asked
+      // for, and paints it once it lands.
+      if (await write(f.partial, f.keys)) adopt(f.keys);
     });
     s.appendChild(retry);
     s.className = 'save-status show error';
+  }
+
+  function hideSaveError() {
+    const s = els.saveStatus;
+    if (!s.classList.contains('error')) return;
+    s.className = 'save-status';
+    s.textContent = '';
   }
 
   // ---- Bible translations ----
@@ -416,16 +529,22 @@
 
   // `onIds` are the versions to show checked and `wanted` the default to
   // preselect — both passed in, never read back off the controls this rebuilds.
+  // Rows keep the group and place they were drawn in (stableGroups) until
+  // `shown` is reset for a new list.
   function renderTranslations(onIds, wanted) {
     const focused = versionInputs().find((c) => c === document.activeElement);
-    const { yours, more } = versionGroups(available, onIds);
+    const { yours, more } = stableGroups(shown, available, onIds, listPartial);
+    shown = { yours: yours.map((t) => t.id), more: more.map((t) => t.id) };
     const on = new Set(onIds || []);
     els.yoursRows.textContent = '';
     els.moreRows.textContent = '';
     for (const t of yours) els.yoursRows.appendChild(versionRow(t, on.has(t.id)));
     for (const t of more) els.moreRows.appendChild(versionRow(t, on.has(t.id)));
     els.versions.hidden = !available.length;
-    els.yoursEmpty.hidden = yours.length > 0;
+    const note = yoursNote({ partial: listPartial, yours: yours.length });
+    els.yoursNote.textContent = note;
+    els.yoursNote.hidden = !note;
+    els.yoursNote.classList.toggle('warn', listPartial);
     els.moreVersions.hidden = !more.length;
     els.moreSummary.textContent = moreLabel(more.length);
     refreshDefaultOptions(wanted);
@@ -469,21 +588,33 @@
   }
 
   function updateConnect() {
-    els.connectKey.disabled = !els.apiKey.value.trim() || keyState === 'checking';
+    const c = keyControls({ field: els.apiKey.value.trim(), storedKey: settings.apiKey, keyState, partial: listPartial });
+    els.connectKey.disabled = !c.connect;
+    els.recheckKey.hidden = !c.recheck;
   }
 
-  // The stored list, as the form's first picture of it: shown at once, with
-  // no wait on the key and no jump when the refreshed list lands.
-  function showStoredList() {
+  // The worker's cached version list for the stored key, however old — the
+  // first picture of the list. [] when there is none.
+  async function cachedList() {
+    if (!settings.apiKey || !CACHE) return [];
+    try { return (await CACHE.getBibles(settings.apiKey, { anyAge: true })) || []; } catch (e) { return []; }
+  }
+
+  // The stored rows plus the cached list, as the form's first picture of the
+  // list: shown at once, with no wait on the worker, so the refresh that
+  // follows only moves checkmarks or adds rows at the end.
+  function showStoredList(cached) {
     const stored = settings.apiKey ? settings.enabledTranslations : [];
-    available = stored.slice();
-    versionsLoaded = stored.length > 0;
-    keyState = !settings.apiKey ? 'none' : stored.length ? 'connected' : 'checking';
+    available = settings.apiKey ? withStored(cached || [], stored) : [];
+    versionsLoaded = available.length > 0;
+    listPartial = false;
+    shown = null;
+    keyState = !settings.apiKey ? 'none' : available.length ? 'connected' : 'checking';
   }
 
   // Re-read the stored key's versions (the worker's cache when it has them) and
   // redraw the list around what is on screen. Nothing is written: a cached list
-  // can be a day old, so it only ever adds rows.
+  // can be a week old, so it only ever adds rows.
   async function refreshList() {
     if (!settings.apiKey) return;
     const seq = ++connectSeq;
@@ -498,7 +629,10 @@
     }
     const onIds = versionsLoaded ? checkedTranslations().map((t) => t.id) : settings.enabledTranslations.map((t) => t.id);
     const wanted = versionsLoaded ? els.defaultTranslation.value : settings.defaultTranslationId;
-    available = withStored(res.bibles || [], settings.enabledTranslations);
+    // Rows already drawn keep their groups; only a list drawn from scratch
+    // is grouped from this answer, and only then can its guesses show.
+    if (!shown || !(shown.yours.length + shown.more.length)) listPartial = !!res.partial;
+    available = withStored(mergeVersions(available, res.bibles), settings.enabledTranslations);
     versionsLoaded = true;
     keyState = 'connected';
     renderTranslations(onIds, wanted);
@@ -529,6 +663,7 @@
       if (rejected || !stored) {
         available = [];
         versionsLoaded = false;
+        shown = null;
         renderTranslations([], '');
       }
       setKeyStatus(keyErrorText(res.error), 'error');
@@ -538,12 +673,15 @@
 
     available = res.bibles || [];
     versionsLoaded = true;
+    listPartial = !!res.partial;
+    shown = null; // a new list, or one the reader asked for: grouped afresh
     keyState = 'connected';
-    renderTranslations(initialChecks(available, settings.enabledTranslations, !stored), settings.defaultTranslationId);
+    renderTranslations(initialChecks(available, settings.enabledTranslations, !stored, listPartial), settings.defaultTranslationId);
     showKeyState();
     const partial = Object.assign({ apiKey: key }, translationPatch(listState()));
     if (SETTINGS.diff(settings, Object.assign({}, settings, partial)).length) await write(partial, ['apiKey'].concat(LIST_KEYS));
     else dirty.delete('apiKey');
+    updateConnect(); // the key is the stored one now: Connect rests
   }
 
   function scheduleConnect() {
@@ -562,6 +700,8 @@
     lastTried = '';
     available = [];
     versionsLoaded = false;
+    listPartial = false;
+    shown = null;
     keyState = 'none';
     renderTranslations([], '');
     showKeyState();
@@ -573,17 +713,23 @@
 
   const langRows = []; // { lang, label, group }
   const langGroups = []; // <details>
-  const groupOf = new Map(); // <details> -> { group, summary }
+  const groupOf = new Map(); // <details> -> { group, count }
 
+  // Each group is a <details> named by its summary ("Bible · 1 language").
+  // A long label wraps; its count stays on one line with its dot.
   function buildLanguageList() {
     languageGroups(offeredLanguages(C.CHURCH_LANGUAGES)).forEach((group, i) => {
       const details = el('details', 'lang-group');
       details.open = i === 0;
-      const summary = el('summary', '', groupSummary(group));
-      groupOf.set(details, { group, summary });
+      const summary = el('summary');
+      summary.id = `langGroup${i}`;
+      details.setAttribute('aria-labelledby', summary.id);
+      const text = el('span', 'summary-text', `${group.label} `);
+      const count = el('span', 'summary-count', `· ${groupCount(group)}`);
+      text.appendChild(count);
+      summary.appendChild(text);
+      groupOf.set(details, { group, count });
       const grid = el('div', 'checklist-grid');
-      grid.setAttribute('role', 'group');
-      grid.setAttribute('aria-label', group.label);
       for (const lang of group.langs) {
         const label = el('label', 'check');
         const cb = el('input');
@@ -657,7 +803,7 @@
       }
       details.hidden = n === 0;
       const g = groupOf.get(details);
-      g.summary.textContent = groupSummary(g.group, filtering ? n : null);
+      g.count.textContent = `· ${groupCount(g.group, filtering ? n : null)}`;
       // Every group opens while searching; clearing the search puts back
       // what the reader had open.
       if (filtering) {
@@ -686,6 +832,16 @@
   const pct = (v) => Math.round(Number(v) * 100) + '%';
   const px = (v) => `${v}px`;
 
+  // A slider's value as the page shows it, on screen and to a screen reader.
+  function showFontScale(v) {
+    els.fontScaleOut.textContent = pct(v);
+    els.fontScale.setAttribute('aria-valuetext', pct(v));
+  }
+  function showWidth(v) {
+    els.sidebarWidthOut.textContent = px(v);
+    els.sidebarWidth.setAttribute('aria-valuetext', `${v} pixels`);
+  }
+
   // The single-value settings this form edits, each paired with the control
   // that shows it. One table, so the autosave and the live refresh can't
   // disagree about which control holds which setting. `live` sliders mark
@@ -701,18 +857,18 @@
     {
       key: 'fontScale',
       node: els.fontScale,
-      live: (v) => { els.fontScaleOut.textContent = pct(v); },
+      live: showFontScale,
       // Stored as a multiplier, shown as a percentage — the slider walks the
       // multiplier so the module's clamp/step is the only rule about it.
       read: () => els.fontScale.value,
-      write: (v) => { els.fontScale.value = String(v); els.fontScaleOut.textContent = pct(v); },
+      write: (v) => { els.fontScale.value = String(v); showFontScale(v); },
     },
     {
       key: 'sidebarWidth',
       node: els.sidebarWidth,
-      live: (v) => { els.sidebarWidthOut.textContent = px(v); },
+      live: showWidth,
       read: () => els.sidebarWidth.value,
-      write: (v) => { els.sidebarWidth.value = String(v); els.sidebarWidthOut.textContent = px(v); },
+      write: (v) => { els.sidebarWidth.value = String(v); showWidth(v); },
     },
     { key: 'scrollSync', node: els.scrollSync, read: () => els.scrollSync.checked, write: (v) => { els.scrollSync.checked = v; } },
     // Stored as "English pages only"; asked the other way round.
@@ -787,8 +943,29 @@
 
   // ---- Init ----
 
+  // The key field as typed. Emptied with no key stored, it clears whatever
+  // the last try said; back at the stored key, it is no longer a pending
+  // change (and the stored key's list and status come back). Anything else
+  // is a pending change, which a key adopted from elsewhere won't overwrite.
+  function onKeyInput() {
+    const v = els.apiKey.value.trim();
+    if (!v && !settings.apiKey) { clearKey(); return; }
+    if (v && v === settings.apiKey) {
+      clearTimeout(connectTimer);
+      lastTried = '';
+      dirty.delete('apiKey');
+      if (keyState === 'connected') showKeyState();
+      else adoptStoredKey([]);
+      return;
+    }
+    dirty.add('apiKey');
+    if (!v && keyState === 'error') { keyState = 'none'; setKeyStatus('', ''); }
+    updateConnect();
+  }
+
   async function init() {
     settings = await SETTINGS.get();
+    const cached = await cachedList();
 
     // Slider ranges come from the settings module, so the bounds live in one place.
     els.sidebarWidth.min = String(SETTINGS.SIDEBAR_WIDTH_MIN);
@@ -797,7 +974,7 @@
     els.fontScale.max = String(SETTINGS.FONT_SCALE_MAX);
     els.fontScale.step = String(SETTINGS.FONT_SCALE_STEP);
     buildLanguageList();
-    showStoredList();
+    showStoredList(cached);
     fillForm();
 
     for (const f of FIELDS) {
@@ -813,16 +990,21 @@
     }
     els.defaultTranslation.addEventListener('change', () => queueCommit(LIST_KEYS));
 
-    els.apiKey.addEventListener('input', () => { dirty.add('apiKey'); updateConnect(); });
+    els.apiKey.addEventListener('input', onKeyInput);
     els.apiKey.addEventListener('paste', () => setTimeout(scheduleConnect, 0));
     els.apiKey.addEventListener('change', () => {
       if (!els.apiKey.value.trim()) clearKey();
       else scheduleConnect();
     });
+    // Enter is Connect, and rests with it (the connected key refetches only
+    // through "Check for new translations").
     els.apiKey.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') { e.preventDefault(); connect(true); }
+      if (e.key !== 'Enter') return;
+      e.preventDefault();
+      if (!els.connectKey.disabled) connect(true);
     });
     els.connectKey.addEventListener('click', () => connect(true));
+    els.recheckKey.addEventListener('click', () => connect(true));
     els.toggleKey.addEventListener('click', () => {
       const show = els.apiKey.type === 'password';
       els.apiKey.type = show ? 'text' : 'password';
@@ -838,14 +1020,8 @@
     SETTINGS.subscribe(({ next, changed, own }) => {
       if (own) return;
       settings = next;
-      if (changed.indexOf('apiKey') >= 0 && !dirty.has('apiKey')) {
-        connectSeq++;
-        showStoredList();
-        fillForm(changed.concat(LIST_KEYS));
-        listRefresh = refreshList();
-        return;
-      }
-      fillForm(changed);
+      if (failed) { failed = null; hideSaveError(); }
+      adopt(changed);
     });
 
     chrome.storage.onChanged.addListener((changes, area) => {
@@ -857,6 +1033,7 @@
     window.addEventListener('pagehide', flush);
 
     showKeyState();
+    reveal(); // the first paint is the filled form
     listRefresh = refreshList();
     const fromHash = () => focusSection(location.hash.slice(1));
     window.addEventListener('hashchange', fromHash);
@@ -864,5 +1041,9 @@
     takeFocusRequest();
   }
 
-  init();
+  // The page stays hidden (options.css) until the first fill, so the empty
+  // skeleton never paints. Revealed even if init fails part way.
+  function reveal() { document.body.setAttribute('data-ready', ''); }
+
+  init().finally(reveal);
 })(typeof globalThis !== 'undefined' ? globalThis : this);
