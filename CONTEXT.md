@@ -1,8 +1,8 @@
 # Translations & Citations
 
 Domain glossary for the Chrome extension that augments the scripture reader on
-`churchofjesuschrist.org/study` with alternate Bible translations and BYU
-Scripture Citation Index data. This file defines what the words mean; file
+`churchofjesuschrist.org/study` with alternate Bible translations, the
+chapter in other Church languages, and BYU Scripture Citation Index data. This file defines what the words mean; file
 layout, rules, and commands live in `CLAUDE.md`.
 
 ## Scripture geography
@@ -106,15 +106,49 @@ verse chip counts distinct cites anchored at that verse.
 ## Panel
 
 **Mode**:
-The user's preferred panel feature on Bible chapters: Translation (Bible only)
-or Citations (all standard works). Stored as the `panelMode` setting, owned by
-the panel.
+The user's preferred panel feature: Translation or Citations. Stored as the
+`panelMode` setting, owned by the panel.
+
+**Translatable** (of a chapter):
+Has a text to show beside it: every Bible chapter (api.bible, even with nothing
+enabled yet — the panel then says so), and any chapter once a Church language
+is enabled. `content.js` decides it from `churchText.textsFor`; the panel only
+reads the flag (`showChapter({ translatable })`).
 
 **Effective mode**:
-The mode actually showing. Equals the mode on Bible chapters; on non-Bible
-books only Citations exists, so citations is forced and the mode toggle is
+The mode actually showing. Equals the mode on a translatable chapter; on any
+other only Citations exists, so citations is forced and the mode toggle is
 hidden — the stored preference survives untouched. `panel.effectiveMode()` is
 the one source of truth.
+
+**Church language**:
+A language the Church publishes the standard works in, offered beside the
+page from the site's own content endpoint (`__BTX.churchText`). Enabled ones
+are the `churchLanguages` setting (codes from `C.CHURCH_LANGUAGES`); each
+becomes a row in the translation dropdown after the api.bible versions, minus
+the page's own language and any language that hasn't published the chapter's
+collection. A chapter a language lacks is "not available", not an error to
+retry. In the reader, *translation* code (the `translation` view,
+`findTranslation`, `populateTranslations`, `btxSelectedTranslation`) handles
+both kinds of row — tell them apart by `provider` (`'church'`). In settings,
+the options page and the worker, *translation* (`enabledTranslations`,
+`defaultTranslationId`) still means api.bible versions only.
+
+**Page split**:
+A Church-language chapter set into the site's own reading column, each block
+paired with the English element of the same id (`__BTX.pageSplit`,
+ADR-0007). It shows while the panel is in Translation mode with a Church
+language picked, and the panel body then only says so. The alternative to
+showing the text in the panel.
+_Avoid_: overlay (that's its mechanism, not the feature)
+
+**Split layout**:
+How the page split arranges a pair — the `churchLanguageLayout` setting:
+**columns** (default; side by side, each pair starting on one row, the shorter
+side leaving open space under it), **interlinear** (the translation under each
+English element), or **panel** (no split; the text shows in the panel).
+Columns fall back to interlinear while the reading area is too narrow for two
+readable columns.
 
 **View**:
 One named body of panel content that can be mounted in the panel body:

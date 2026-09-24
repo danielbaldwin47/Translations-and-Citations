@@ -6,7 +6,7 @@
  * src/content/panel.js exports its state machine for Node (the DOM shell is
  * skipped when `document` is undefined). These checks pin down the toggle
  * semantics that used to live scattered in content.js callbacks: what a mode
- * click means, when the citation-layout toggle acts, and how a non-Bible
+ * click means, when the citation-layout toggle acts, and how an untranslatable
  * chapter forces citations — plus the view host's caching rules, which used to
  * be the orchestrator's citCache/transCache bookkeeping.
  *
@@ -38,7 +38,7 @@ let s = fresh();
 eq(s.mode, 'translation', 'mode defaults to translation');
 eq(s.citationView, 'source', 'citationView defaults to source');
 eq(s.collapsed, false, 'collapsed defaults to false');
-eq(s.isBible, true, 'a fresh panel assumes a Bible chapter');
+eq(s.translatable, true, 'a fresh panel assumes a translatable chapter');
 
 s = fresh({ mode: 'citations', citationView: 'verse', collapsed: true });
 eq(s.mode, 'citations', 'persisted mode is adopted');
@@ -53,12 +53,12 @@ eq(s.collapsed, false, 'garbage collapsed falls back to false');
 // ---- effectiveMode ----
 console.log('effectiveMode:');
 s = fresh({ mode: 'translation' });
-eq(P.effectiveMode(s), 'translation', 'Bible + translation preference -> translation');
+eq(P.effectiveMode(s), 'translation', 'translatable + translation preference -> translation');
 s.mode = 'citations';
-eq(P.effectiveMode(s), 'citations', 'Bible + citations preference -> citations');
+eq(P.effectiveMode(s), 'citations', 'translatable + citations preference -> citations');
 s.mode = 'translation';
-s.isBible = false;
-eq(P.effectiveMode(s), 'citations', 'non-Bible forces citations regardless of preference');
+s.translatable = false;
+eq(P.effectiveMode(s), 'citations', 'an untranslatable chapter forces citations regardless of preference');
 
 // ---- selectMode ----
 console.log('selectMode:');
@@ -69,9 +69,9 @@ eq(P.selectMode(s, 'citations'), false, 're-selecting the current mode is a no-o
 eq(P.selectMode(s, 'translation'), true, 'switching back reports a change');
 
 s = fresh({ mode: 'translation' });
-s.isBible = false;
-eq(P.selectMode(s, 'citations'), false, 'mode clicks are ignored on non-Bible chapters');
-eq(s.mode, 'translation', '...and the Bible-chapter preference is untouched');
+s.translatable = false;
+eq(P.selectMode(s, 'citations'), false, 'mode clicks are ignored on untranslatable chapters');
+eq(s.mode, 'translation', '...and the stored preference is untouched');
 
 s = fresh({ mode: 'translation' });
 eq(P.selectMode(s, 'bogus'), false, 'a garbage mode click cannot corrupt state');
@@ -89,21 +89,24 @@ eq(P.selectCitationView(s, 'verse'), false, 'the layout toggle only acts while c
 eq(s.citationView, 'source', '...and the stored layout is untouched');
 
 s = fresh({ mode: 'translation', citationView: 'source' });
-s.isBible = false; // citations forced -> the toggle acts even though mode pref is translation
-eq(P.selectCitationView(s, 'verse'), true, 'forced citations (non-Bible) counts as citations showing');
+s.translatable = false; // citations forced -> the toggle acts even though mode pref is translation
+eq(P.selectCitationView(s, 'verse'), true, 'forced citations (untranslatable) counts as citations showing');
 
-// ---- setBible ----
-console.log('setBible:');
+// ---- setTranslatable ----
+// Translatable means the chapter has a text to show beside it: every Bible
+// chapter (api.bible), and any chapter at all once a Church language is on.
+console.log('setTranslatable:');
 s = fresh({ mode: 'translation' });
-eq(P.setBible(s, true), false, 'Bible -> Bible does not change the effective mode');
-eq(P.setBible(s, false), true, 'Bible -> non-Bible flips effective mode to citations');
+eq(P.setTranslatable(s, true), false, 'translatable -> translatable does not change the effective mode');
+eq(P.setTranslatable(s, false), true, 'translatable -> not flips effective mode to citations');
 eq(P.effectiveMode(s), 'citations', '...effective mode is citations');
-eq(s.mode, 'translation', '...but the Bible-chapter preference survives');
-eq(P.setBible(s, true), true, 'non-Bible -> Bible restores the preferred mode (a change)');
+eq(s.mode, 'translation', '...but the stored preference survives');
+eq(P.setTranslatable(s, true), true, 'not -> translatable restores the preferred mode (a change)');
 eq(P.effectiveMode(s), 'translation', '...effective mode is translation again');
+eq(P.setTranslatable(s, undefined), false, 'a missing flag reads as translatable (the Bible default)');
 
 s = fresh({ mode: 'citations' });
-eq(P.setBible(s, false), false, 'citations preference: Bible -> non-Bible is not an effective change');
+eq(P.setTranslatable(s, false), false, 'citations preference: translatable -> not is not an effective change');
 
 // ---- View host ----
 // The DOM node is opaque to the core, so `{ name, key }` stands in for one.
@@ -253,9 +256,9 @@ eq(P.wantsScrollSync(fresh(), { visible: false, scrollSync: true }), false, 'a h
 eq(P.wantsScrollSync(fresh({ collapsed: true }), syncable), false, 'a collapsed panel does not sync');
 eq(P.wantsScrollSync(fresh({ mode: 'citations' }), syncable), false, 'citations mode does not sync');
 eq(P.wantsScrollSync(fresh(), { visible: true, scrollSync: false }), false, 'the setting switches it off outright');
-const nonBible = fresh();
-nonBible.isBible = false;
-eq(P.wantsScrollSync(nonBible, syncable), false, 'a non-Bible chapter is citations, so it does not sync');
+const untranslatable = fresh();
+untranslatable.translatable = false;
+eq(P.wantsScrollSync(untranslatable, syncable), false, 'an untranslatable chapter is citations, so it does not sync');
 // Defensive: a missing flag must not read as "on" for visibility, nor as "off"
 // for the setting (the panel asks before its first settings read resolves).
 eq(P.wantsScrollSync(fresh(), {}), false, 'no visibility means no sync');

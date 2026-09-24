@@ -98,6 +98,9 @@ button:focus-visible, input:focus-visible, select:focus-visible {
 .radio input, .check input { margin-top: 3px; }
 
 .checklist { display: flex; flex-direction: column; gap: 2px; max-height: 280px; overflow-y: auto; }
+.checklist-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 2px 12px; max-height: 420px; }
+.checklist-head { grid-column: 1 / -1; font-size: 12px; font-weight: 600; color: var(--muted); margin: 10px 0 2px; }
+.checklist-head:first-child { margin-top: 0; }
 
 .status { font-size: 13px; margin: 10px 0 0; min-height: 1.2em; }
 .status.ok { color: #2e7d32; }

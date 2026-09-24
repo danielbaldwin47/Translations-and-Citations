@@ -29,7 +29,7 @@ function eq(actual, expected, msg) {
 // ---- Schema ----
 console.log('Schema:');
 const KEYS = [
-  'apiKey', 'provider', 'enabledTranslations', 'defaultTranslationId',
+  'apiKey', 'provider', 'enabledTranslations', 'defaultTranslationId', 'churchLanguages', 'churchLanguageLayout',
   'actOnNonEngOnly', 'sidebarWidth', 'fontScale', 'scrollToSnippet', 'citationView',
   'showCitationToggle', 'citationSourceMark', 'panelMode', 'panelCollapsed', 'scrollSync',
 ];
@@ -153,6 +153,30 @@ const trs = [{ id: 'a', name: 'A' }, { id: '', name: 'empty' }, null, 'nope', { 
 eq(S.normalize({ enabledTranslations: trs }).enabledTranslations, [{ id: 'a', name: 'A' }],
   'enabledTranslations keeps only entries with a non-empty id');
 eq(S.normalize({ enabledTranslations: 'nope' }).enabledTranslations, [], 'non-array enabledTranslations -> []');
+
+// ---- normalize: Church languages ----
+console.log('normalize (churchLanguages):');
+const CODES = C.CHURCH_LANGUAGES.map((l) => l.code);
+check(CODES.length > 0, 'the Church language table is not empty');
+eq(new Set(CODES).size, CODES.length, 'the Church language table has no duplicate codes');
+check(C.CHURCH_LANGUAGES.every((l) => /^[a-z]{3}(-[A-Z][a-z]{3})?$/.test(l.code) && l.name && l.english),
+  'every Church language row has a site code (spa, cmn-Latn), a native name and an English name');
+const COLLECTIONS = ['ot', 'nt', 'bofm', 'dc-testament', 'pgp'];
+check(C.CHURCH_LANGUAGES.every((l) => Array.isArray(l.vols) && l.vols.length && l.vols.every((v) => COLLECTIONS.includes(v))),
+  'every Church language names the URL collections it publishes');
+eq(S.defaults().churchLanguages, [], 'churchLanguages defaults to none (the feature is opt-in)');
+const [first, second] = CODES;
+eq(S.normalize({ churchLanguages: [second, first] }).churchLanguages, [first, second],
+  'churchLanguages come back in table order, whatever order they were stored in');
+eq(S.normalize({ churchLanguages: [first, first] }).churchLanguages, [first], 'duplicate codes collapse');
+eq(S.normalize({ churchLanguages: [first, 'xxx', 42, null] }).churchLanguages, [first],
+  'unknown codes and non-strings are dropped');
+eq(S.normalize({ churchLanguages: first }).churchLanguages, [], 'a non-array churchLanguages -> []');
+eq(S.diff({ churchLanguages: [second, first] }, { churchLanguages: [first, second] }), [],
+  'two orderings of the same languages are not a change');
+eq(S.defaults().churchLanguageLayout, 'columns', 'a Church language splits the page side by side by default');
+for (const v of ['columns', 'interlinear', 'panel']) eq(S.normalize({ churchLanguageLayout: v }).churchLanguageLayout, v, `${v} is a layout`);
+eq(S.normalize({ churchLanguageLayout: 'sideways' }).churchLanguageLayout, 'columns', 'an unknown layout falls back to columns');
 
 // ---- diff ----
 console.log('diff:');

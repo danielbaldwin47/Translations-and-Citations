@@ -11,9 +11,9 @@
     <h1>Translations &amp; Citations</h1>
     <p class="lede">
       Study companion for the Gospel Library reader on
-      <code>churchofjesuschrist.org/study</code>: side-by-side Bible translations,
-      plus the General Conference talks, Journal of Discourses sermons, and
-      Joseph Smith teachings that cite each verse.
+      <code>churchofjesuschrist.org/study</code>: side-by-side Bible translations
+      and Church languages, plus the General Conference talks, Journal of
+      Discourses sermons, and Joseph Smith teachings that cite each verse.
     </p>
 
     <section class="card" id="keyCard">
@@ -37,6 +37,30 @@
 
       <h3 class="subhead" id="defaultCard">Default version</h3>
       <select id="defaultTranslation"></select>
+    </section>
+
+    <section class="card" id="languagesCard">
+      <h2>Church languages</h2>
+      <p class="hint">
+        Read the chapter in another language the Church publishes, beside the English page —
+        on every standard work, straight from churchofjesuschrist.org, no key needed. The
+        languages you check join the panel's version dropdown; on the Book of Mormon,
+        Doctrine and Covenants and Pearl of Great Price they are the whole list.
+      </p>
+      <div class="row" id="churchLanguageLayoutRow">
+        <label for="churchLanguageLayout">Show</label>
+        <select id="churchLanguageLayout">
+          <option value="columns">Beside the chapter, side by side</option>
+          <option value="interlinear">Under each verse</option>
+          <option value="panel">In the side panel</option>
+        </select>
+      </div>
+      <p class="hint">
+        <strong>Side by side</strong> splits the page in two, each verse level with its
+        English one; on a narrow window it drops to <strong>under each verse</strong> until
+        there's room (collapse the panel with » for more).
+      </p>
+      <div id="churchLanguages" class="checklist checklist-grid"></div>
     </section>
 
     <section class="card" id="citationsCard">

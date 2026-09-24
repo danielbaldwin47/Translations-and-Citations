@@ -76,6 +76,135 @@
       { id: 'webbe', abbr: 'WEBBE', name: 'World English Bible, British Edition' },
     ],
 
+    // --- Church languages offered beside the page (__BTX.churchText) ---
+    // The site's own `lang=` codes. `name` is the language's own name, `english`
+    // its English one, `vols` the URL collections it publishes (a language
+    // without the chapter's collection is left out of that chapter's dropdown).
+    // Built 2026-09-23 by probing /study/api/v3/language-pages/type/content for
+    // every code in /languages/api/languages: a collection counts when it serves
+    // chapters (a few are partial — Chinese OT is Genesis–Deuteronomy, Hawaiian
+    // D&C 136 of 140 — and a missing chapter reads "not available"). Left out:
+    // ase (serves the English text), cym (1830 chapter divisions, no verse
+    // numbers), efi kaz ben sot and the 17 "Selections from the Book of Mormon"
+    // languages (a minority of chapters). Grouped by coverage, then English name
+    // — which is the order the options page and the dropdown list them in.
+    CHURCH_LANGUAGES: (() => {
+      const ALL = ['ot', 'nt', 'bofm', 'dc-testament', 'pgp'];
+      const BIBLE_BOFM = ['ot', 'nt', 'bofm'];
+      const BIBLE = ['ot', 'nt'];
+      const BOFM_DC_PGP = ['bofm', 'dc-testament', 'pgp'];
+      const BOFM_DC = ['bofm', 'dc-testament'];
+      const BOFM = ['bofm'];
+      return [
+      // All five volumes
+      { code: 'yue', name: '繁體中文 - 廣東話', english: 'Cantonese (Traditional Chinese)', vols: ALL },
+      { code: 'zhs', name: '简体中文 - 普通话', english: 'Chinese, Simplified (Mandarin)', vols: ALL },
+      { code: 'zho', name: '繁體中文 - 國語', english: 'Chinese, Traditional (Mandarin)', vols: ALL },
+      { code: 'eng', name: 'English', english: 'English', vols: ALL },
+      { code: 'fin', name: 'Suomi', english: 'Finnish', vols: ALL },
+      { code: 'fra', name: 'Français', english: 'French', vols: ALL },
+      { code: 'deu', name: 'Deutsch', english: 'German', vols: ALL },
+      { code: 'ita', name: 'Italiano', english: 'Italian', vols: ALL },
+      { code: 'jpn', name: '日本語', english: 'Japanese', vols: ALL },
+      { code: 'kor', name: '한국어', english: 'Korean', vols: ALL },
+      { code: 'por', name: 'Português (Brasil)', english: 'Portuguese', vols: ALL },
+      { code: 'spa', name: 'Español', english: 'Spanish', vols: ALL },
+      { code: 'swe', name: 'Svenska', english: 'Swedish', vols: ALL },
+      { code: 'ton', name: 'Faka-Tonga', english: 'Tongan', vols: ALL },
+      { code: 'tur', name: 'Türkçe', english: 'Turkish', vols: ALL },
+      // Bible + Book of Mormon
+      { code: 'ara', name: 'العربية', english: 'Arabic', vols: BIBLE_BOFM },
+      { code: 'yap', name: 'Thin Nu Wa\'ab', english: 'Yapese', vols: BIBLE_BOFM },
+      // Bible only
+      { code: 'meu', name: 'Motu', english: 'Motu', vols: BIBLE },
+      // Book of Mormon, Doctrine and Covenants, Pearl of Great Price
+      { code: 'afr', name: 'Afrikaans', english: 'Afrikaans', vols: BOFM_DC_PGP },
+      { code: 'alb', name: 'Shqip', english: 'Albanian', vols: BOFM_DC_PGP },
+      { code: 'amh', name: 'አማርኛ', english: 'Amharic', vols: BOFM_DC_PGP },
+      { code: 'hye', name: 'Հայերեն', english: 'Armenian', vols: BOFM_DC_PGP },
+      { code: 'bis', name: 'Bislama', english: 'Bislama', vols: BOFM_DC_PGP },
+      { code: 'bul', name: 'Български', english: 'Bulgarian', vols: BOFM_DC_PGP },
+      { code: 'cat', name: 'Català', english: 'Catalan', vols: BOFM_DC_PGP },
+      { code: 'ceb', name: 'Cebuano', english: 'Cebuano', vols: BOFM_DC_PGP },
+      { code: 'rar', name: 'Māori Kuki Airani', english: 'Cook Islands Māori', vols: BOFM_DC_PGP },
+      { code: 'hrv', name: 'Hrvatski', english: 'Croatian', vols: BOFM_DC_PGP },
+      { code: 'ces', name: 'Česky', english: 'Czech', vols: BOFM_DC_PGP },
+      { code: 'dan', name: 'Dansk', english: 'Danish', vols: BOFM_DC_PGP },
+      { code: 'nld', name: 'Nederlands', english: 'Dutch', vols: BOFM_DC_PGP },
+      { code: 'est', name: 'Eesti', english: 'Estonian', vols: BOFM_DC_PGP },
+      { code: 'fat', name: 'Fante', english: 'Fante', vols: BOFM_DC_PGP },
+      { code: 'fij', name: 'Vosa vakaviti', english: 'Fijian', vols: BOFM_DC_PGP },
+      { code: 'kat', name: 'ქართული', english: 'Georgian', vols: BOFM_DC_PGP },
+      { code: 'ell', name: 'Ελληνικά', english: 'Greek', vols: BOFM_DC_PGP },
+      { code: 'grn', name: 'Guaraní (Avañe\'ẽ)', english: 'Guaraní', vols: BOFM_DC_PGP },
+      { code: 'hat', name: 'Kreyòl Ayisyen', english: 'Haitian Creole', vols: BOFM_DC_PGP },
+      { code: 'haw', name: 'ʻŌlelo Hawaiʻi', english: 'Hawaiian', vols: BOFM_DC_PGP },
+      { code: 'hil', name: 'Hiligaynon', english: 'Hiligaynon', vols: BOFM_DC_PGP },
+      { code: 'hin', name: 'हिन्दी', english: 'Hindi', vols: BOFM_DC_PGP },
+      { code: 'hmn', name: 'Hmoob', english: 'Hmong', vols: BOFM_DC_PGP },
+      { code: 'hun', name: 'Magyar', english: 'Hungarian', vols: BOFM_DC_PGP },
+      { code: 'isl', name: 'íslenska', english: 'Icelandic', vols: BOFM_DC_PGP },
+      { code: 'ibo', name: 'Igbo', english: 'Igbo', vols: BOFM_DC_PGP },
+      { code: 'ilo', name: 'Ilokano', english: 'Ilokano', vols: BOFM_DC_PGP },
+      { code: 'ind', name: 'Bahasa Indonesia', english: 'Indonesian', vols: BOFM_DC_PGP },
+      { code: 'khm', name: 'ភាសាខ្មែរ', english: 'Khmer', vols: BOFM_DC_PGP },
+      { code: 'kin', name: 'Kinyarwanda', english: 'Kinyarwanda', vols: BOFM_DC_PGP },
+      { code: 'gil', name: 'Kiribati', english: 'Kiribati (Gilbertese)', vols: BOFM_DC_PGP },
+      { code: 'lao', name: 'ພາສາລາວ', english: 'Lao', vols: BOFM_DC_PGP },
+      { code: 'lav', name: 'Latviešu', english: 'Latvian', vols: BOFM_DC_PGP },
+      { code: 'lin', name: 'Lingála', english: 'Lingala', vols: BOFM_DC_PGP },
+      { code: 'lit', name: 'Lietuvių', english: 'Lithuanian', vols: BOFM_DC_PGP },
+      { code: 'mkd', name: 'Македонски', english: 'Macedonian', vols: BOFM_DC_PGP },
+      { code: 'mlg', name: 'Malagasy', english: 'Malagasy', vols: BOFM_DC_PGP },
+      { code: 'msa', name: 'Bahasa Melayu', english: 'Malay', vols: BOFM_DC_PGP },
+      { code: 'mri', name: 'Te Reo Māori', english: 'Māori', vols: BOFM_DC_PGP },
+      { code: 'mah', name: 'Kajin Majōl', english: 'Marshallese', vols: BOFM_DC_PGP },
+      { code: 'mon', name: 'Монгол', english: 'Mongolian', vols: BOFM_DC_PGP },
+      { code: 'nep', name: 'नेपाली', english: 'Nepali', vols: BOFM_DC_PGP },
+      { code: 'nor', name: 'Norsk', english: 'Norwegian', vols: BOFM_DC_PGP },
+      { code: 'pes', name: 'فارسی', english: 'Persian', vols: BOFM_DC_PGP },
+      { code: 'pol', name: 'Polski', english: 'Polish', vols: BOFM_DC_PGP },
+      { code: 'kek', name: 'Q’eqchi’', english: 'Qʼeqchiʼ', vols: BOFM_DC_PGP },
+      { code: 'ron', name: 'Română', english: 'Romanian', vols: BOFM_DC_PGP },
+      { code: 'rus', name: 'Русский', english: 'Russian', vols: BOFM_DC_PGP },
+      { code: 'smo', name: 'Gagana Samoa', english: 'Samoan', vols: BOFM_DC_PGP },
+      { code: 'srp', name: 'Српски', english: 'Serbian', vols: BOFM_DC_PGP },
+      { code: 'tsn', name: 'Setswana', english: 'Setswana', vols: BOFM_DC_PGP },
+      { code: 'sna', name: 'Shona', english: 'Shona', vols: BOFM_DC_PGP },
+      { code: 'sin', name: 'සිංහල', english: 'Sinhala', vols: BOFM_DC_PGP },
+      { code: 'slk', name: 'Slovenčina', english: 'Slovak', vols: BOFM_DC_PGP },
+      { code: 'slv', name: 'Slovenščina', english: 'Slovenian', vols: BOFM_DC_PGP },
+      { code: 'swa', name: 'Kiswahili', english: 'Swahili', vols: BOFM_DC_PGP },
+      { code: 'tgl', name: 'Tagalog', english: 'Tagalog', vols: BOFM_DC_PGP },
+      { code: 'tah', name: 'Reo Tahiti', english: 'Tahitian', vols: BOFM_DC_PGP },
+      { code: 'tam', name: 'தமிழ்', english: 'Tamil', vols: BOFM_DC_PGP },
+      { code: 'tel', name: 'తెలుగు', english: 'Telugu', vols: BOFM_DC_PGP },
+      { code: 'tha', name: 'ภาษาไทย', english: 'Thai', vols: BOFM_DC_PGP },
+      { code: 'twi', name: 'Twi', english: 'Twi', vols: BOFM_DC_PGP },
+      { code: 'ukr', name: 'Українська', english: 'Ukrainian', vols: BOFM_DC_PGP },
+      { code: 'urd', name: 'اردو', english: 'Urdu', vols: BOFM_DC_PGP },
+      { code: 'vie', name: 'Tiếng Việt', english: 'Vietnamese', vols: BOFM_DC_PGP },
+      { code: 'xho', name: 'isiXhosa', english: 'Xhosa', vols: BOFM_DC_PGP },
+      { code: 'yor', name: 'Èdè Yorùbá', english: 'Yoruba', vols: BOFM_DC_PGP },
+      { code: 'zul', name: 'isiZulu', english: 'Zulu', vols: BOFM_DC_PGP },
+      // Book of Mormon + Doctrine and Covenants
+      { code: 'mlt', name: 'Malti', english: 'Maltese', vols: BOFM_DC },
+      { code: 'pon', name: 'Mahsen en Pohnpei', english: 'Pohnpeian', vols: BOFM_DC },
+      { code: 'ssw', name: 'siSwati', english: 'Swati', vols: BOFM_DC },
+      // Book of Mormon only
+      { code: 'aym', name: 'Aymar Aru', english: 'Aymara', vols: BOFM },
+      { code: 'mya', name: 'ဗမာစာ', english: 'Burmese', vols: BOFM },
+      { code: 'nya', name: 'Chichewa', english: 'Chichewa', vols: BOFM },
+      { code: 'cmn-Latn', name: '漢語拼音', english: 'Chinese (Pinyin)', vols: BOFM },
+      { code: 'chk', name: 'Fosun Chuuk', english: 'Chuukese', vols: BOFM },
+      { code: 'qvi', name: 'Kichwa', english: 'Kichwa (Ecuador)', vols: BOFM },
+      { code: 'kos', name: 'Kahs Kosrae', english: 'Kosraean', vols: BOFM },
+      { code: 'pag', name: 'Pangasinan', english: 'Pangasinan', vols: BOFM },
+      { code: 'tpi', name: 'Tok Pisin', english: 'Tok Pisin', vols: BOFM },
+      { code: 'lua', name: 'Tshiluba', english: 'Tshiluba', vols: BOFM },
+      ];
+    })(),
+
     // NOTE: the settings schema and its defaults live in
     // src/shared/settings.js (`__BTX.settings`), which owns the whole
     // `SETTINGS_KEY` object — reads, writes, normalization and change events.

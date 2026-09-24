@@ -99,9 +99,30 @@ eq(plan(null, ['citationView', 'enabledTranslations']),
   { fields: FIELD_KEYS, relist: true, reselect: false },
   'the initial fill predates any edit, so dirt does not hold it back');
 
+// ---- languageGroups: the Church-language checklist's sections ----
+console.log('languageGroups:');
+const ALL5 = ['ot', 'nt', 'bofm', 'dc-testament', 'pgp'];
+const g = F.languageGroups([
+  { code: 'spa', vols: ALL5 }, { code: 'ara', vols: ['ot', 'nt', 'bofm'] }, { code: 'jpn', vols: ALL5 },
+  { code: 'tgl', vols: ['bofm', 'dc-testament', 'pgp'] }, { code: 'mya', vols: ['bofm'] }, { code: 'meu', vols: ['ot', 'nt'] },
+  { code: 'ssw', vols: ['bofm', 'dc-testament'] },
+]);
+eq(g.map((x) => [x.label, x.langs.map((l) => l.code)]), [
+  ['All standard works', ['spa', 'jpn']],
+  ['Bible and Book of Mormon', ['ara']],
+  ['Book of Mormon, Doctrine and Covenants and Pearl of Great Price', ['tgl']],
+  ['Book of Mormon', ['mya']],
+  ['Bible', ['meu']],
+  ['Book of Mormon and Doctrine and Covenants', ['ssw']],
+], 'languages group by what they publish, in first-seen order, keeping table order inside a group');
+eq(F.languageGroups(undefined), [], 'no table, no groups');
+const C = require(path.join(ROOT, 'src/shared/constants.js'));
+eq(F.languageGroups(C.CHURCH_LANGUAGES).reduce((n, x) => n + x.langs.length, 0), C.CHURCH_LANGUAGES.length,
+  'every language in the real table lands in exactly one group');
+
 // ---- the DOM shell stays out of Node ----
 console.log('Shell:');
-eq(Object.keys(F).sort(), ['fillPlan', 'initialChecks', 'pickDefaultId', 'translationPatch'],
+eq(Object.keys(F).sort(), ['fillPlan', 'initialChecks', 'languageGroups', 'pickDefaultId', 'translationPatch'],
   'requiring the page in Node exposes the pure core and nothing else');
 
 // ---- the shell actually uses the core ----
@@ -128,11 +149,25 @@ check(/fillPlan\(/.test(src), 'the live refresh asks fillPlan what to repaint');
 const fieldsTable = (src.match(/const FIELDS = \[[\s\S]*?\n {2}\];/) || [''])[0];
 check(fieldsTable, 'FIELDS is still one literal table in the shell');
 const html = fs.readFileSync(path.join(ROOT, 'src/options/options.html'), 'utf8');
-for (const key of ['scrollSync', 'scrollToSnippet', 'actOnNonEngOnly', 'showCitationToggle', 'citationSourceMark', 'sidebarWidth', 'fontScale']) {
+for (const key of ['churchLanguages', 'churchLanguageLayout', 'scrollSync', 'scrollToSnippet', 'actOnNonEngOnly', 'showCitationToggle', 'citationSourceMark', 'sidebarWidth', 'fontScale']) {
   check(new RegExp(`key: '${key}'`).test(fieldsTable), `${key} is a FIELDS row (so Save writes it and fillForm repaints it)`);
   check(new RegExp(`id="${key}"`).test(html), `${key} has a control on the options page`);
 }
 check(/id="panelCard"[\s\S]*id="scrollSync"/.test(html), 'the scroll-sync checkbox sits in the Panel card');
+check(/id="languagesCard"[\s\S]*id="churchLanguages"[\s\S]*id="citationsCard"/.test(html),
+  'the Church-language checklist sits in its own card');
+// The languages come from the extension's own table, never from the key test:
+// a Save must be able to write them whether or not a key was ever tested — a
+// list built only after a key test would read as [] and wipe the stored ones.
+const bodyOf = (name) => (src.match(new RegExp(`(?:async )?function ${name}\\([^)]*\\) \\{[\\s\\S]*?\\n {2}\\}\\n`)) || [''])[0];
+check(/buildLanguageList\(\);\s*fillForm\(\);/.test(bodyOf('init')),
+  'init builds the Church-language checklist before the first fillForm, key or no key');
+check(/for \(const group of languageGroups\(C\.CHURCH_LANGUAGES\)\)/.test(bodyOf('buildLanguageList')),
+  'the checklist is built from the extension\'s own language table');
+for (const name of ['testKey', 'renderTranslations']) {
+  const body = bodyOf(name);
+  check(body && !/buildLanguageList|churchLanguages/.test(body), `${name} never builds or touches the Church-language list`);
+}
 check(/id="panelCard"[\s\S]*id="fontScale"/.test(html), 'the text-size slider sits in the Panel card');
 // Both sliders take their range from the settings module, so the bounds live in
 // exactly one place.

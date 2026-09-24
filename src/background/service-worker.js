@@ -30,6 +30,8 @@ async function handleGetEnabledTranslations() {
   const s = await SETTINGS.get();
   return {
     translations: s.enabledTranslations,
+    churchLanguages: s.churchLanguages,
+    churchLanguageLayout: s.churchLanguageLayout,
     defaultId: s.defaultTranslationId,
     provider: s.provider,
     hasKey: !!s.apiKey,

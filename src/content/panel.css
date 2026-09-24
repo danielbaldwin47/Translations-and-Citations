@@ -243,14 +243,21 @@
 
 #btx-root .btx-para {
   margin: 0 0 0.7em;
-  text-align: left;
+  text-align: start; /* the text's own start: right for Arabic, Persian, Urdu */
 }
 
 #btx-root .btx-poetry {
   white-space: normal;
-  padding-left: 1.2em;
+  padding-inline-start: 1.2em;
 }
-#btx-root .btx-q2 { padding-left: 2.4em; }
+#btx-root .btx-q2 { padding-inline-start: 2.4em; }
+
+/* A Church-language chapter's italic summary and introductory line. */
+#btx-root .btx-summary,
+#btx-root .btx-intro { font-style: italic; opacity: 0.85; }
+
+/* Japanese furigana: small, and not given the reading line's full height. */
+#btx-root rt { font-size: 0.5em; opacity: 0.8; }
 
 #btx-root .btx-vnum {
   font-size: 0.62em;
@@ -258,7 +265,7 @@
   vertical-align: super;
   line-height: 0;
   color: var(--btx-accent);
-  margin-right: 2px;
+  margin-inline-end: 2px;
 }
 
 #btx-root .btx-wj { color: #b3261e; }
@@ -287,6 +294,8 @@
   color: var(--btx-muted);
 }
 #btx-root .btx-state-text { margin: 0; }
+#btx-root .btx-beside .btx-state-text { color: var(--btx-text); font-weight: 600; }
+#btx-root .btx-state-hint { margin: 0; font-size: 0.9em; line-height: 1.45; max-width: 30em; }
 
 #btx-root .btx-cta {
   appearance: none;

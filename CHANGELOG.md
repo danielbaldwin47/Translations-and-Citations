@@ -6,6 +6,21 @@ starting fresh at 0.x for the first tagged release.
 
 ## Unreleased
 
+- **Church languages** (new options card): the chapter in Spanish, Portuguese,
+  Japanese, … beside the English page, on every standard work — straight from
+  churchofjesuschrist.org, no key. Checked languages join the translation
+  dropdown; on the Book of Mormon, D&C and Pearl of Great Price they make
+  Translation mode available for the first time. 100 languages, grouped by what
+  each publishes; a language without the current book's volume isn't offered
+  there. Chapter heading, summary, poetry lines, Japanese furigana and
+  right-to-left scripts (Arabic, Persian, Urdu) carry over; scroll-sync stays
+  proportional (French and German number Psalm superscriptions as verses).
+- **Page split**: by default a Church language is set into the page itself,
+  beside the English — side by side, each verse level with its partner and the
+  shorter side leaving open space under it. Options: under each verse, or in
+  the panel as before. A window too narrow for two columns shows it under each
+  verse until there's room.
+
 - **Panel text size** (Panel card): a 70–160% multiplier on the panel's reading
   text — translation, citation list, talk reader. It multiplies the size
   mirrored from the site, so the site's own font-size slider still applies.
