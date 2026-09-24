@@ -1,6 +1,6 @@
 /*
  * The side panel — a deep module that owns everything panel-shaped: its DOM,
- * its state (mode, citation layout, collapsed, width, bible-mode), the
+ * its state (mode, citation layout, collapsed, width, translatable), the
  * persistence of that state through __BTX.settings, scroll-sync, and
  * drag-to-resize. It is also the *view host*: callers ask for a named view and
  * the panel decides whether to rebuild it or re-mount the one it cached, and
@@ -11,11 +11,13 @@
  * Interface:
  *   init(handlers)                 build the DOM, adopt persisted state, wire
  *                                  controls; must be awaited before use
- *   showChapter({ title, isBible })  make the panel visible for a chapter
- *                                  (also invalidates every cached view)
+ *   showChapter({ title, translatable })  make the panel visible for a
+ *                                  chapter (also invalidates every cached
+ *                                  view); `translatable` is false when the
+ *                                  chapter has no text to show beside it
  *   hide()
  *   effectiveMode()                'translation' | 'citations' — citations is
- *                                  forced on non-Bible chapters
+ *                                  forced on chapters that aren't translatable
  *   citationView()                 'source' | 'verse'
  *   showView({ name, key, cache, render })  mount the named view; see the view
  *                                  host section below. Returns render's result.
@@ -30,7 +32,12 @@
  *                                    { kind:'loading', label }
  *                                    { kind:'nokey' }
  *                                    { kind:'error', message, retry }
- *                                    { kind:'content', blocks, copyright, reference }
+ *                                    { kind:'content', blocks, copyright, reference, lang, dir }
+ *                                    { kind:'beside', label }  the text is split
+ *                                      into the page instead (__BTX.pageSplit)
+ *                                  (`lang` is the text's BCP 47 tag, if it
+ *                                  isn't English — CJK glyphs and hyphenation
+ *                                  depend on it; `dir` 'rtl' for Arabic, …)
  *   populateTranslations(list, selectedId)
  *   getRootEl()
  *
@@ -78,21 +85,23 @@
       mode: init.mode === 'citations' ? 'citations' : 'translation',
       citationView: init.citationView === 'verse' ? 'verse' : 'source',
       collapsed: init.collapsed === true,
-      isBible: true,
+      translatable: true,
     };
   }
 
-  // Non-Bible chapters have no translation, so citations is forced there;
-  // `mode` keeps the user's Bible-chapter preference untouched.
+  // A chapter with no text to show beside it (a non-Bible chapter while no
+  // Church language is enabled) forces citations; `mode` keeps the user's
+  // preference untouched for the next chapter that has one.
   function effectiveMode(s) {
-    return s.isBible ? s.mode : 'citations';
+    return s.translatable ? s.mode : 'citations';
   }
 
   // A mode-segment click. True when the mode changed (content must re-render);
-  // false for a re-click or on non-Bible chapters, where the toggle is inert.
+  // false for a re-click or on an untranslatable chapter, where the toggle is
+  // inert.
   function selectMode(s, m) {
     if (m !== 'citations' && m !== 'translation') return false;
-    if (!s.isBible || m === s.mode) return false;
+    if (!s.translatable || m === s.mode) return false;
     s.mode = m;
     return true;
   }
@@ -106,11 +115,11 @@
     return true;
   }
 
-  // A new chapter arrived. True when the *effective* mode flipped (a Bible
-  // page giving way to a non-Bible one, or back).
-  function setBible(s, isBible) {
+  // A new chapter arrived. True when the *effective* mode flipped (a
+  // translatable chapter giving way to one that isn't, or back).
+  function setTranslatable(s, translatable) {
     const before = effectiveMode(s);
-    s.isBible = isBible !== false;
+    s.translatable = translatable !== false;
     return effectiveMode(s) !== before;
   }
 
@@ -417,7 +426,7 @@
 
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = {
-      createState, effectiveMode, selectMode, selectCitationView, setBible,
+      createState, effectiveMode, selectMode, selectCitationView, setTranslatable,
       stepFontScale,
       createViews, saveViewScroll, selectView, keepView, settleView, dropViews,
       viewRestoresScroll, wantsScrollSync,
@@ -793,9 +802,9 @@
     visible = true;
     ui.rootEl.style.display = '';
     ui.title.textContent = (ctx && ctx.title) || '';
-    setBible(state, ctx && ctx.isBible);
-    ui.modes.style.display = state.isBible ? '' : 'none';
-    ui.tab.textContent = state.isBible ? 'Translation & Citations' : 'Citations';
+    setTranslatable(state, ctx && ctx.translatable);
+    ui.modes.style.display = state.translatable ? '' : 'none';
+    ui.tab.textContent = state.translatable ? 'Translation & Citations' : 'Citations';
     applyModeUI();
     updatePageReserve();
   }
@@ -1074,7 +1083,7 @@
         clearBody();
         keepView(views, false);
         const wrap = el('div', 'btx-state');
-        wrap.appendChild(el('p', 'btx-state-text', 'Add a free scripture.api.bible API key to load translations.'));
+        wrap.appendChild(el('p', 'btx-state-text', 'Add a free scripture.api.bible API key to load translations, or turn on a Church language in settings.'));
         const btn = el('button', 'btx-cta', 'Add your API key');
         btn.addEventListener('click', () => cbs.onGear && cbs.onGear());
         wrap.appendChild(btn);
@@ -1094,9 +1103,21 @@
         host.appendChild(wrap);
         return;
       }
+      case 'beside': {
+        clearBody();
+        keepView(views, false); // cheap, and it must re-render to re-check the chapter
+        const wrap = el('div', 'btx-state btx-beside');
+        wrap.appendChild(el('p', 'btx-state-text', `${st.label || 'The translation'} is beside the chapter.`));
+        wrap.appendChild(el('p', 'btx-state-hint',
+          'Side by side when there’s room, otherwise under each verse — collapse this panel (») for wider columns. Change how it’s shown in settings (⚙).'));
+        host.appendChild(wrap);
+        return;
+      }
       case 'content': {
         clearBody();
         const article = el('div', 'btx-article');
+        if (st.lang) article.lang = st.lang;
+        if (st.dir) article.dir = st.dir;
         if (st.reference) article.appendChild(el('div', 'btx-reference', st.reference));
         article.appendChild(SAN().renderBlocks(st.blocks));
         host.appendChild(article);

@@ -19,6 +19,8 @@
         "src/shared/settings.js",
         "src/shared/books.js",
         "src/content/sanitize.js",
+        "src/content/church-text.js",
+        "src/content/page-split.js",
         "src/content/theme.js",
         "src/content/detect.js",
         "src/content/panel.js",
@@ -30,7 +32,7 @@
         "src/citations/cit-panel.js",
         "src/content/content.js"
       ],
-      "css": ["src/content/panel.css", "src/citations/citations.css"],
+      "css": ["src/content/panel.css", "src/citations/citations.css", "src/content/page-split.css"],
       "run_at": "document_idle"
     }
   ],

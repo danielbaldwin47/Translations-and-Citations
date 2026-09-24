@@ -4,7 +4,9 @@
  * hosts the views (caching, scroll position):
  *  - watches SPA navigation and renders the matching chapter's content
  *  - points the theme module at the panel root (it owns keeping it in sync)
- *  - manages translation selection and the loading/error/no-key states
+ *  - manages translation selection and the loading/error/no-key states; the
+ *    dropdown's rows and the pick among them are __BTX.churchText's pure
+ *    textsFor / pickText (api.bible versions, then Church languages)
  *  - answers the panel's renderMode event with fresh mode content
  *  - names each view and supplies its content key; it holds no panel DOM
  *
@@ -23,6 +25,8 @@
   const panel = root.__BTX.panel;
   const citPanel = root.__BTX.citPanel;
   const talkView = root.__BTX.talkView;
+  const churchText = root.__BTX.churchText;
+  const pageSplit = root.__BTX.pageSplit;
 
   const SELECTION_KEY = 'btxSelectedTranslation';
 
@@ -33,8 +37,15 @@
   // read it rather than keeping a copy that could drift.
   const PANEL_KEYS = panel.HANDLED_KEYS;
 
-  let enabled = null; // { translations, defaultId, provider, hasKey }
+  let enabled = null; // { translations, churchLanguages, defaultId, provider, hasKey }
+  // The version the user last picked (persisted under SELECTION_KEY). A
+  // preference, not what is showing: a chapter that doesn't offer it shows a
+  // fallback without overwriting it — see pickText.
   let selectedId = null;
+  let selectionLoaded = false;
+  let texts = []; // the rows the current chapter offers (textsFor)
+  let activeId = null; // the row showing now (pickText)
+  let splitToken = 0; // guards the page split against stale chapter loads
   let current = null; // parsed location
   let reqToken = 0; // guards against stale responses
   let retryTimer = null;
@@ -71,14 +82,24 @@
   }
 
   function findTranslation(id) {
-    return enabled && enabled.translations.find((t) => t.id === id);
+    return texts.find((t) => t.id === id);
   }
 
   async function loadEnabled(force) {
     if (enabled && !force) return enabled;
     enabled = await send({ type: C.MSG.GET_ENABLED_TRANSLATIONS });
-    if (!enabled || enabled.error) enabled = { translations: [], defaultId: '', provider: C.PROVIDER_APIBIBLE, hasKey: false };
+    if (!enabled || enabled.error) enabled = { translations: [], churchLanguages: [], defaultId: '', provider: C.PROVIDER_APIBIBLE, hasKey: false };
     return enabled;
+  }
+
+  function textsForChapter(parsed, e) {
+    return churchText.textsFor({
+      isBible: parsed.isBible !== false,
+      collection: parsed.collection,
+      bibleRows: e.translations,
+      languages: e.churchLanguages,
+      pageLang: parsed.lang,
+    });
   }
 
   function storeSelection(id) {
@@ -92,6 +113,7 @@
     if (!parsed) {
       panel.hide();
       currentKey = null;
+      syncSplit();
       return;
     }
 
@@ -101,6 +123,10 @@
     if (key === currentKey) return;
     currentKey = key;
     clearTimeout(retryTimer);
+    // A new chapter: the split's per-id rules would land on the incoming
+    // chapter's elements before its text arrives.
+    ++splitToken;
+    pageSplit.hide();
 
     if (userClosed) {
       panel.hide();
@@ -112,10 +138,14 @@
     // Respect the "English pages only" preference.
     if (e.actOnNonEngOnly !== false && parsed.lang !== 'eng') {
       panel.hide();
+      syncSplit();
       return;
     }
 
-    panel.showChapter({ title: refLabel(parsed), isBible: parsed.isBible !== false });
+    // Every Bible chapter is translatable (with nothing enabled it says so);
+    // any other chapter only once a Church language gives it a text.
+    texts = textsForChapter(parsed, e);
+    panel.showChapter({ title: refLabel(parsed), translatable: parsed.isBible !== false || texts.length > 0 });
     if (themeMirror) themeMirror.refresh(); // the panel is on screen: theme it now
 
     await renderActiveMode();
@@ -123,7 +153,41 @@
 
   function renderActiveMode() {
     if (!current) return undefined;
-    return panel.effectiveMode() === 'citations' ? renderCitations(current) : renderTranslation();
+    if (panel.effectiveMode() === 'citations') {
+      syncSplit(); // the split belongs to Translation mode
+      return renderCitations(current);
+    }
+    return renderTranslation();
+  }
+
+  // The page split follows Translation mode: it shows while the active row is a
+  // Church language whose layout is in-page, and goes with everything else —
+  // Citations, an api.bible version, the panel closed, the page left. Called
+  // wherever one of those inputs moves; pageSplit.show is a no-op for the key
+  // already showing.
+  async function syncSplit() {
+    const e = enabled;
+    const row = findTranslation(activeId);
+    const layout = e && e.churchLanguageLayout;
+    const want = pageSplit.wantsSplit({
+      visible: !!current && !userClosed && !!e && !(e.actOnNonEngOnly !== false && current.lang !== 'eng'),
+      mode: panel.effectiveMode(),
+      row,
+      layout,
+    });
+    if (!want) {
+      ++splitToken;
+      pageSplit.hide();
+      return;
+    }
+    const parsed = current;
+    const key = `${citKey(parsed)}|${row.lang}|${layout}`;
+    if (pageSplit.currentKey() === key) return;
+    const token = ++splitToken;
+    const res = await churchText.load(parsed, row.lang);
+    if (token !== splitToken) return;
+    if (!res || res.error) { pageSplit.hide(); return; } // the panel card says why
+    pageSplit.show({ key, chapter: res, layout, uri: churchText.chapterUri(parsed) });
   }
 
   // The panel switched its mode or citation layout and needs fresh content.
@@ -138,8 +202,15 @@
     // The user can toggle to Citations while that resolves; mounting a
     // translation view now would paint over the citations they asked for.
     if (panel.effectiveMode() !== 'translation') return;
-    const list = e.translations || [];
+    const list = texts = textsForChapter(current, e);
     if (!list.length) {
+      // Nothing left to show, so nothing in flight may land here either: a load
+      // started for a row that has just gone would paint over this state (and
+      // be cached under its key).
+      ++reqToken;
+      clearTimeout(retryTimer);
+      activeId = null;
+      syncSplit();
       panel.populateTranslations([], '');
       // Not a chapter — the panel won't re-mount these states anyway.
       return panel.showView({ name: 'translation', key: 'no-translations', render: () => {
@@ -147,18 +218,21 @@
         else panel.showTranslation({ kind: 'error', message: 'No translations enabled yet. Open settings (⚙) to choose.', retry: false });
       } });
     }
-    if (!selectedId || !findTranslation(selectedId)) {
+    if (!selectionLoaded) {
       const stored = await getStored(SELECTION_KEY);
-      selectedId = (findTranslation(stored) && stored) || (findTranslation(e.defaultId) && e.defaultId) || list[0].id;
+      if (!selectedId) selectedId = typeof stored === 'string' ? stored : null;
+      selectionLoaded = true;
     }
-    panel.populateTranslations(list, selectedId);
+    activeId = churchText.pickText(list, [selectedId, e.defaultId]);
+    panel.populateTranslations(list, activeId);
+    syncSplit();
     // Same chapter and same version -> the panel re-mounts what it has, and
     // loadChapter never runs.
     return panel.showView({ name: 'translation', key: transKey(), render: () => loadChapter() });
   }
 
   function transKey() {
-    return current ? `${citKey(current)}::${selectedId}` : null;
+    return current ? `${citKey(current)}::${activeId}` : null;
   }
 
   function citKey(parsed) {
@@ -207,13 +281,14 @@
     // paint a translation spinner over a mounted citations view.
     if (panel.effectiveMode() !== 'translation') return;
     const parsed = current;
-    const tr = findTranslation(selectedId);
+    const tr = findTranslation(activeId);
     if (!parsed || !tr) return;
-    const chapterId = detect.toUsfmChapterId(parsed);
     const label = tr.abbr || tr.name;
     panel.showTranslation({ kind: 'loading', label });
 
     const myToken = ++reqToken;
+    if (tr.provider === churchText.PROVIDER) return loadChurchChapter(parsed, tr, label, myToken);
+    const chapterId = detect.toUsfmChapterId(parsed);
     const res = await send({
       type: C.MSG.GET_CHAPTER,
       provider: tr.provider,
@@ -236,6 +311,31 @@
       reference: res.reference || refLabel(parsed),
     });
     if (res.fums) fireFums(res.fums);
+  }
+
+  // A Church-language chapter comes straight from the site (same origin), so
+  // it skips the worker, the key, the rate limiter and FUMS. Split into the
+  // page (syncSplit), the panel only says so — or why it couldn't.
+  async function loadChurchChapter(parsed, tr, label, myToken) {
+    const res = await churchText.load(parsed, tr.lang);
+    if (myToken !== reqToken) return; // user navigated/switched in the meantime
+    if (panel.effectiveMode() !== 'translation') return; // user toggled to citations mid-load
+    if (!res || res.error) {
+      handleError((res && res.error) || { code: C.ERR.UNKNOWN }, label);
+      return;
+    }
+    if (enabled && enabled.churchLanguageLayout !== 'panel') {
+      panel.showTranslation({ kind: 'beside', label });
+      return;
+    }
+    panel.showTranslation({
+      kind: 'content',
+      blocks: res.blocks,
+      copyright: 'From churchofjesuschrist.org · © Intellectual Reserve, Inc.',
+      reference: res.title || refLabel(parsed),
+      lang: res.bcp47,
+      dir: res.dir,
+    });
   }
 
   function showError(message, retry) {
@@ -302,7 +402,7 @@
       },
       onRetry: () => loadChapter(),
       onGear: () => send({ type: C.MSG.OPEN_OPTIONS }),
-      onClose: () => { userClosed = true; panel.hide(); },
+      onClose: () => { userClosed = true; panel.hide(); syncSplit(); },
     });
 
     scrollToSnippet = (await SETTINGS.get()).scrollToSnippet;
@@ -331,6 +431,7 @@
         userClosed = !userClosed;
         if (userClosed) {
           panel.hide();
+          syncSplit();
         } else {
           currentKey = null; // force re-render after re-opening
           render();

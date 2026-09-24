@@ -99,6 +99,17 @@
   const APIBIBLE = C.PROVIDER_APIBIBLE;
   const BIBLEAPI = C.PROVIDER_BIBLEAPI;
 
+  // Church languages are codes from C.CHURCH_LANGUAGES, kept in that table's
+  // order (which is the order the panel's dropdown lists them) with duplicates
+  // dropped. A code the table doesn't know is dropped too: it would name a
+  // language the panel has no label for and the site may not publish. Under
+  // 1 KB even with every language checked, well inside sync's per-item quota.
+  const LANGUAGE_CODES = C.CHURCH_LANGUAGES.map((l) => l.code);
+  function languageList(v) {
+    if (!Array.isArray(v)) return [];
+    return LANGUAGE_CODES.filter((code) => v.indexOf(code) >= 0);
+  }
+
   // ---- Schema -------------------------------------------------------------
   // One entry per setting: its default and its single normalizer.
   const SCHEMA = {
@@ -106,6 +117,14 @@
     provider: { def: APIBIBLE, norm: oneOf([APIBIBLE, BIBLEAPI], APIBIBLE) },
     enabledTranslations: { def: [], norm: translationList },
     defaultTranslationId: { def: '', norm: str('') },
+    // Church languages to offer beside the page (e.g. ['spa', 'jpn']): the same
+    // chapter from the Church's own site, on every standard work, no key. They
+    // join the translation dropdown after the api.bible versions.
+    churchLanguages: { def: [], norm: languageList },
+    // Where a Church language shows: split into the page beside the English
+    // ('columns', side by side; 'interlinear', under each verse — see
+    // __BTX.pageSplit) or in the side panel ('panel').
+    churchLanguageLayout: { def: 'columns', norm: oneOf(['columns', 'interlinear', 'panel'], 'columns') },
     // Only act on English pages (the site serves other languages too).
     actOnNonEngOnly: { def: true, norm: bool(true) },
     sidebarWidth: {

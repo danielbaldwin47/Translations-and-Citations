@@ -2,7 +2,8 @@
  * Options page logic. Reads/writes settings through __BTX.settings (which owns
  * the schema, defaults and normalization — this page never coerces a stored
  * value itself), tests the api.bible key (via the worker), and lets the user
- * pick which translations to enable + the default.
+ * pick which translations to enable + the default, and which Church languages
+ * to offer (a fixed table from constants.js, so no test is needed to list them).
  *
  * Only api.bible is supported, and the list is filtered to the copyrighted
  * versions the user added (free public-domain/CC versions are hidden).
@@ -68,8 +69,38 @@
     };
   }
 
+  // The Church-language checklist, grouped by what each language publishes so
+  // a reader can see before checking it whether it covers the book they read.
+  // Groups keep the table's order (widest coverage first); `label` names the
+  // collections in reading order.
+  const VOLUME_NAMES = {
+    ot: 'Old Testament', nt: 'New Testament', bofm: 'Book of Mormon',
+    'dc-testament': 'Doctrine and Covenants', pgp: 'Pearl of Great Price',
+  };
+  function volumesLabel(vols) {
+    const v = vols || [];
+    if (v.length === 5) return 'All standard works';
+    const names = [];
+    if (v.indexOf('ot') >= 0 && v.indexOf('nt') >= 0) names.push('Bible');
+    for (const k of ['ot', 'nt', 'bofm', 'dc-testament', 'pgp']) {
+      if ((k === 'ot' || k === 'nt') && names[0] === 'Bible') continue;
+      if (v.indexOf(k) >= 0) names.push(VOLUME_NAMES[k]);
+    }
+    return names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}` : (names[0] || '');
+  }
+  function languageGroups(langs) {
+    const groups = [];
+    for (const l of langs || []) {
+      const label = volumesLabel(l.vols);
+      let g = groups.find((x) => x.label === label);
+      if (!g) groups.push(g = { label, langs: [] });
+      g.langs.push(l);
+    }
+    return groups;
+  }
+
   if (typeof module !== 'undefined' && module.exports) {
-    module.exports = { initialChecks, pickDefaultId, translationPatch, fillPlan };
+    module.exports = { initialChecks, pickDefaultId, translationPatch, fillPlan, languageGroups };
   }
   if (typeof document === 'undefined') return; // Node: the pure core only.
 
@@ -87,6 +118,8 @@
     translationsHint: $('translationsHint'),
     translationsList: $('translationsList'),
     defaultTranslation: $('defaultTranslation'),
+    churchLanguages: $('churchLanguages'),
+    churchLanguageLayout: $('churchLanguageLayout'),
     actOnNonEngOnly: $('actOnNonEngOnly'),
     scrollToSnippet: $('scrollToSnippet'),
     citationView: $('citationView'),
@@ -213,6 +246,38 @@
 
   const pct = (v) => Math.round(Number(v) * 100) + '%';
 
+  // One checkbox per Church language, grouped by coverage. Built once: unlike
+  // the api.bible list, the table is part of the extension, not of the key.
+  function buildLanguageList() {
+    for (const group of languageGroups(C.CHURCH_LANGUAGES)) {
+      const head = document.createElement('div');
+      head.className = 'checklist-head';
+      head.textContent = group.label;
+      els.churchLanguages.appendChild(head);
+      for (const lang of group.langs) {
+        const label = document.createElement('label');
+        label.className = 'check';
+        const cb = document.createElement('input');
+        cb.type = 'checkbox';
+        cb.value = lang.code;
+        const span = document.createElement('span');
+        span.textContent = lang.name === lang.english ? lang.name : `${lang.name} — ${lang.english}`;
+        label.appendChild(cb);
+        label.appendChild(span);
+        els.churchLanguages.appendChild(label);
+      }
+    }
+  }
+
+  function checkedLanguages() {
+    return Array.from(els.churchLanguages.querySelectorAll('input[type="checkbox"]:checked')).map((c) => c.value);
+  }
+
+  function checkLanguages(codes) {
+    const want = new Set(codes || []);
+    for (const cb of els.churchLanguages.querySelectorAll('input[type="checkbox"]')) cb.checked = want.has(cb.value);
+  }
+
   // The single-value settings this form edits, each paired with the control
   // that shows it. One table, so Save and the live refresh below can't
   // disagree about which control holds which setting. The translation list is
@@ -220,6 +285,10 @@
   // goes through the same dirty flag and the same fill plan.
   const FIELDS = [
     { key: 'apiKey', node: els.apiKey, read: () => els.apiKey.value, write: (v) => { els.apiKey.value = v; } },
+    // A group of checkboxes, but one setting: its change events bubble to the
+    // container, which is what marks it dirty.
+    { key: 'churchLanguages', node: els.churchLanguages, read: checkedLanguages, write: checkLanguages },
+    { key: 'churchLanguageLayout', node: els.churchLanguageLayout, read: () => els.churchLanguageLayout.value, write: (v) => { els.churchLanguageLayout.value = v; } },
     { key: 'actOnNonEngOnly', node: els.actOnNonEngOnly, read: () => els.actOnNonEngOnly.checked, write: (v) => { els.actOnNonEngOnly.checked = v; } },
     { key: 'scrollToSnippet', node: els.scrollToSnippet, read: () => els.scrollToSnippet.checked, write: (v) => { els.scrollToSnippet.checked = v; } },
     { key: 'citationView', node: els.citationView, read: () => els.citationView.value, write: (v) => { els.citationView.value = v; } },
@@ -286,6 +355,7 @@
     els.fontScale.min = String(SETTINGS.FONT_SCALE_MIN);
     els.fontScale.max = String(SETTINGS.FONT_SCALE_MAX);
     els.fontScale.step = String(SETTINGS.FONT_SCALE_STEP);
+    buildLanguageList();
     fillForm();
 
     for (const f of FIELDS) {

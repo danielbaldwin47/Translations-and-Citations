@@ -15,10 +15,20 @@ you as you navigate between chapters, scrolls along with the page, and is resiza
 
 ## Features
 
-- **Two modes** in one panel, toggled in the header: **Translation** (Bible only)
-  and **Citations** (all books). On non-Bible books only Citations shows.
+- **Two modes** in one panel, toggled in the header: **Translation** and
+  **Citations** (all books). On the Book of Mormon, D&C and Pearl of Great Price,
+  Translation appears once you turn on a Church language; otherwise only
+  Citations shows.
 - **Translation** — auto-detects the chapter and loads it in your chosen version;
   one at a time, switchable from a dropdown; scrolls proportionally with the page.
+- **Church languages** — read the chapter in Spanish, Portuguese, Japanese, … (any
+  language you check on the options page) beside the English, on **every standard
+  work**. By default the page itself splits in two, each verse level with its
+  English one (the shorter side leaves space under it); on the options page you
+  can have it under each verse instead, or in the panel. On a narrow window it
+  shows under each verse until there's room for two columns — collapse the panel
+  (») for more. The text comes straight from churchofjesuschrist.org — no key —
+  with the chapter heading and summary, poetry lines, and Japanese furigana.
 - **Citations** — two layouts, switchable from the panel or the options page:
   **by verse** (each verse a collapsible dropdown with its citation count, talks
   inside grouped by source type — **General Conference**, **Journal of
@@ -162,8 +172,12 @@ Gospel Library tab) to pick up changes.
 
 - Verse numbering differs across translations, so the panel does **not** attempt
   per-verse alignment — scroll-sync is proportional, and whole chapters line up.
-- Translation is Bible-only (there's no api.bible edition of the Book of Mormon,
-  D&C, or Pearl of Great Price); those books show Citations only.
+- api.bible versions are Bible-only (it has no Book of Mormon, D&C, or Pearl of
+  Great Price); on those books the dropdown lists only your Church languages.
+- Church languages come from an undocumented endpoint of the Church's site
+  (`/study/api/v3/language-pages/…`); if it changes, that text stops loading and
+  the rest of the panel is unaffected. A language that hasn't published a volume
+  says "doesn't have this chapter available".
 - Citations are verse-keyed; a tiny fraction of source citations reference a whole
   chapter/section (or front matter) with no verse and aren't listed.
 - Highlights are stored locally on this machine (`chrome.storage.local`) — they're
