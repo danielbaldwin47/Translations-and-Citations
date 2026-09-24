@@ -1,9 +1,15 @@
 /*
  * Chapter + bibles-list cache backed by chrome.storage.local.
- * Loaded into the service worker via importScripts -> attaches to self.__BTX.cache.
+ * Loaded into the service worker via importScripts -> attaches to self.__BTX.cache,
+ * and into the options page (<script src>), which reads the version list for
+ * its first paint.
  *
  *   getChapter(provider, bibleId, chapterId) / setChapter(…, payload)
- *   getBibles(key) / setBibles(bibles, key) / dropBibles()
+ *   getBibles(key, { anyAge }?) / setBibles(bibles, key) / dropBibles()
+ *
+ * getBibles hands back only a list younger than C.BIBLES_TTL_MS unless
+ * `anyAge` — the options page draws a stale list at once while the worker
+ * refreshes it.
  *
  * Chapters are static text, so they get a long TTL; the cache mainly exists to
  * relieve the api.bible rate limits and make re-navigation instant. An index of
@@ -101,12 +107,12 @@
     return (h >>> 0).toString(36) + '.' + s.length;
   }
 
-  async function getBibles(key) {
+  async function getBibles(key, opts) {
     const data = await localGet(C.BIBLES_CACHE_KEY);
     const entry = data[C.BIBLES_CACHE_KEY];
-    if (!entry || typeof entry !== 'object') return null;
+    if (!entry || typeof entry !== 'object' || !Array.isArray(entry.bibles)) return null;
     if (entry.keyPrint !== keyPrint(key)) return null;
-    if (Date.now() - entry.ts > C.BIBLES_TTL_MS) return null;
+    if (!(opts && opts.anyAge) && Date.now() - entry.ts > C.BIBLES_TTL_MS) return null;
     return entry.bibles;
   }
   async function setBibles(bibles, key) {

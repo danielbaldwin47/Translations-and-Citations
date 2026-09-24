@@ -11,14 +11,18 @@
  *                            -> the versions on a key (default: the stored one).
  *                               Served from the cache when it holds that key's
  *                               list; `refresh` skips the cache (the options
- *                               page's explicit Connect).
+ *                               page's explicit Connect). A `partial` list
+ *                               (a copyright lookup failed) is passed on but
+ *                               never cached. One refresh costs 1 + one call
+ *                               per version (~39) against a monthly quota.
  *   OPEN_OPTIONS { section? } -> opens (or focuses) the options page; a section
  *                               from C.OPTIONS_SECTIONS is parked in
  *                               chrome.storage.session for the page to scroll to.
  *
- * Browser events: the toolbar icon sends TOGGLE_PANEL to the tab, and opens
- * the options page on a tab without our content script; a fresh install opens
- * the options page.
+ * Browser events: the toolbar icon sends TOGGLE_PANEL to the tab. It opens
+ * the options page instead on a tab without our content script, and on a
+ * Gospel Library page showing no chapter (the reply says `shown: false`); a
+ * fresh install opens the options page.
  *
  * Classic (non-module) worker so a single IIFE authoring style works everywhere;
  * dependencies are pulled in with importScripts in dependency order.
@@ -66,7 +70,7 @@ async function handleListBibles(msg) {
     if (cached) return { bibles: cached };
   }
   const result = await API.listBibles(key);
-  if (!result.error && result.bibles) await CACHE.setBibles(result.bibles, key);
+  if (!result.error && result.bibles && !result.partial) await CACHE.setBibles(result.bibles, key);
   return result;
 }
 
@@ -139,13 +143,17 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 });
 
 // ---- Toolbar icon: show or collapse the panel on this tab ----
-// A tab without our content script (another site, a Gospel Library tab opened
-// before the extension loaded) has no receiving end; the icon then opens the
-// options page, where setup lives. A content script that simply doesn't reply
-// is not that case, so only "no receiving end" counts.
+// The icon always does something visible. With no panel to toggle it opens the
+// options page, where setup lives: a tab without our content script (another
+// site, a Gospel Library tab opened before the extension loaded) has no
+// receiving end, and a Gospel Library page with no chapter replies
+// `shown: false`. A content script that simply doesn't reply, or replies
+// without `shown` (an older one), is neither case.
 chrome.action.onClicked.addListener((tab) => {
   if (!tab || tab.id == null) return;
-  chrome.tabs.sendMessage(tab.id, { type: C.MSG.TOGGLE_PANEL }).catch((e) => {
+  chrome.tabs.sendMessage(tab.id, { type: C.MSG.TOGGLE_PANEL }).then((reply) => {
+    if (reply && reply.shown === false) chrome.runtime.openOptionsPage();
+  }, (e) => {
     if (/receiving end does not exist|could not establish connection/i.test(String(e && e.message))) {
       chrome.runtime.openOptionsPage();
     }
