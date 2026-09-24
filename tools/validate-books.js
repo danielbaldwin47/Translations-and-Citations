@@ -3,8 +3,11 @@
  * No-build sanity checks. Run: node tools/validate-books.js
  *
  *  1. The book map covers exactly the 39 OT + 27 NT books, with valid, unique
- *     USFM codes and matching entries in the bible-api name map.
- *  2. Every file referenced by manifest.json actually exists on disk.
+ *     USFM codes and matching entries in the bible-api name map; non-Bible
+ *     names read the way the site titles them.
+ *  2. Every file referenced by manifest.json actually exists on disk, and the
+ *     manifest's reach and wording hold (content script on every /study page,
+ *     a description Chrome shows in full).
  *
  * Exits non-zero on any failure so it can gate a commit.
  */
@@ -44,6 +47,14 @@ for (const [slug, code] of Object.entries(spot)) {
   check(books.ldsToUsfm(slug) === code, `spot-check ${slug} -> ${code} (got ${books.ldsToUsfm(slug)})`);
 }
 
+check(books.bookFullName('od') === 'Official Declaration',
+  'the od book is "Official Declaration" (the site titles each one "Official Declaration 1/2")');
+check(books.bookFullName('dc') === 'Doctrine and Covenants',
+  'the dc book is "Doctrine and Covenants", spelled out as the site titles it ("Doctrine and Covenants 76")');
+for (const slug of Object.keys(books.NON_BIBLE_NAMES)) {
+  check(!/&/.test(books.bookFullName(slug)), `the ${slug} book's name has no "&" (got "${books.bookFullName(slug)}")`);
+}
+
 check(books.isBibleCollection('ot') && books.isBibleCollection('nt'), 'ot/nt are Bible collections');
 check(!books.isBibleCollection('bofm') && !books.isBibleCollection('pgp'), 'bofm/pgp are not Bible collections');
 
@@ -56,6 +67,16 @@ const refs = [
   ...Object.values(manifest.icons || {}),
 ];
 for (const ref of refs) check(fs.existsSync(path.join(ROOT, ref)), `manifest references missing file "${ref}"`);
+
+// The Gospel Library home page is /study?lang=eng — no trailing slash — and the
+// site is a single-page app, so a reader who starts there reaches chapters
+// without a page load. The content script has to be on /study itself.
+const matches = manifest.content_scripts[0].matches;
+check(matches.includes('https://www.churchofjesuschrist.org/study*'),
+  'the content script matches /study* (the home page too), not only /study/*');
+check(manifest.description.length <= 132, `the description fits Chrome's 132 characters (${manifest.description.length})`);
+check(/Translations & Citations/.test(manifest.name) && /Translations & Citations/.test(manifest.action.default_title),
+  'the product is named "Translations & Citations" in the name and the toolbar tooltip');
 
 if (failures) {
   console.error(`\n${failures} check(s) failed.`);

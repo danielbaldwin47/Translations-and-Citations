@@ -4,16 +4,29 @@
  * extension's only write into the site's reader (ADR-0007).
  *
  * Interface:
- *   show({ key, chapter, layout, uri })  split the page. `chapter` is a
- *                          __BTX.churchText load result (blocks carry ids),
- *                          `layout` 'columns' | 'interlinear', `uri` the
- *                          chapter's /scriptures/… path. Same key as the split
- *                          showing: nothing happens. Waits, as long as it
- *                          takes, for the site to render that chapter
+ *   show({ key, chapter, layout, uri, onLayout, anchor })  split the page.
+ *                          `chapter` is a __BTX.churchText load result (blocks
+ *                          carry ids), `layout` 'columns' | 'interlinear',
+ *                          `uri` the chapter's /scriptures/… path. Same key as
+ *                          the split showing: nothing happens. Waits, as long
+ *                          as it takes, for the site to render that chapter
  *                          (article#main[data-uri] === uri) — the site swaps
- *                          the whole article on navigation.
- *   hide()                 remove every trace: layer, CSS, <html> attribute
+ *                          the whole article on navigation. `anchor`
+ *                          (optional) is a chapter element kept at the same
+ *                          place on screen through the first mount's reflow,
+ *                          and through taking a split with another key away
+ *                          `onLayout({ effective, collapseFits })` fires when
+ *                          either changes — on mount, and when a resize or the
+ *                          panel moves the room: `effective` is the layout
+ *                          actually on the page ('columns' | 'interlinear'),
+ *                          `collapseFits` whether collapsing the open panel
+ *                          would give columns room (collapseFits, pure).
+ *   hide({ anchor })       remove every trace: layer, CSS, <html> attribute.
+ *                          `anchor` (optional) as for show. An anchor is kept
+ *                          by scrolling the page by its shift (keepAt)
  *   currentKey()           the key showing (or waiting to show), else null
+ *   currentLayout()        { effective, collapseFits } now, else null (not
+ *                          mounted yet)
  *
  * Two layouts (the `churchLanguageLayout` setting; 'panel' never gets here):
  *   columns      the reading column widens to the visible reading area and
@@ -24,7 +37,10 @@
  *                English partner (French numbers Psalm superscriptions as
  *                verses) rides under the pair before it rather than vanishing.
  *                Falls back to interlinear while two columns wouldn't each get
- *                MIN_COLUMN_PX of text.
+ *                MIN_COLUMN_PX of text. The visible reading area ends at the
+ *                panel's page reserve, or FLOAT_GUTTER_PX short of the window
+ *                edge with the panel collapsed (readingRight), or where the
+ *                site's footnote panel starts, when it is open.
  *   interlinear  the column is untouched; each translation sits under its
  *                English element, which gets room as extra margin-bottom.
  *
@@ -38,7 +54,9 @@
  * layout, so late renders and re-renders of the article re-pair themselves.
  * Layout reruns on resize of the article or of the page (panel collapse,
  * resize, the site's font-size slider), on mutations inside the article, and
- * re-mounts when the site replaces the article.
+ * when the site moves the reading column without resizing either (its
+ * footnote panel or navigation drawer opening or closing: `moved`, polled);
+ * it re-mounts when the site replaces the article.
  *
  * IIFE -> __BTX.pageSplit (ADR-0002); the pure core is also module.exports
  * (tools/validate-page-split.js).
@@ -52,11 +70,32 @@
   const MIN_COLUMN_PX = 300; // narrower than this (about six words a line), columns read worse than interlinear
   const MAX_SECTION_PX = 1240; // how wide the split column may grow
   const INTERLINEAR_GAP_PX = 10; // between an English element and its translation below
+  // The site floats buttons over the reading area's right edge (the audio
+  // player's round button). The panel covers them while it is open; with the
+  // panel collapsed the columns would run under them, so they keep this clear.
+  const FLOAT_GUTTER_PX = 72;
 
   // Whether the page should be split right now.
   function wantsSplit({ visible, mode, row, layout }) {
     return visible === true && mode === 'translation' && !!row && row.provider === 'church'
       && (layout === 'columns' || layout === 'interlinear');
+  }
+
+  // The right edge of the visible reading area in a `width`-wide page: the
+  // panel's page reserve when it is open, else short of the site's floating
+  // buttons.
+  function readingRight({ width, reserve }) {
+    return reserve > 0 ? width - reserve : width - FLOAT_GUTTER_PX;
+  }
+
+  // Would the panel's collapse make room for columns? Collapsing hands its page
+  // reserve back, so the reading area runs to readingRight's collapsed edge and
+  // the column re-centres by half the reserve. `pad` is the section's own
+  // horizontal padding. False with no reserve: there is nothing to hand back.
+  function collapseFits({ center, left, width, reserve, pad, max }) {
+    if (!(reserve > 0)) return false;
+    const right = readingRight({ width, reserve: 0 });
+    return effectiveLayout('columns', fitWidth({ center: center + reserve / 2, left, right, max }) - pad) === 'columns';
   }
 
   // The widest centred column that fits the visible reading area [left, right]
@@ -109,7 +148,21 @@
     return out.join('\n');
   }
 
-  const CORE = { GAP_PX, MIN_COLUMN_PX, MAX_SECTION_PX, TAIL_GAP_PX: 8, wantsSplit, fitWidth, effectiveLayout, groupRows, rowRules, cssId };
+  // Has the reading column moved since the last fit? The site moves it
+  // without resizing anything the observers watch — opening a footnote slides
+  // it left, closing the navigation drawer widens the room beside it — so the
+  // watch compares where it was fitted with where it is now. `geo` is
+  // { left, width } of section#content and the reading area's `areaLeft` and
+  // `areaRight`, in px; null (never fitted) always differs.
+  function moved(prev, next) {
+    if (!prev || !next) return prev !== next;
+    return ['left', 'width', 'areaLeft', 'areaRight'].some((k) => Math.abs((Number(prev[k]) || 0) - (Number(next[k]) || 0)) > 1);
+  }
+
+  const CORE = {
+    GAP_PX, MIN_COLUMN_PX, MAX_SECTION_PX, FLOAT_GUTTER_PX, TAIL_GAP_PX: 8,
+    wantsSplit, readingRight, collapseFits, fitWidth, effectiveLayout, groupRows, rowRules, cssId, moved,
+  };
 
   if (typeof module !== 'undefined' && module.exports) module.exports = CORE;
   if (typeof document === 'undefined') return; // Node: the pure core only.
@@ -123,38 +176,75 @@
     'textTransform', 'textAlign', 'textIndent', 'fontVariant'];
   const WATCH_MS = 400;
 
-  // { key, chapter, layout, uri, effective, article, layer, items: [{id,node}],
-  //   fitStyle, rowStyle, ro, mo, watch, raf }
+  // { key, chapter, layout, uri, anchor, effective, article, layer,
+  //   items: [{id,node}], fitStyle, rowStyle, ro, mo, watch, raf, geo }
   let s = null;
 
   function currentKey() { return s ? s.key : null; }
+  function currentLayout() { return s && s.effective ? { effective: s.effective, collapseFits: s.collapseFits } : null; }
 
   function show(opts) {
     if (s && s.key === opts.key) return;
-    hide();
-    s = Object.assign({}, opts, { effective: null, article: null, items: [] });
+    hide({ anchor: opts.anchor });
+    s = Object.assign({}, opts, { effective: null, collapseFits: false, article: null, items: [] });
     s.watch = setInterval(watch, WATCH_MS);
     watch();
   }
 
-  function hide() {
+  // `anchor`: an element of the chapter to keep at the same place on screen —
+  // taking the split away reflows the whole column, and the verse the reader
+  // was on would otherwise move off.
+  function hide(opts) {
     if (!s) return;
+    const anchor = opts && opts.anchor;
+    const keep = topIn(s.article, anchor);
     clearInterval(s.watch);
     if (s.raf) cancelAnimationFrame(s.raf);
     unmount();
     s = null;
+    keepAt(anchor, keep);
   }
 
-  // Mount once the site shows our chapter; re-mount if it swaps the article.
+  // Where `anchor` sits on screen now, if it is an element of `article`, else
+  // null; keepAt puts it back there after a reflow by scrolling the page.
+  function topIn(article, anchor) {
+    return anchor && article && article.contains(anchor) ? anchor.getBoundingClientRect().top : null;
+  }
+
+  function keepAt(anchor, top) {
+    if (top === null || !anchor.isConnected) return;
+    const shift = anchor.getBoundingClientRect().top - top;
+    if (Math.abs(shift) >= 1) window.scrollBy({ top: shift, behavior: 'instant' });
+  }
+
+  // Mount once the site shows our chapter; re-mount if it swaps the article;
+  // refit when the site moves the reading column (moved).
   function watch() {
     if (!s) return;
-    if (s.article && document.contains(s.article) && document.contains(s.layer)) return;
+    if (s.article && document.contains(s.article) && document.contains(s.layer)) {
+      if (moved(s.geo, geometry())) schedule();
+      return;
+    }
     const article = document.getElementById('main');
     if (s.article) unmount();
     if (article && article.getAttribute('data-uri') === s.uri) mount(article);
   }
 
+  // Where the reading column sits now: see moved.
+  function geometry() {
+    const section = document.getElementById('content');
+    if (!section) return null;
+    const r = section.getBoundingClientRect();
+    const area = readingArea(section);
+    return { left: r.left, width: r.width, areaLeft: area.left, areaRight: area.right };
+  }
+
+  // The first mount keeps show's `anchor` where it was; a re-mount is the
+  // site's new article, with nothing of the old one to keep.
   function mount(article) {
+    const anchor = s.anchor;
+    s.anchor = null;
+    const keep = topIn(article, anchor);
     s.article = article;
     s.fitStyle = style();
     s.rowStyle = style();
@@ -182,6 +272,7 @@
     });
     s.mo.observe(article, { childList: true, subtree: true, characterData: true });
     refresh();
+    keepAt(anchor, keep);
   }
 
   function unmount() {
@@ -189,7 +280,7 @@
     if (s.mo) s.mo.disconnect();
     for (const n of [s.layer, s.fitStyle, s.rowStyle]) if (n) n.remove();
     document.documentElement.removeAttribute(ATTR);
-    Object.assign(s, { article: null, layer: null, fitStyle: null, rowStyle: null, ro: null, mo: null, items: [], effective: null });
+    Object.assign(s, { article: null, layer: null, fitStyle: null, rowStyle: null, ro: null, mo: null, items: [], effective: null, collapseFits: false, geo: null });
   }
 
   function style() {
@@ -208,41 +299,58 @@
     if (!s || !s.article) return;
     fit();
     layout();
+    s.geo = geometry(); // after our own writes, so the watch sees only the site's moves
   }
 
   // Where the site's reading area is visible: right of its left-hand
-  // navigation (when open), left of the panel's page reserve.
+  // navigation (when open), left of its right-hand footnote panel (when open)
+  // and of the panel's page reserve. Each side is found by probing just
+  // inside that edge, halfway down, for something docked there that doesn't
+  // hold the reading column.
+  //   -> { left, right, width (the page's), reserve (the panel's) }
   function readingArea(section) {
     const html = document.documentElement;
-    const right = html.clientWidth - (parseFloat(getComputedStyle(html).marginRight) || 0);
+    const width = html.clientWidth;
+    const reserve = parseFloat(getComputedStyle(html).marginRight) || 0;
+    let right = readingRight({ width, reserve });
+    const edge = right;
     let left = 0;
-    for (let n = document.elementFromPoint(4, innerHeight / 2); n && n !== document.body; n = n.parentElement) {
-      if (n.contains(section)) break;
-      const r = n.getBoundingClientRect();
-      if (r.left <= 4 && r.right < right / 2) left = Math.max(left, r.right);
-    }
-    return { left, right };
+    const docked = (x, test) => {
+      for (let n = document.elementFromPoint(x, innerHeight / 2); n && n !== document.body; n = n.parentElement) {
+        if (n.contains(section) || n.closest('#btx-root')) break;
+        test(n.getBoundingClientRect());
+      }
+    };
+    docked(4, (r) => { if (r.left <= 4 && r.right < edge / 2) left = Math.max(left, r.right); });
+    docked(edge - 4, (r) => { if (r.right >= edge - 4 && r.left > edge / 2) right = Math.min(right, r.left); });
+    return { left, right, width, reserve };
   }
 
   // Decide columns vs interlinear for the room there is, and size the column.
   function fit() {
     const section = document.getElementById('content');
     let effective = 'interlinear';
+    let roomier = false;
     let css = '';
     if (s.layout === 'columns' && section) {
       const r = section.getBoundingClientRect(); // centred either way, so its width doesn't matter
       const cs = getComputedStyle(section);
       const pad = 40 + (parseFloat(cs.paddingRight) || 0);
-      const width = fitWidth({ center: r.left + r.width / 2, ...readingArea(section), max: MAX_SECTION_PX });
+      const area = readingArea(section);
+      const center = r.left + r.width / 2;
+      const width = fitWidth({ center, left: area.left, right: area.right, max: MAX_SECTION_PX });
       effective = effectiveLayout('columns', width - pad);
+      roomier = collapseFits({ center, left: area.left, width: area.width, reserve: area.reserve, pad, max: MAX_SECTION_PX });
       if (effective === 'columns') {
         css = `html[${ATTR}="columns"] section#content { max-width: ${width}px !important; padding-left: 40px !important; }`;
       }
     }
     if (s.fitStyle.textContent !== css) s.fitStyle.textContent = css;
-    if (effective !== s.effective) {
+    if (effective !== s.effective || roomier !== s.collapseFits) {
+      if (effective !== s.effective) document.documentElement.setAttribute(ATTR, effective);
       s.effective = effective;
-      document.documentElement.setAttribute(ATTR, effective);
+      s.collapseFits = roomier;
+      if (s.onLayout) s.onLayout({ effective, collapseFits: roomier });
     }
   }
 
@@ -293,6 +401,6 @@
   }
 
   root.__BTX = Object.assign(root.__BTX || {}, {
-    pageSplit: Object.assign({}, CORE, { show, hide, currentKey }),
+    pageSplit: Object.assign({}, CORE, { show, hide, currentKey, currentLayout }),
   });
 })(typeof globalThis !== 'undefined' ? globalThis : this);

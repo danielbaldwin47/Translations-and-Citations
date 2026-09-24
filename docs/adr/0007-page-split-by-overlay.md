@@ -30,3 +30,8 @@ ride under the last pair rather than being dropped.
 The obligation: any new write into the site's page goes through this module
 and these three mechanisms, and `tools/validate-page-split.js` greps that the
 shell only reads the site's elements.
+
+One side effect that is not a write into the page: when the split mounts or
+unmounts, it scrolls the *window* by the shift of an anchor paragraph so the
+reader's place holds (`hide({ anchor })`, `keepAt`). It never scrolls the
+panel body — `panel.js` stays that body's only scroll writer.

@@ -4,8 +4,10 @@
  *   node tools/validate-settings.js
  *
  * Covers the pure parts of `__BTX.settings` — the schema, the per-field
- * normalizers, and `diff` — the parts every context (content script, options
- * page, service worker) shares. The chrome.storage side is not exercised here.
+ * normalizers (incl. slim, deduped translation rows and the sync item's 8 KB
+ * budget), and `diff` — the parts every context (content script, options
+ * page, service worker) shares — plus the storage layer against a fake
+ * chrome.storage.sync.
  *
  * Exits non-zero on any failure so it can gate a commit.
  */
@@ -30,11 +32,19 @@ function eq(actual, expected, msg) {
 console.log('Schema:');
 const KEYS = [
   'apiKey', 'provider', 'enabledTranslations', 'defaultTranslationId', 'churchLanguages', 'churchLanguageLayout',
-  'actOnNonEngOnly', 'sidebarWidth', 'fontScale', 'scrollToSnippet', 'citationView',
-  'showCitationToggle', 'citationSourceMark', 'panelMode', 'panelCollapsed', 'scrollSync',
+  'actOnNonEngOnly', 'sidebarWidth', 'fontScale', 'citationView',
+  'panelMode', 'panelCollapsed', 'scrollSync',
 ];
 check(Array.isArray(S.KEYS), 'exports KEYS');
 eq(S.KEYS.slice().sort(), KEYS.slice().sort(), 'KEYS covers exactly the known settings');
+// Retired settings: talks always open at the cited passage, the By source |
+// By verse toggle always shows, and the coloured strip is the one source
+// marking. A value stored by an older version is an unknown key from now on.
+const RETIRED = ['scrollToSnippet', 'showCitationToggle', 'citationSourceMark'];
+for (const key of RETIRED) {
+  check(!S.KEYS.includes(key), `${key} is retired (not a setting)`);
+  check(!(key in S.normalize({ [key]: 'stored by an older version' })), `a stored ${key} is not exposed as a setting`);
+}
 
 const d = S.defaults();
 eq(Object.keys(d).sort(), KEYS.slice().sort(), 'defaults() has exactly the schema keys');
@@ -63,15 +73,6 @@ for (const bad of ['VERSE', 'by-verse', '', 0, null, {}, undefined]) {
     `citationView ${JSON.stringify(bad)} falls back to "source"`);
 }
 
-// ---- normalize: citationSourceMark (chip vs. coloured group edge) ----
-console.log('normalize (citationSourceMark):');
-eq(S.defaults().citationSourceMark, 'strip', 'citationSourceMark defaults to "strip"');
-eq(S.normalize({ citationSourceMark: 'chip' }).citationSourceMark, 'chip', 'citationSourceMark "chip" survives');
-for (const bad of ['CHIP', 'edge', '', 0, null, {}, undefined]) {
-  eq(S.normalize({ citationSourceMark: bad }).citationSourceMark, 'strip',
-    `citationSourceMark ${JSON.stringify(bad)} falls back to "strip"`);
-}
-
 // ---- normalize: panelMode (the panel's persisted mode preference) ----
 console.log('normalize (panelMode):');
 eq(S.defaults().panelMode, 'translation', 'panelMode defaults to "translation"');
@@ -94,7 +95,7 @@ for (const bad of ['true', 1, null, undefined, {}]) {
 
 // ---- normalize: booleans ----
 console.log('normalize (booleans):');
-for (const key of ['actOnNonEngOnly', 'scrollToSnippet', 'showCitationToggle', 'scrollSync']) {
+for (const key of ['actOnNonEngOnly', 'scrollSync']) {
   eq(S.defaults()[key], true, `${key} defaults to true`);
   eq(S.normalize({ [key]: false })[key], false, `${key} false survives`);
   eq(S.normalize({ [key]: true })[key], true, `${key} true survives`);
@@ -153,6 +154,73 @@ const trs = [{ id: 'a', name: 'A' }, { id: '', name: 'empty' }, null, 'nope', { 
 eq(S.normalize({ enabledTranslations: trs }).enabledTranslations, [{ id: 'a', name: 'A' }],
   'enabledTranslations keeps only entries with a non-empty id');
 eq(S.normalize({ enabledTranslations: 'nope' }).enabledTranslations, [], 'non-array enabledTranslations -> []');
+
+// Slim rows: the string fields every reader uses, and nothing else. A
+// copyright line per row filled the 8 KB sync item at ~21 translations.
+console.log('normalize (enabledTranslations: slim rows, twins):');
+const COPYRIGHT = 'Holy Bible, New International Version®, NIV® Copyright © 1973, 1978, 1984, 2011 by Biblica, Inc.® Used by permission. All rights reserved worldwide.';
+const fat = { id: 'niv', abbr: 'NIV', name: 'New International Version', provider: 'api.bible', description: 'Holy Bible', copyright: COPYRIGHT, extra: { big: true } };
+eq(S.normalize({ enabledTranslations: [fat] }).enabledTranslations,
+  [{ id: 'niv', abbr: 'NIV', name: 'New International Version', provider: 'api.bible', description: 'Holy Bible' }],
+  'a stored row keeps id, abbr, name, provider and description (copyright and anything else dropped)');
+eq(S.normalize({ enabledTranslations: [{ id: 'x', abbr: 5, name: null }] }).enabledTranslations, [{ id: 'x' }],
+  'a field that is not a string is dropped, not coerced');
+eq(S.diff({ enabledTranslations: [fat] }, { enabledTranslations: [Object.assign({}, fat, { copyright: '' })] }), [],
+  'a row that differs only in copyright is not a change (both read slim)');
+
+const W = (id, description) => ({ id, abbr: 'WEBU', name: 'World English Bible Updated', provider: 'api.bible', description });
+eq(S.normalize({ enabledTranslations: [W('w1', 'Ecumenical'), fat, W('w2', 'Protestant'), W('w3', 'Catholic')] })
+  .enabledTranslations.map((t) => t.id), ['w2', 'niv'],
+'twins (same abbreviation and name) collapse to the Protestant edition, in the first twin\'s place');
+eq(S.normalize({ enabledTranslations: [W('w1'), W('w2'), W('w3')] }).enabledTranslations.map((t) => t.id), ['w1'],
+  'twins with no Protestant edition (rows stored without a description) collapse to the first');
+eq(S.normalize({ enabledTranslations: [fat, fat] }).enabledTranslations.length, 1, 'a repeated id is kept once');
+eq(S.normalize({ enabledTranslations: [W('w1', 'Protestant'), Object.assign(W('b1'), { provider: 'bible-api.com' })] })
+  .enabledTranslations.length, 2, 'the same label from two providers is two rows');
+eq(S.normalize({ enabledTranslations: [W('w1'), W('w2'), W('w3')], defaultTranslationId: 'w3' }).defaultTranslationId, 'w1',
+  'a default naming a dropped twin follows it to the kept row');
+eq(S.normalize({ enabledTranslations: [W('w1'), fat], defaultTranslationId: 'niv' }).defaultTranslationId, 'niv',
+  'a default whose row survived is untouched');
+eq(S.normalize({ enabledTranslations: [fat], defaultTranslationId: 'gone' }).defaultTranslationId, 'gone',
+  'a default naming no stored row is left for the reader of it to repair');
+const upgraded = S.normalize({ enabledTranslations: [W('w1', 'Ecumenical'), W('w2', 'Protestant'), fat], defaultTranslationId: 'w1' });
+eq(S.normalize(upgraded), upgraded, 'normalize is idempotent once twins have collapsed');
+
+// Every setting shares one sync item: chrome.storage.sync.QUOTA_BYTES_PER_ITEM
+// is 8192 bytes, counted as the key plus the JSON of the value. Rows shaped
+// like api.bible's English list (abbreviation ~4, name ~32, edition note ~10
+// characters on average), each still carrying its copyright line as the
+// worker hands it over.
+const QUOTA_BYTES_PER_ITEM = 8192;
+const EDITIONS = ['Protestant', 'Ecumenical', 'Catholic', 'Holy Bible', 'common'];
+const listRow = (i) => ({
+  id: `${(0x10000000 + i * 7919).toString(16)}${'a'.repeat(8)}-0${i % 4 + 1}`,
+  abbr: `V${i}`.padEnd(4, 'X'),
+  name: `English Version Number ${String(i).padStart(2, '0')} Updated`,
+  provider: 'api.bible',
+  description: EDITIONS[i % EDITIONS.length],
+  copyright: COPYRIGHT,
+});
+const itemBytes = (settings) => C.SETTINGS_KEY.length
+  + JSON.stringify(Object.assign({}, S.normalize(settings), { __btxWrite: 'abcdefgh:9999' })).length;
+const forty = Array.from({ length: 40 }, (_, i) => listRow(i));
+const reader = Object.assign(S.defaults(), {
+  apiKey: 'k'.repeat(32),
+  enabledTranslations: forty,
+  defaultTranslationId: forty[0].id,
+  churchLanguages: ['spa', 'jpn', 'fra', 'deu', 'por', 'kor'],
+});
+eq(S.normalize(reader).enabledTranslations.length, 40, 'the quota case really holds 40 rows');
+check(itemBytes(reader) < QUOTA_BYTES_PER_ITEM * 0.75,
+  `40 translations on stay well under the sync item's 8 KB (${itemBytes(reader)} bytes)`);
+const everything = Object.assign({}, reader, { churchLanguages: C.CHURCH_LANGUAGES.map((l) => l.code) });
+check(itemBytes(everything) < QUOTA_BYTES_PER_ITEM * 0.9,
+  `...and still fit with every Church language on too (${itemBytes(everything)} bytes)`);
+const prose = 'The Holy Bible in English, Douay-Rheims American Edition of 1899, translated from the Latin Vulgate';
+eq(S.normalize({ enabledTranslations: [Object.assign({}, fat, { description: prose })] }).enabledTranslations[0].description, undefined,
+  'a description longer than an edition note is prose, and is not stored');
+eq(S.normalize({ enabledTranslations: [W('w1', 'Ecumenical'), W('w2', `Protestant ${prose}`)] }).enabledTranslations.map((t) => t.id), ['w2'],
+  'the Protestant edition is still preferred when its description is too long to store');
 
 // ---- normalize: Church languages ----
 console.log('normalize (churchLanguages):');
@@ -351,8 +419,9 @@ check(/HANDLED_KEYS: PANEL_HANDLED_KEYS/.test(panelSrc),
   'panel.js exposes its handled-settings list as panel.HANDLED_KEYS');
 check(/PANEL_HANDLED_KEYS = \[[^\]]*'citationView'/.test(panelSrc),
   'the citation layout is a panel-handled setting');
-check(/PANEL_HANDLED_KEYS = \[[^\]]*'citationSourceMark'/.test(panelSrc),
-  'the citation source marking is a panel-handled setting (pure CSS, no re-render)');
+for (const key of RETIRED) {
+  check(!new RegExp(key).test(panelSrc), `panel.js no longer handles the retired ${key}`);
+}
 check(/PANEL_HANDLED_KEYS = \[[^\]]*'fontScale'/.test(panelSrc),
   'the body text-size multiplier is a panel-handled setting (a CSS var, no re-render)');
 check(/setProperty\('--btx-size-scale'/.test(panelSrc),
@@ -385,7 +454,7 @@ const citCss = fs.readFileSync(path.join(ROOT, 'src/citations/citations.css'), '
 check(/\.btx-talk \{[^}]*var\(--btx-body-size\)/.test(citCss),
   'the talk reader reads the composed size too');
 // Chips are chrome: they must never pick the multiplier up.
-for (const chip of ['btx-cit-count', 'btx-cit-range', 'btx-cit-tag']) {
+for (const chip of ['btx-cit-count', 'btx-cit-range']) {
   const rule = new RegExp(`\\.${chip} \\{[^}]*\\}`).exec(citCss);
   check(rule && !/--btx-size-scale/.test(rule[0]), `${chip} stays fixed-size chrome`);
 }
@@ -394,21 +463,25 @@ for (const chip of ['btx-cit-count', 'btx-cit-range', 'btx-cit-tag']) {
 const stepRule = /#btx-root \.btx-font-step \{[^}]*\}/.exec(panelCss);
 check(stepRule && !/--btx-size-scale|--btx-body-size/.test(stepRule[0]),
   'the text-size stepper stays fixed-size chrome');
-// Every header control on one row at the minimum panel width: nothing rigid,
-// so adding the stepper cannot push the row into a wrap or an overflow.
-const headerRule = /#btx-root \.btx-header \{[^}]*\}/.exec(panelCss);
-check(headerRule && /flex-wrap: nowrap/.test(headerRule[0]), 'the header never wraps');
-check(/#btx-root \.btx-title \{[^}]*min-width: 0/.test(panelCss),
-  'the title can shrink so the controls always fit');
-check(/#btx-root \.btx-select \{[^}]*min-width:/.test(panelCss),
-  'the translation select shrinks to a floor rather than overflowing the header');
-// The buttons themselves are rigid, so the control box's floor is its own
-// content. `min-width: 0` here would remove that floor and let the box shrink
-// *past* its buttons, spilling them off the panel's right edge instead of
-// stopping the layout.
-const controlsRule = /#btx-root \.btx-controls \{[^}]*\}/.exec(panelCss);
-check(controlsRule && !/min-width: 0/.test(controlsRule[0]),
-  'the header controls keep a min-content floor, so the buttons cannot spill out of the panel');
+// Two chrome rows (header: mode control + Settings + Collapse; toolbar: the
+// mode's control + the stepper), each on one line at the minimum panel width.
+// In each row the buttons are rigid and the one wide control yields. These
+// regexes pin the rules that make that true; they cannot measure an overflow,
+// so the 280px check itself is a look at the real panel.
+const rows = /#btx-root \.btx-header,\s*#btx-root \.btx-toolbar \{[^}]*\}/.exec(panelCss);
+check(rows && /flex-wrap: nowrap/.test(rows[0]), 'neither chrome row wraps');
+check(/#btx-root \.btx-btn \{[^}]*flex: 0 0 auto/.test(panelCss), 'the icon and stepper buttons never shrink');
+for (const wide of ['btx-modes', 'btx-select', 'btx-cit-modes']) {
+  const rule = new RegExp(`#btx-root \\.${wide} \\{[^}]*\\}`).exec(panelCss);
+  check(rule && /flex: 1 1 auto/.test(rule[0]) && /min-width: 0/.test(rule[0]),
+    `.${wide} takes the row's spare width and yields it (a <select>'s floor would otherwise be its widest option)`);
+}
+// Text on an accent fill reads the contrast token, never a literal white:
+// white on the dark theme's light accent is about 1.9:1.
+check(/--btx-on-accent:/.test(panelCss), 'panel.css defines --btx-on-accent');
+check(!/color: #fff/i.test(panelCss.replace(/--btx-on-accent: #fff/g, '')),
+  'no panel rule hard-codes white text (it reads --btx-on-accent)');
+check(!/\.btx-mode/.test(citCss), 'the mode and citation-layout toggles are styled in panel.css only');
 const contentSrc = fs.readFileSync(path.join(ROOT, 'src/content/content.js'), 'utf8');
 check(/PANEL_KEYS = panel\.HANDLED_KEYS/.test(contentSrc),
   'content.js takes the panel-handled key list from the panel (no second copy)');

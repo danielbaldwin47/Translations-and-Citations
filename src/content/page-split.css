@@ -44,8 +44,10 @@ html[data-btx-split="interlinear"] .btx-split-item {
   text-transform: inherit;
   text-align: inherit;
 }
-.btx-split-item .btx-vnum { vertical-align: baseline; line-height: inherit; margin-inline-end: 0.3em; }
-.btx-split-item .btx-poetry { padding-inline-start: 1.2em; }
+/* The renderer already puts a space after the number; the English beside it
+   carries no indent of its own for poetry (its text-indent is copied over). */
+.btx-split-item .btx-vnum { vertical-align: baseline; line-height: inherit; margin-inline-end: 0; }
+.btx-split-item .btx-poetry { padding-inline-start: 0; }
 .btx-split-item rt { font-size: 0.5em; }
 /* The site hides <br> in its reader; poetry lines need theirs. */
 .btx-split-item br { display: inline !important; }

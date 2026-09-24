@@ -14,6 +14,19 @@
  *       the first preferred id the list offers, else the list's first row.
  *       The caller's preference is never rewritten by a fallback, which is
  *       what lets a Bible version survive a detour through the Book of Mormon.
+ *     mruFrom(stored) / rememberPick(mru, id) -> [id]
+ *       the preference itself: the reader's picks, newest first (MRU_MAX),
+ *       migrated from the single id older versions stored.
+ *
+ *   how does each read, and what else could be added?
+ *     labelFor(row, list) -> "NIV — New International Version" | "Español — Spanish"
+ *       twins in `list` told apart by description, else id edition, else order
+ *     menuFor(list) -> [{ label, items: [{ id, label }] }]
+ *       the dropdown: 'Bible translations' then 'Church languages', headed only
+ *       when both are there
+ *     languagesToAdd({ collection, pageLang, enabled }) -> [{ code, label }]
+ *       the setup card's list: languages publishing the volume, not yet on,
+ *       A–Z by English name and labelled English first ("Spanish — Español")
  *
  *   what does that chapter say?
  *     load(parsed, lang) -> Promise<{ blocks, verses, title, bcp47, dir, uri } | { error }>
@@ -104,6 +117,77 @@
       if (id && rows.some((t) => t.id === id)) return id;
     }
     return rows.length ? rows[0].id : null;
+  }
+
+  // ---- What the reader picked, most recent first ------------------------------
+  // One remembered pick per volume would forget Spanish after a trip to NIV in
+  // the Bible, so the preference is a short most-recently-used list: pickText
+  // walks it, and each volume finds the newest pick it offers.
+  const MRU_MAX = 6;
+
+  // The stored preference, whatever shape an older version left: a single id
+  // (before the list existed), a list, or nothing.
+  function mruFrom(stored) {
+    const ids = typeof stored === 'string' ? [stored] : (Array.isArray(stored) ? stored : []);
+    return ids.filter((id, i) => typeof id === 'string' && id !== '' && ids.indexOf(id) === i).slice(0, MRU_MAX);
+  }
+
+  function rememberPick(mru, id) {
+    const rest = mruFrom(mru).filter((x) => x !== id);
+    return (typeof id === 'string' && id !== '' ? [id] : []).concat(rest).slice(0, MRU_MAX);
+  }
+
+  // ---- How a row reads -------------------------------------------------------
+  // "NIV — New International Version", "Español — Spanish", "English". Two rows
+  // that would read the same (api.bible lists World English Bible Updated three
+  // times) are told apart by api.bible's `description` ("Protestant"), else by
+  // the id's edition suffix ("…-02" -> "(2)"), else by their order.
+  function baseLabel(row) {
+    return row.abbr ? `${row.abbr} — ${row.name}` : String(row.name || row.id);
+  }
+
+  function labelFor(row, list) {
+    const base = baseLabel(row);
+    const twins = (Array.isArray(list) ? list : []).filter((r) => r !== row && baseLabel(r) === base);
+    if (!twins.length) return base;
+    const desc = (r) => (typeof r.description === 'string' ? r.description.trim() : '');
+    if (desc(row) && twins.every((r) => desc(r) !== desc(row))) return `${base} (${desc(row)})`;
+    const edition = (r) => {
+      const m = /-([0-9a-z]+)$/i.exec(String(r.id));
+      return m ? m[1].replace(/^0+(?=.)/, '') : '';
+    };
+    if (edition(row) && twins.every((r) => edition(r) !== edition(row))) return `${base} (${edition(row)})`;
+    const n = list.filter((r) => baseLabel(r) === base).indexOf(row);
+    return n < 0 ? base : `${base} (${n + 1})`;
+  }
+
+  // The translation dropdown: Bible translations, then Church languages, each
+  // under its own heading only when both kinds are there.
+  //   -> [{ label: 'Bible translations' | 'Church languages' | null, items: [{ id, label }] }]
+  function menuFor(list) {
+    const rows = Array.isArray(list) ? list : [];
+    const item = (r) => ({ id: r.id, label: labelFor(r, rows) });
+    const bible = rows.filter((r) => r.provider !== PROVIDER).map(item);
+    const church = rows.filter((r) => r.provider === PROVIDER).map(item);
+    if (bible.length && church.length) {
+      return [{ label: 'Bible translations', items: bible }, { label: 'Church languages', items: church }];
+    }
+    return bible.length || church.length ? [{ label: null, items: bible.concat(church) }] : [];
+  }
+
+  // The languages the setup card offers to add: every Church language that
+  // publishes this chapter's volume, minus the page's own and any already on.
+  // One A–Z list by English name, each label English first ("Spanish —
+  // Español"): the reader of an English page looks a language up by its
+  // English name, and a native <select>'s type-ahead matches a label's start.
+  //   -> [{ code, label }]
+  function languagesToAdd(opts) {
+    const o = opts || {};
+    const on = Array.isArray(o.enabled) ? o.enabled : [];
+    return C.CHURCH_LANGUAGES
+      .filter((l) => l.code !== o.pageLang && on.indexOf(l.code) < 0 && publishes(l.code, o.collection))
+      .sort((a, b) => a.english.localeCompare(b.english, 'en'))
+      .map((l) => ({ code: l.code, label: l.name === l.english ? l.english : `${l.english} — ${l.name}` }));
   }
 
   // ---- Where the chapter lives ----------------------------------------------
@@ -285,7 +369,10 @@
     return chapter.verses > 0;
   }
 
-  const CORE = { PROVIDER, rowFor, textsFor, pickText, chapterUri, apiUrl, chapterFrom, servesChapter, dirOf };
+  const CORE = {
+    PROVIDER, ID_PREFIX, MRU_MAX, rowFor, textsFor, pickText, mruFrom, rememberPick, labelFor, menuFor, languagesToAdd,
+    chapterUri, apiUrl, chapterFrom, servesChapter, dirOf,
+  };
 
   if (typeof module !== 'undefined' && module.exports) module.exports = CORE;
   if (typeof document === 'undefined') return; // Node: the pure core only.

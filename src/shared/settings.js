@@ -5,7 +5,9 @@
  * It owns four things:
  *   - the schema        (SCHEMA / KEYS / defaults)
  *   - normalization     (exactly one normalizer per setting — no per-caller
- *                        `x === 'verse' ? … : …` coercions scattered around)
+ *                        `x === 'verse' ? … : …` coercions scattered around;
+ *                        enabledTranslations comes back slim and deduped, and
+ *                        a default naming a dropped twin follows it)
  *   - reads and writes  (get / patch / replace, with an in-context cache)
  *   - change notification (subscribe, which reports *which* keys changed and
  *                        whether this context is the one that wrote them)
@@ -86,12 +88,63 @@
     };
   }
 
-  // Enabled translations are [{ id, name, abbr, provider, copyright }] rows
-  // that came back from the provider; the only invariant we enforce is a
-  // usable id, since that is what every lookup keys on.
+  // Enabled translations are slim rows, { id, abbr, name, provider,
+  // description }: the string fields of a provider row, nothing else. The
+  // whole settings object is one sync item capped at 8 KB
+  // (QUOTA_BYTES_PER_ITEM), and a copyright line per row filled it at ~21
+  // rows; each chapter response carries its own copyright, and the options
+  // page classifies rows from the worker's version list. The description is
+  // kept only as an edition note ("Protestant", "Catholic", up to
+  // DESCRIPTION_MAX characters); a longer one is prose, dropped.
+  //
+  // One row per id, and one per provider + abbreviation + name: api.bible
+  // lists some Bibles once per edition (WEBU Ecumenical / Protestant /
+  // Catholic) under one label. The row kept sits where the first twin was and
+  // is the Protestant edition (the 66-book canon of the Latter-day Saint
+  // Bible), else the first. `normalize` moves a default naming a dropped twin
+  // onto the kept row (twinOf).
+  const ROW_FIELDS = ['id', 'abbr', 'name', 'provider', 'description'];
+  const DESCRIPTION_MAX = 32;
+  const PROTESTANT = /\bprotestant\b/i;
+
+  function slimRow(t) {
+    const out = {};
+    for (const k of ROW_FIELDS) if (typeof t[k] === 'string') out[k] = t[k];
+    if (out.description && out.description.length > DESCRIPTION_MAX) delete out.description;
+    return out;
+  }
+
+  function twinKey(t) {
+    return `${t.provider || ''}\u0000${t.abbr || ''}\u0000${t.name || ''}`;
+  }
+
   function translationList(v) {
     if (!Array.isArray(v)) return [];
-    return v.filter((t) => t && typeof t === 'object' && typeof t.id === 'string' && t.id !== '');
+    const out = [];
+    const ids = new Set();
+    const at = new Map(); // twinKey -> index in out
+    const protestant = []; // parallel to out, from the full description
+    for (const t of v) {
+      if (!t || typeof t !== 'object' || typeof t.id !== 'string' || t.id === '' || ids.has(t.id)) continue;
+      ids.add(t.id);
+      const row = slimRow(t);
+      const isP = PROTESTANT.test(typeof t.description === 'string' ? t.description : '');
+      const k = twinKey(row);
+      if (!at.has(k)) { at.set(k, out.length); out.push(row); protestant.push(isP); continue; }
+      const i = at.get(k);
+      if (!protestant[i] && isP) { out[i] = row; protestant[i] = true; }
+    }
+    return out;
+  }
+
+  // The id a default should name once twins collapse: itself when its row
+  // survived, the kept twin's id when its row was dropped, else unchanged.
+  function twinOf(id, rawList, list) {
+    if (!id || list.some((t) => t.id === id)) return id;
+    const raw = (Array.isArray(rawList) ? rawList : []).find((t) => t && t.id === id);
+    if (!raw || typeof raw !== 'object') return id;
+    const kept = list.find((t) => twinKey(t) === twinKey(slimRow(raw)));
+    return kept ? kept.id : id;
   }
 
   // Loaded after constants.js in every context (manifest content_scripts,
@@ -111,7 +164,9 @@
   }
 
   // ---- Schema -------------------------------------------------------------
-  // One entry per setting: its default and its single normalizer.
+  // One entry per setting: its default and its single normalizer. A retired
+  // setting (scrollToSnippet, showCitationToggle, citationSourceMark) is simply
+  // absent: an old stored value is an unknown key, carried through writes.
   const SCHEMA = {
     apiKey: { def: '', norm: str('') },
     provider: { def: APIBIBLE, norm: oneOf([APIBIBLE, BIBLEAPI], APIBIBLE) },
@@ -139,16 +194,9 @@
       def: FONT_SCALE_DEFAULT,
       norm: clampedStep(FONT_SCALE_MIN, FONT_SCALE_MAX, FONT_SCALE_STEP, FONT_SCALE_DEFAULT),
     },
-    // Open sources scrolled to the cited paragraph.
-    scrollToSnippet: { def: true, norm: bool(true) },
-    // Citation layout. One documented default, used by every context.
+    // Citation layout. One documented default, used by every context; its one
+    // editor is the panel's By source | By verse toggle.
     citationView: { def: 'source', norm: oneOf(['source', 'verse'], 'source') },
-    // Show the citation-layout sub-toggle in the panel.
-    showCitationToggle: { def: true, norm: bool(true) },
-    // How a citation row shows its source type: 'chip' = an acronym tile (GC /
-    // JoD / JS) at the right of each row; 'strip' = no tile, the source-type
-    // group carries a coloured left edge instead and the text reclaims the width.
-    citationSourceMark: { def: 'strip', norm: oneOf(['chip', 'strip'], 'strip') },
     // Let the page's scroll move the Translation panel. Off means the panel
     // never scrolls on its own — no tracking, no eased re-alignment; where the
     // user puts it is where it stays.
@@ -168,12 +216,15 @@
   }
 
   // Full, valid settings object from anything at all. Unknown keys are dropped.
+  // One rule spans two settings: a default naming a translation twin that
+  // translationList dropped follows it to the kept row.
   function normalize(raw) {
     const src = (raw && typeof raw === 'object') ? raw : {};
     const out = {};
     for (const k of KEYS) {
       out[k] = SCHEMA[k].norm(Object.prototype.hasOwnProperty.call(src, k) ? src[k] : SCHEMA[k].def);
     }
+    out.defaultTranslationId = twinOf(out.defaultTranslationId, src.enabledTranslations, out.enabledTranslations);
     return out;
   }
 

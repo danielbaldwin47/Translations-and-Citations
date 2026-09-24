@@ -6,7 +6,14 @@
  *   - talks/{talkId}.html.gz (bundled talk HTML for JoD / early GC / Joseph Smith)
  *
  * Everything is static + same-extension, so no service worker is involved.
- * IIFE -> __BTX.citData.
+ *
+ * chapterData(slug, chapter) is what Citations mode reads: the chapter's
+ * cites, each under the verses its own `v` lists (chapterIndex clips the
+ * index's spans to that; see there), plus whether the book is in the index
+ * at all. chapterIndex and citedVerses are pure, and
+ * tools/validate-citations.js runs them over every shard.
+ *
+ * IIFE -> __BTX.citData (+ module.exports for the Node validator).
  */
 (function (root) {
   'use strict';
@@ -56,27 +63,65 @@
     return talkPromises[talkId];
   }
 
+  // The verses a cite's own `v` field lists: '5', '16-17', '1,4', '2-5,9'.
+  function citedVerses(v) {
+    const out = new Set();
+    for (const part of String(v == null ? '' : v).split(',')) {
+      const m = /^\s*(\d+)(?:\s*[-–]\s*(\d+))?\s*$/.exec(part);
+      if (!m) continue;
+      const from = Number(m[1]);
+      const to = m[2] ? Number(m[2]) : from;
+      for (let n = from; n <= to && n - from < 500; n++) out.add(n);
+    }
+    return out;
+  }
+
+  // Pure: one chapter of a shard's index -> which cites show under which
+  // verse. The index can file a cite under verses its own `v` does not list
+  // (a build fault in the shipped data: a John 3:5 cite filed under 1–38), so
+  // each cite's span is clipped to its `v`. A clip that leaves nothing keeps
+  // the index's span, and a verse left with no cite drops out.
+  //   chap  { [verse]: [citId] }     cites  { [citId]: { v, … } }
+  //   -> { verseOrder:[int] ascending, byVerse:{ [verse]:[citId] },
+  //        spanOf:{ [citId]:[verse] ascending } }
+  function chapterIndex(chap, cites) {
+    const indexed = Object.keys(chap || {}).map(Number).sort((a, b) => a - b);
+    const spanOf = {};
+    for (const v of indexed) {
+      for (const id of chap[String(v)] || []) (spanOf[id] = spanOf[id] || []).push(v);
+    }
+    for (const id of Object.keys(spanOf)) {
+      const c = cites[id];
+      if (!c) continue;
+      const cited = citedVerses(c.v);
+      const clipped = spanOf[id].filter((v) => cited.has(v));
+      if (clipped.length) spanOf[id] = clipped;
+    }
+    const byVerse = {};
+    for (const v of indexed) {
+      const ids = (chap[String(v)] || []).filter((id) => spanOf[id].includes(v));
+      if (ids.length) byVerse[v] = ids;
+    }
+    const verseOrder = indexed.filter((v) => byVerse[v]);
+    return { verseOrder, byVerse, spanOf };
+  }
+
   // Deduped citations for a chapter, plus each citation's in-chapter verse span.
   // A single citation can cover a verse range, so it is indexed under every verse
   // it spans; we collect those verses (versesInChapter) so the panel can show a
   // citation once and label its range instead of repeating it per verse.
   // Returns { verseOrder:[int], byVerse:{ [verse]:[citId] }, entries:{ [citId]:entry },
-  //   uniqueTotal } — or null when the book has no data file.
+  //   uniqueTotal, bookIndexed, bookName } — or null when the book has no data
+  //   file. bookIndexed is false when the shard indexes no chapter at all (the
+  //   Official Declarations): a gap in the index, which the empty state says.
   async function chapterData(slug, chapter) {
     const [shard, sources] = await Promise.all([loadShard(slug), loadSources().catch(() => ({}))]);
     if (!shard) return null;
+    const book = { bookIndexed: Object.keys(shard.index).length > 0, bookName: shard.fullName || null };
     const chap = shard.index[String(chapter)];
-    if (!chap) return { verseOrder: [], byVerse: {}, entries: {}, uniqueTotal: 0 };
+    if (!chap) return Object.assign({ verseOrder: [], byVerse: {}, entries: {}, uniqueTotal: 0 }, book);
 
-    const verseOrder = Object.keys(chap).map(Number).sort((a, b) => a - b);
-    const byVerse = {};
-    const spanOf = {}; // citId -> [verse,...] (ascending, since verseOrder is sorted)
-    for (const v of verseOrder) {
-      const ids = chap[String(v)] || [];
-      byVerse[v] = ids;
-      for (const id of ids) (spanOf[id] = spanOf[id] || []).push(v);
-    }
-
+    const { verseOrder, byVerse, spanOf } = chapterIndex(chap, shard.cites);
     const entries = {};
     for (const id of Object.keys(spanOf)) {
       const c = shard.cites[id];
@@ -91,21 +136,10 @@
         source: sources[c.t] || {},
       };
     }
-    return { verseOrder, byVerse, entries, uniqueTotal: Object.keys(entries).length };
+    return Object.assign({ verseOrder, byVerse, entries, uniqueTotal: Object.keys(entries).length }, book);
   }
 
-  // Per-verse counts for badges: { [verse]: count }.
-  async function chapterCounts(slug, chapter) {
-    const shard = await loadShard(slug);
-    if (!shard) return {};
-    const chap = shard.index[String(chapter)];
-    if (!chap) return {};
-    const counts = {};
-    for (const verse of Object.keys(chap)) counts[verse] = chap[verse].length;
-    return counts;
-  }
-
-  root.__BTX = Object.assign(root.__BTX || {}, {
-    citData: { loadSources, loadShard, loadTalkHtml, chapterData, chapterCounts },
-  });
+  const API = { loadSources, loadShard, loadTalkHtml, chapterData, chapterIndex, citedVerses };
+  if (typeof module !== 'undefined' && module.exports) module.exports = API;
+  root.__BTX = Object.assign(root.__BTX || {}, { citData: API });
 })(typeof globalThis !== 'undefined' ? globalThis : this);
