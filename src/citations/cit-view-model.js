@@ -96,21 +96,31 @@
   // it (markVerse) without knowing how uids are spelled.
   const verseUid = (v) => `v:${v}`;
 
-  const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July',
-    'August', 'September', 'October', 'November', 'December'];
+  // The source label with a General Conference session named the way the
+  // Church names it. The build spells most sessions "April 2019 General
+  // Conference"; a few hundred arrive as the month a session began ("09 2023",
+  // "03 2016"), which is the April or October conference that held it: a
+  // conference opening on 30 September, the women's session the week before,
+  // a leadership meeting in February, all published in that conference's
+  // issue. So months 1–6 read April and 7–12 read October.
+  function sourceLabel(s) {
+    const lbl = s.lbl || '';
+    if (s.c !== 'G' && s.c !== 'E') return lbl;
+    return lbl.replace(/^(\d{2}) (\d{4})\b/, (m, mo, y) => {
+      const n = Number(mo);
+      return n >= 1 && n <= 12 ? `${n <= 6 ? 'April' : 'October'} ${y}` : m;
+    });
+  }
 
   // Shorten the source label by dropping the part the group already conveys
-  // ("October 2025 General Conference" -> "October 2025"). The build spells
-  // only April and October; other sessions arrive as "09 2019" and get their
-  // month name. Journal of Discourses stores volume:page, which reads like a
-  // scripture reference in a list full of them, so it is spelled out:
-  // "26:278" -> "vol. 26, p. 278".
+  // ("October 2025 General Conference" -> "October 2025"). Journal of
+  // Discourses stores volume:page, which reads like a scripture reference in a
+  // list full of them, so it is spelled out: "26:278" -> "vol. 26, p. 278".
   function shortLabel(s) {
-    const lbl = s.lbl || '';
+    const lbl = sourceLabel(s);
     let out = lbl;
     if (s.c === 'G' || s.c === 'E') {
-      out = lbl.replace(/\s*General Conference\s*$/i, '').trim()
-        .replace(/^(\d{2}) (\d{4})$/, (m, mo, y) => (MONTHS[Number(mo) - 1] ? `${MONTHS[Number(mo) - 1]} ${y}` : m));
+      out = lbl.replace(/\s*General Conference\s*$/i, '').trim();
     } else if (s.c === 'J') {
       out = lbl.replace(/^Journal of Discourses\s*/i, '').trim();
       const m = /^(\d+):(\d+)$/.exec(out);
@@ -127,6 +137,8 @@
   //   6 [ Moroni 7:47 ]            a closed footnote after its number
   //   14 [See Matt. 17:21 Mark 9:29  an unclosed "See" footnote: its scripture
   //                                references, which end where prose resumes
+  //                                (or where the build's cut ends the snippet,
+  //                                as early as "8 [ See…")
   //   16 [Scriptures give…         an unclosed prose footnote: only the marker
   //                                goes, since nothing marks where it ends
   const NUMS = String.raw`\d+(?:[–-]\d+)?(?:,\s?\d+(?:[–-]\d+)?)*`;
@@ -138,8 +150,8 @@
     pageAtEnd: /\s*\[\s*p\.\s*\d+[ab]?\s*\]\s*$/,
     page: /\s*\[\s*p\.\s*\d+[ab]?\s*\]\s*/g,
     closedNote: /\s\d{1,3}\s?\[[^[\]]*\]/g,
-    seeNote: new RegExp(String.raw`(?:\s\d{1,3})?\s?\[\s*[Ss]ee\s+(?:also\s+)?` +
-      String.raw`(?:${REF}(?:[;,]?\s+(?:see also\s+)?${REF})*\.?(?:${CUT_REF})?|${CUT_REF})(?:\s*\])?`, 'g'),
+    seeNote: new RegExp(String.raw`(?:\s\d{1,3})?\s?\[\s*[Ss]ee(?:\s+(?:also\s+)?` +
+      String.raw`(?:${REF}(?:[;,]?\s+(?:see also\s+)?${REF})*\.?(?:${CUT_REF})?|${CUT_REF})|(?=…$))(?:\s*\])?`, 'g'),
     noteMark: /\s\d{1,3}\s?\[\s*(?![^[\]]*\])/g,
   };
 
@@ -463,17 +475,19 @@
   //   title      the talk's title; Teachings of the Prophet Joseph Smith has
   //              none, so its page label ("…Joseph Smith, p. 264") stands in
   //   speaker    byline line 1 (null when unknown)
-  //   where      byline line 2: the source label, unless it is already the title
+  //   where      byline line 2: the source label (sessions named as in the
+  //              list), unless it is already the title
   //   chip       the cited verses ("vv. 1–5") and their spoken form for the
   //              button that re-reveals the cited passage
   function talkHeading(source, versesInChapter) {
     const s = source || {};
-    const title = s.ti || s.lbl || 'Untitled talk';
+    const lbl = sourceLabel(s);
+    const title = s.ti || lbl || 'Untitled talk';
     const vs = versesInChapter && versesInChapter.length ? versesInChapter : null;
     return {
       title,
       speaker: s.sp || null,
-      where: s.lbl && s.lbl !== title ? s.lbl : null,
+      where: lbl && lbl !== title ? lbl : null,
       chip: {
         text: vs ? verseLabel(vs) : 'Cited passage',
         a11yLabel: 'Go to the cited passage' + (vs ? ', ' + spokenVerses(vs) : ''),

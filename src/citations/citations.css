@@ -249,6 +249,17 @@
   z-index: 1;
   box-shadow: 0 1px 0 color-mix(in srgb, var(--btx-border) 60%, transparent);
 }
+/* A row or header that takes keyboard focus (Shift+Tab upward) lands below
+   the headers pinned over it, not under them. The nested header's height is
+   stated the same way as the verse header's (one label line). */
+#btx-root .btx-cit-list {
+  --btx-chead-h: calc(16px + max(var(--btx-chip-h), 12.5px * 1.3 * var(--btx-size-scale)));
+}
+#btx-root .btx-cit-list .btx-cit,
+#btx-root .btx-cit-list summary.btx-cit-chead { scroll-margin-top: calc(var(--btx-vhead-h) + 6px); }
+#btx-root .btx-cit-list details.btx-cit-cgroup > .btx-cit {
+  scroll-margin-top: calc(var(--btx-vhead-h) + var(--btx-chead-h) + 6px);
+}
 
 /* ---- What the reader's text-size multiplier moves ----
  * The list's *text* — the two group labels, the verse excerpt, the speaker
@@ -326,17 +337,20 @@
 #btx-root .btx-cit.btx-cit-last { background: color-mix(in srgb, var(--btx-accent) 9%, transparent); }
 #btx-root .btx-cit:hover { background: var(--btx-border); }
 #btx-root .btx-cit:focus-visible { outline: 2px solid var(--btx-accent); outline-offset: -2px; }
-/* The speaker is the row's identity, so it wraps rather than truncating; the
-   range chip keeps the right edge and top-aligns beside a wrapped name. */
-#btx-root .btx-cit-head { display: flex; align-items: flex-start; gap: 8px; }
+/* The speaker is the row's identity, so it wraps at its spaces rather than
+   truncating; the range chip keeps the right edge and top-aligns beside a
+   wrapped name. Where even the name's longest word can't sit beside the chip
+   (280px at large text: "Christofferson"), the chip drops to its own line
+   instead of the word breaking. */
+#btx-root .btx-cit-head { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 8px; }
 #btx-root .btx-cit-speaker {
-  flex: 1 1 auto;
-  min-width: 0;
+  flex: 1 1 0;
+  min-width: min-content;
   font-weight: 600;
   font-size: calc(14px * var(--btx-size-scale));
   letter-spacing: -0.008em;
   line-height: 1.3;
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
   /* Centre a one-line name on the 26px chip beside it. */
   padding-top: max(0px, calc((var(--btx-chip-h) - 1.3em) / 2));
 }

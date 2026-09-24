@@ -153,7 +153,7 @@
     input.type = 'search';
     input.placeholder = 'Filter talks…';
     input.setAttribute('aria-label', 'Filter talks');
-    const collapse = el('button', 'btx-cit-toolbtn', 'Collapse all');
+    const collapse = el('button', 'btx-cit-toolbtn');
     collapse.type = 'button';
     tools.appendChild(input);
     tools.appendChild(collapse);
@@ -180,6 +180,7 @@
     // fall to the page, so it moves to the first group header instead.
     function showCollapse(label) {
       const had = document.activeElement === collapse;
+      if (label) collapse.textContent = label;
       collapse.hidden = !label;
       if (had && collapse.hidden) {
         const first = wrap.querySelector('.btx-cit-vgroup:not(.btx-cit-hidden) > summary');

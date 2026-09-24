@@ -104,6 +104,10 @@ eq(VM.cleanSnippet('on the third day, 2 [ See Isaiah 53:7 1 Nephi 11:21, 33 13:4
   '…on the third day,…', 'a reference list cut off at the end goes too');
 eq(VM.cleanSnippet('never slumbers. 16 [ See Psalm…'),
   '…never slumbers. …', 'a footnote cut off at its first reference goes');
+eq(VM.cleanSnippet('He overcame the sting of physical and spiritual death, 8 [ See…'),
+  'He overcame the sting of physical and spiritual death,…', 'a footnote cut off right after "See" goes');
+eq(VM.cleanSnippet('though to us it may seem otherwise. (See…'),
+  '…though to us it may seem otherwise. (See…', 'the talk\'s own "(See…" is text, not a footnote');
 eq(VM.cleanSnippet('faithful obedience. 16 [Scriptures give encouragement to'),
   '…faithful obedience. Scriptures give encouragement to', 'an unclosed prose footnote loses only its marker');
 eq(VM.cleanSnippet('the “seeketh-not-her-own” [see 1 Cor. 13:5 kind of'),
@@ -223,9 +227,15 @@ console.log('By-verse layout:');
   deep(g.children.map((c) => c.count), [1, 1, 1], 'per-source-type counts');
   eq(g.children[2].rows[0].sub, 'p. 2', 'an untitled Teachings row shows its page');
 
-  const session = makeData([{ citId: 'w', verses: [1], source: { c: 'G', sp: 'Monson', ti: 'Courage', d: '2009-03', lbl: '03 2009 General Conference' } }]);
-  eq(VM.buildView(session, OPTS).groups[0].children[0].rows[0].sub, 'Courage · March 2009',
-    'a session the build labels by month number gets its month name');
+  // Sessions the build labels by the month they began belong to that
+  // spring's or autumn's conference (Ensign May / November issue).
+  const session = (lbl) => VM.buildView(makeData([{ citId: 'w', verses: [1],
+    source: { c: 'G', sp: 'Monson', ti: 'Courage', d: '2009-03', lbl } }]), OPTS).groups[0].children[0].rows[0].sub;
+  eq(session('03 2009 General Conference'), 'Courage · April 2009', 'a March session is the April conference');
+  eq(session('02 1990 General Conference'), 'Courage · April 1990', 'so is a February meeting');
+  eq(session('09 2023 General Conference'), 'Courage · October 2023', 'a September session is the October conference');
+  eq(session('11 1980 General Conference'), 'Courage · October 1980', 'so is a November one');
+  eq(session('October 2023 General Conference'), 'Courage · October 2023', 'a named session is left as it is');
 }
 
 {
@@ -412,6 +422,7 @@ console.log('Toolbar state:');
 }
 
 // --- talk reader heading ---------------------------------------------------
+console.log('Talk heading:');
 {
   const h = VM.talkHeading(gc('David L. Buckner', '“Ye Are My Friends”', 'October 2024'), [1, 2, 3, 4, 5]);
   eq(h.title, '“Ye Are My Friends”', 'a talk heading is titled by the talk');
@@ -425,6 +436,9 @@ console.log('Toolbar state:');
   eq(t.title, 'Teachings of the Prophet Joseph Smith, p. 264', 'TPJS is titled by its page label');
   eq(t.where, null, 'so the byline does not repeat it');
   eq(t.chip.text, 'v. 5', 'a one-verse chip');
+
+  eq(VM.talkHeading({ c: 'G', sp: 'A', ti: 'T', lbl: '09 2023 General Conference' }, [1]).where,
+    'October 2023 General Conference', 'the byline names a session as the list does');
 
   const bare = VM.talkHeading({}, []);
   eq(bare.title, 'Untitled talk', 'no title and no label');
