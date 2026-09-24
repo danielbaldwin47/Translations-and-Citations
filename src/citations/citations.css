@@ -5,34 +5,31 @@
  */
 
 /* ---- Chip family ----
- * The three small right-side chips (group count, verse-range badge, source
- * acronym) are one 26px tile family — one height, one radius, one neutral
- * surface — so a count on a group header and the acronym on the entries under
- * it share a right-hand edge down the panel, which is what makes the column
- * read as structure. They must size themselves: the panel body inherits the
- * site's line-height, and Chrome resolves that to an absolute px (~27px at the
- * default 17px/1.6), which then inherits verbatim into every descendant
- * regardless of its own font size — an 11px chip in a 27px line box is the
- * tall rectangle these values exist to prevent. The mirrored line-height stays
- * correct for body text; only the chips opt out.
+ * The small right-side chips (group count, verse-range badge) are one 26px
+ * tile family — one height, one radius, one neutral surface — so a count on a
+ * group header and the range badge on the entries under it share a right-hand
+ * edge down the panel, which is what makes the column read as structure. They
+ * must size themselves: the panel body inherits the site's line-height, and
+ * Chrome resolves that to an absolute px (~27px at the default 17px/1.6),
+ * which then inherits verbatim into every descendant regardless of its own
+ * font size — an 11px chip in a 27px line box is the tall rectangle these
+ * values exist to prevent. The mirrored line-height stays correct for body
+ * text; only the chips opt out.
  *
  * The sizes are fixed rather than scaled off --btx-size (or the reader's
  * --btx-size-scale multiplier) on purpose: the chips are panel chrome, not
  * body text, and a count that grew with the reader's font setting would crowd
  * the verse label it sits beside.
  *
- * Which chip carries the source-type colour is a setting (data-btx-source-mark
- * on the root, from `citationSourceMark`): 'chip' shows the acronym tile,
- * 'strip' (the default) hides it and puts a hue rule on the source-type group's left edge —
- * see "Source marking" below. Everything else is identical in both.
+ * The source type's colour is not a chip: it is a strip on the source-type
+ * group's left edge — see "Source strips" below.
  */
 #btx-root {
   --btx-chip-h: 26px;
   --btx-chip-radius: 7px;
 }
 #btx-root .btx-cit-count,
-#btx-root .btx-cit-range,
-#btx-root .btx-cit-tag {
+#btx-root .btx-cit-range {
   flex: 0 0 auto;
   box-sizing: border-box;
   min-width: var(--btx-chip-h);
@@ -45,7 +42,13 @@
   border-radius: var(--btx-chip-radius);
   font-weight: 600;
   white-space: nowrap;
+  /* --btx-muted on this surface measured ~3.6:1; the stronger ink clears 4.5. */
+  color: color-mix(in srgb, var(--btx-fg) 78%, transparent);
+  background: var(--btx-border);
 }
+/* Retired source-acronym tile: no longer rendered. Delete this rule together
+   with 'btx-cit-tag' in validate-settings.js's fixed-size chip check. */
+#btx-root .btx-cit-tag { display: none; }
 
 /* ---- Mode toggle (segmented control: joined halves, filled active segment) ---- */
 #btx-root .btx-modes {
@@ -110,17 +113,23 @@
   font-weight: 600;
 }
 
-/* ---- Citation list (accordion: verse -> source type -> talks) ---- */
+/* ---- Citation list (accordion: verse -> source type -> talks) ----
+ * Chrome here (summary, filter, buttons, chips) is fixed px with its own
+ * line-height, because the body's scaled line-height would otherwise inherit
+ * into it and grow the boxes at large text sizes. Only the list's text scales:
+ * see "What the reader's text-size multiplier moves" below.
+ */
 #btx-root .btx-cit-summary {
   font-size: 12px;
+  line-height: 1.3;
   color: var(--btx-muted);
   margin-bottom: 8px;
 }
 
-/* Toolbar above the list: live filter box + expand/collapse-all. */
+/* Toolbar above the list: live filter box + Collapse all. */
 #btx-root .btx-cit-tools {
   display: flex;
-  align-items: center;
+  align-items: stretch;
   gap: 6px;
   margin-bottom: 10px;
 }
@@ -130,6 +139,7 @@
   appearance: none;
   font: inherit;
   font-size: 12.5px;
+  line-height: 1.3;
   color: var(--btx-fg);
   background: transparent;
   border: 1px solid var(--btx-border);
@@ -142,34 +152,52 @@
   appearance: none;
   border: 1px solid var(--btx-border);
   background: transparent;
-  color: var(--btx-muted);
+  color: var(--btx-fg);
   font: inherit;
-  font-size: 11.5px;
-  padding: 4px 9px;
+  font-size: 12px;
+  line-height: 1.3;
+  padding: 4px 10px;
   border-radius: 7px;
   cursor: pointer;
   white-space: nowrap;
-  transition: background 0.12s, color 0.12s;
+  transition: background 0.12s;
 }
-#btx-root .btx-cit-toolbtn:hover { color: var(--btx-fg); background: var(--btx-border); }
+#btx-root .btx-cit-toolbtn:hover { background: var(--btx-border); }
+#btx-root .btx-cit-toolbtn:focus-visible { outline: 2px solid var(--btx-accent); outline-offset: 1px; }
 
-/* Rows / groups hidden by the filter. */
-#btx-root .btx-cit-list .btx-cit-hidden { display: none; }
-#btx-root .btx-cit-noresults { text-align: center; color: var(--btx-muted); padding: 16px 0; }
+/* Rows / groups hidden by the filter, and chrome with nothing to say. */
+#btx-root .btx-cit-list .btx-cit-hidden,
+#btx-root .btx-cit-list [hidden] { display: none; }
+#btx-root .btx-cit-noresults {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 20px 8px;
+  text-align: center;
+  color: var(--btx-muted);
+  font-size: 13px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
 
-/* Verse-level dropdown */
+/* Verse-level (by verse) or source-type (by source) card. `overflow: clip`,
+   not hidden: hidden would make the card a scroll container, and an open
+   header could no longer stick to the panel body (clip still rounds the
+   corners). Clip also cuts outer focus rings, so every ring inside is inset. */
 #btx-root .btx-cit-vgroup {
   border: 1px solid var(--btx-border);
   border-radius: 8px;
   margin-bottom: 6px;
-  overflow: hidden;
+  overflow: clip;
 }
-#btx-root .btx-cit-vgroup.btx-cit-focus { outline: 2px solid var(--btx-accent); }
+/* The verse being read (focusVerse at build, then markVerse). */
+#btx-root .btx-cit-vgroup.btx-cit-focus { outline: 2px solid var(--btx-accent); outline-offset: -1px; }
 
 /* Shared summary styling (custom caret, native marker hidden). Both headers
-   end at --btx-cit-edge so the count chip shares a right edge with the tile
-   (or range chip) on the entries below — entries are inset by the same value
-   (margin + padding, see .btx-cit). Don't reintroduce a nested-header inset. */
+   end at --btx-cit-edge so the count chip shares a right edge with the range
+   chip on the entries below — entries are inset by the same value (margin +
+   padding, see .btx-cit). Don't reintroduce a nested-header inset. */
 #btx-root { --btx-cit-edge: 17px; }
 #btx-root summary.btx-cit-vhead,
 #btx-root summary.btx-cit-chead {
@@ -180,24 +208,60 @@
   cursor: pointer;
   list-style: none;
   user-select: none;
+  background-color: var(--btx-bg);
 }
 #btx-root summary.btx-cit-vhead::-webkit-details-marker,
 #btx-root summary.btx-cit-chead::-webkit-details-marker { display: none; }
+/* Hover tints over the opaque background, so a pinned header stays opaque. */
+#btx-root summary.btx-cit-vhead:hover,
+#btx-root summary.btx-cit-chead:hover { background-image: linear-gradient(var(--btx-border), var(--btx-border)); }
+#btx-root summary.btx-cit-vhead:focus-visible,
+#btx-root summary.btx-cit-chead:focus-visible { outline: 2px solid var(--btx-accent); outline-offset: -2px; }
+
+/* ---- Pinned group headers ----
+ * An open group's header sticks to the top of the panel body while its rows
+ * scroll under it, so a reader deep in a long group still sees where they are
+ * and can fold it. Sticky pins the header inside the body's padding, so its
+ * top offset undoes that padding (the talk reader's header does the same, see
+ * issue #26). A nested source-type header pins directly below the verse
+ * header, whose height is stated here rather than measured: 8px padding top
+ * and bottom around the taller of the count chip and the label block (label
+ * line, plus the excerpt line when the list has excerpts). Those line-heights
+ * are fixed below, so the sum is exact at every --btx-size-scale.
+ */
+#btx-root .btx-cit-list {
+  --btx-vhead-h: calc(16px + max(var(--btx-chip-h), 13.5px * 1.3 * var(--btx-size-scale)));
+}
+#btx-root .btx-cit-list[data-btx-excerpts] {
+  --btx-vhead-h: calc(16px + max(var(--btx-chip-h), (13.5px * 1.3 + 12px * 1.35) * var(--btx-size-scale)));
+}
+#btx-root details[open] > summary.btx-cit-vhead {
+  position: sticky;
+  top: calc(-1 * var(--btx-body-pad-top));
+  z-index: 2;
+  box-shadow: 0 1px 0 var(--btx-border);
+}
+#btx-root details[open] > summary.btx-cit-chead {
+  position: sticky;
+  top: calc(var(--btx-vhead-h) - var(--btx-body-pad-top));
+  z-index: 1;
+  box-shadow: 0 1px 0 color-mix(in srgb, var(--btx-border) 60%, transparent);
+}
+
 /* ---- What the reader's text-size multiplier moves ----
- * The list's *text* — the two group labels, the speaker line, the metadata
- * line and the snippet — scales with --btx-size-scale (see panel.css). It is
- * written as calc() off the designed px rather than as an em chain, because
- * these sizes are a designed ladder (14 / 13.5 / 12.5 / 11.5), not multiples
- * of one base, and an em chain would compound them against each other.
- * Everything else in the list is chrome and stays fixed: the chip family, the
- * filter toolbar, the summary count and the talk-reader's sticky header.
+ * The list's *text* — the two group labels, the verse excerpt, the speaker
+ * line, the metadata line and the snippet — scales with --btx-size-scale (see
+ * panel.css). It is written as calc() off the designed px rather than as an em
+ * chain, because these sizes are a designed ladder (14 / 13.5 / 13 / 12.5 /
+ * 12 / 11.5), not multiples of one base, and an em chain would compound them
+ * against each other. Everything else in the list is chrome and stays fixed:
+ * the chip family, the filter toolbar and the summary count.
  */
 #btx-root summary.btx-cit-vhead {
   font-weight: 700;
   font-size: calc(13.5px * var(--btx-size-scale));
   letter-spacing: -0.006em;
 }
-#btx-root summary.btx-cit-vhead:hover { background: var(--btx-border); }
 
 #btx-root .btx-caret {
   flex: 0 0 auto;
@@ -205,21 +269,37 @@
   border-left: 5px solid currentColor;
   border-top: 4px solid transparent;
   border-bottom: 4px solid transparent;
-  opacity: 0.45;
+  opacity: 0.55;
   transition: transform 0.12s;
 }
 #btx-root details[open] > summary > .btx-caret { transform: rotate(90deg); }
 
-#btx-root .btx-cit-label { flex: 1 1 auto; }
-/* Count chip (verse + source-type): neutral tile on the panel's quiet plane
-   (--btx-border already flips per theme and is the row-hover surface). One and
-   two digits both fit the 26px square; a 3-digit count grows in width only.
-   The source-type tint it used to carry is gone: the acronym (or the strip)
-   holds the colour now — two tinted objects per row was the noise removed. */
+#btx-root .btx-cit-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+#btx-root .btx-cit-label-text { line-height: 1.3; }
+/* The verse's own words, read from the page (cit-panel), one line. Reserved
+   on every verse once the list has any, so each header is the height
+   --btx-vhead-h states. */
+#btx-root .btx-cit-excerpt {
+  display: none;
+  font-size: calc(12px * var(--btx-size-scale));
+  line-height: 1.35;
+  height: 1.35em;
+  font-weight: 400;
+  letter-spacing: 0;
+  color: var(--btx-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+#btx-root .btx-cit-list[data-btx-excerpts] .btx-cit-excerpt { display: block; }
+/* Group counts: 3-digit counts grow in width only. */
 #btx-root .btx-cit-count {
   font-size: 11px;
-  color: var(--btx-muted);
-  background: var(--btx-border);
   padding: 0 5px;
 }
 
@@ -230,7 +310,6 @@
   font-weight: 600;
   color: var(--btx-fg);
 }
-#btx-root summary.btx-cit-chead:hover { background: var(--btx-border); }
 /* Inner padding makes each entry read as one unit; the bottom margin separates
    adjacent entries. Horizontal margin + padding = --btx-cit-edge, whether the
    entry sits directly under a verse/source card or inside a nested cgroup. */
@@ -241,61 +320,38 @@
   margin: 0 calc(var(--btx-cit-edge) - 11px) 4px;
   transition: background 0.12s;
 }
+/* The talk last opened from this list, where Back returns focus. */
+#btx-root .btx-cit.btx-cit-last { background: color-mix(in srgb, var(--btx-accent) 9%, transparent); }
 #btx-root .btx-cit:hover { background: var(--btx-border); }
-#btx-root .btx-cit:focus-visible { outline: 2px solid var(--btx-accent); }
-#btx-root .btx-cit-head { display: flex; align-items: center; gap: 8px; justify-content: space-between; }
-#btx-root .btx-cit-headl { display: flex; align-items: center; gap: 8px; min-width: 0; flex: 1 1 auto; }
+#btx-root .btx-cit:focus-visible { outline: 2px solid var(--btx-accent); outline-offset: -2px; }
+/* The speaker is the row's identity, so it wraps rather than truncating; the
+   range chip keeps the right edge and top-aligns beside a wrapped name. */
+#btx-root .btx-cit-head { display: flex; align-items: flex-start; gap: 8px; }
 #btx-root .btx-cit-speaker {
+  flex: 1 1 auto;
+  min-width: 0;
   font-weight: 600;
   font-size: calc(14px * var(--btx-size-scale));
   letter-spacing: -0.008em;
-  line-height: 1.25;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+  /* Centre a one-line name on the 26px chip beside it. */
+  padding-top: max(0px, calc((var(--btx-chip-h) - 1.3em) / 2));
 }
-/* Verse/range label on a spanning (or source-view) entry, e.g. "vv. 3–10". */
+/* Verse/range label on an entry, e.g. "vv. 3–10". */
 #btx-root .btx-cit-range {
+  margin-left: auto;
   font-size: 10.5px;
   letter-spacing: 0.014em;
-  color: var(--btx-muted);
-  background: var(--btx-border);
   padding: 0 8px;
 }
-/* Source acronym tile. The hue is set once per tag class (--btx-src) and
-   consumed here: light theme is the hue at full strength on a faint wash, dark
-   theme a stronger wash under a desaturated tint (--btx-src-fg). GC / JoD / JS
-   each hold the same 26px square — JoD is the only 3-glyph value, so it gets
-   its own size + tracking rather than a wider tile. A 4-glyph acronym would
-   need its own rule beside .btx-tag-J; never truncate, never vary the width. */
-#btx-root .btx-cit-tag {
-  font-size: 11px;
-  letter-spacing: 0.045em;
-  color: var(--btx-src);
-  background: color-mix(in srgb, var(--btx-src) 14%, transparent);
-}
-#btx-root .btx-cit-tag.btx-tag-J { font-size: 9.5px; letter-spacing: -0.015em; }
-#btx-root[data-btx-theme='dark'] .btx-cit-tag {
-  color: var(--btx-src-fg);
-  background: color-mix(in srgb, var(--btx-src) var(--btx-src-tint), transparent);
-}
-/* Source hues — one place, keyed both by corpus tag (the acronym tile) and by
-   group key (the strip), so both markings draw the same colour. */
-#btx-root .btx-cit-tag.btx-tag-G,
-#btx-root .btx-cit-tag.btx-tag-E,
-#btx-root .btx-grp-gc   { --btx-src: #006184; --btx-src-fg: #a3c0ca; --btx-src-tint: 32%; }
-#btx-root .btx-cit-tag.btx-tag-J,
-#btx-root .btx-grp-jod  { --btx-src: #7a5230; --btx-src-fg: #c9a883; --btx-src-tint: 26%; }
-#btx-root .btx-cit-tag.btx-tag-T,
-#btx-root .btx-grp-tpjs { --btx-src: #4a5d23; --btx-src-fg: #a9bd83; --btx-src-tint: 30%; }
 
 #btx-root .btx-cit-sub {
   font-size: calc(11.5px * var(--btx-size-scale));
   line-height: 1.45;
   letter-spacing: 0.01em;
   color: var(--btx-muted);
-  margin-top: 7px;
+  margin-top: 5px;
 }
 /* Snippets are clamped so long quotes don't swamp the list (full text in the
    reader). Set roman, not italic: a clamped 3-line italic run was the least
@@ -316,28 +372,28 @@
   overflow: hidden;
 }
 
-/* ---- Source marking (data-btx-source-mark on the root, from settings) ----
-   'chip': the acronym tile is shown, and the sub/snippet lines reserve its
-   column so the tiles keep one true right edge. 'strip' (default): the tile is hidden,
-   the text reclaims that width, and whichever <details> represents a source
-   type (.btx-cit-cgroup in by-verse, .btx-cit-vgroup in by-source — cit-panel
-   puts btx-grp-* on both) carries a 3px hue rule on its left edge. On a
-   .btx-cit-vgroup the card's overflow:hidden clips it to the radius; on a
-   nested .btx-cit-cgroup it reads as a flush full-height rule — intended. */
-#btx-root[data-btx-source-mark='chip'] .btx-cit-sub,
-#btx-root[data-btx-source-mark='chip'] .btx-cit-snippet { padding-right: 34px; }
-
-#btx-root[data-btx-source-mark='strip'] .btx-cit-tag { display: none; }
-/* With no tile, the range chip takes its place at the right edge so the entry
-   head still ends on a chip aligned under the group count. */
-#btx-root[data-btx-source-mark='strip'] .btx-cit-range { margin-left: auto; }
-#btx-root[data-btx-source-mark='strip'] .btx-cit-vgroup.btx-grp-gc,
-#btx-root[data-btx-source-mark='strip'] .btx-cit-vgroup.btx-grp-jod,
-#btx-root[data-btx-source-mark='strip'] .btx-cit-vgroup.btx-grp-tpjs,
-#btx-root[data-btx-source-mark='strip'] .btx-cit-cgroup.btx-grp-gc,
-#btx-root[data-btx-source-mark='strip'] .btx-cit-cgroup.btx-grp-jod,
-#btx-root[data-btx-source-mark='strip'] .btx-cit-cgroup.btx-grp-tpjs {
+/* ---- Source strips ----
+ * Whichever <details> represents a source type (.btx-cit-cgroup in by verse,
+ * .btx-cit-vgroup in by source — cit-panel puts btx-grp-* on both) carries a
+ * 3px hue rule on its left edge. On a .btx-cit-vgroup the card's clip rounds
+ * it to the radius; on a nested .btx-cit-cgroup it reads as a flush
+ * full-height rule — intended. Dark theme draws the lighter tint (--btx-src-fg):
+ * the full-strength hues all but vanish on a dark page.
+ */
+#btx-root .btx-grp-gc   { --btx-src: #006184; --btx-src-fg: #a3c0ca; }
+#btx-root .btx-grp-jod  { --btx-src: #7a5230; --btx-src-fg: #c9a883; }
+#btx-root .btx-grp-tpjs { --btx-src: #4a5d23; --btx-src-fg: #a9bd83; }
+#btx-root .btx-cit-vgroup.btx-grp-gc,
+#btx-root .btx-cit-vgroup.btx-grp-jod,
+#btx-root .btx-cit-vgroup.btx-grp-tpjs,
+#btx-root .btx-cit-cgroup.btx-grp-gc,
+#btx-root .btx-cit-cgroup.btx-grp-jod,
+#btx-root .btx-cit-cgroup.btx-grp-tpjs {
   border-left: 3px solid color-mix(in srgb, var(--btx-src) 90%, transparent);
+}
+#btx-root[data-btx-theme='dark'] .btx-cit-vgroup[class*='btx-grp-'],
+#btx-root[data-btx-theme='dark'] .btx-cit-cgroup[class*='btx-grp-'] {
+  border-left-color: var(--btx-src-fg);
 }
 
 /* ---- Inline talk reader ---- */
