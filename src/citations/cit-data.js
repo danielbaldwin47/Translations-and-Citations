@@ -94,18 +94,7 @@
     return { verseOrder, byVerse, entries, uniqueTotal: Object.keys(entries).length };
   }
 
-  // Per-verse counts for badges: { [verse]: count }.
-  async function chapterCounts(slug, chapter) {
-    const shard = await loadShard(slug);
-    if (!shard) return {};
-    const chap = shard.index[String(chapter)];
-    if (!chap) return {};
-    const counts = {};
-    for (const verse of Object.keys(chap)) counts[verse] = chap[verse].length;
-    return counts;
-  }
-
   root.__BTX = Object.assign(root.__BTX || {}, {
-    citData: { loadSources, loadShard, loadTalkHtml, chapterData, chapterCounts },
+    citData: { loadSources, loadShard, loadTalkHtml, chapterData },
   });
 })(typeof globalThis !== 'undefined' ? globalThis : this);

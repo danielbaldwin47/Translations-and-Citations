@@ -7,11 +7,19 @@
  * "give me displayable HTML for this cite, plus how to find its target once
  * that HTML is rendered". Corpus differences (live fetch vs bundled gzip,
  * paragraph anchor vs citation span vs STPJS body passage) are decided by the
- * CORPUS_PLANS table below; talk-view renders and scrolls, and no longer
- * decides anything per corpus.
+ * CORPUS_PLANS table below; talk-view renders and scrolls, and decides nothing
+ * per corpus.
  *
- * The DOM-free half (corpusPlan + the pre-2013 URL repair) is exported for Node
- * so tools/test-talk-source.js can cover it: run `node --test tools/test-talk-source.js`.
+ * Every corpus shares one last resort: when the plan's target is missing (most
+ * General Conference cites from 2020 on carry no paragraph anchor, and live
+ * HTML has no citation spans), the target is the first paragraph whose text
+ * holds the cite's snippet (snippetKey / snippetMatches).
+ *
+ * A live fetch gives up after LIVE_TIMEOUT_MS, so a hung request ends in the
+ * reader's error state rather than an endless spinner.
+ *
+ * The DOM-free half (corpusPlan, the pre-2013 URL repair, snippetKey,
+ * snippetMatches) is exported for Node: `node --test tools/test-talk-source.js`.
  *
  * IIFE -> __BTX.talkSource (+ module.exports for the Node tests).
  */
@@ -56,6 +64,9 @@
   // renders the wrong page. resolvedUrlCache memoizes the recovered session-
   // qualified URL per original so we only resolve once per session.
   const resolvedUrlCache = new Map();
+
+  const LIVE_TIMEOUT_MS = 15000;
+  const liveFetch = (url) => fetch(url, { credentials: 'omit', signal: AbortSignal.timeout(LIVE_TIMEOUT_MS) });
 
   function lastSlug(pathname) {
     return String(pathname).replace(/\/+$/, '').split('/').pop() || '';
@@ -113,19 +124,24 @@
     return out;
   }
 
+  // The body can still fail (or time out) after the headers arrived.
+  async function bodyText(res) {
+    try { return await res.text(); } catch (e) { return null; }
+  }
+
   // Fetch a live church talk, recovering from the pre-2013 session-less redirect.
   // Returns { html, url }: html is the talk's HTML (null if it couldn't be loaded),
   // url is the effective talk URL (resolved when a redirect was repaired). Never throws.
   async function fetchLiveTalk(originalUrl) {
     const target = resolvedUrlCache.get(originalUrl) || originalUrl;
     let res;
-    try { res = await fetch(target, { credentials: 'omit' }); }
+    try { res = await liveFetch(target); }
     catch (e) { return { html: null, url: originalUrl }; }
     if (!res.ok) return { html: null, url: res.url };
 
     // Common case (post-2013, or an already-resolved cache hit): not bounced.
     if (resolvedUrlCache.has(originalUrl) || !bouncedToConference(originalUrl, res.url)) {
-      return { html: await res.text(), url: res.url };
+      return { html: await bodyText(res), url: res.url };
     }
 
     // Bounced to the conference landing page: recover from its table of contents.
@@ -134,18 +150,19 @@
       realUrl = pickSessionUrl({
         originalUrl,
         landedUrl: res.url,
-        hrefs: hrefsIn(await res.text(), res.url),
+        hrefs: hrefsIn((await bodyText(res)) || '', res.url),
         origin: location.origin,
       });
     } catch (e) { /* fall through */ }
     if (!realUrl) return { html: null, url: res.url }; // couldn't resolve -> bundled/CTA fallback
 
     let res2;
-    try { res2 = await fetch(realUrl, { credentials: 'omit' }); }
+    try { res2 = await liveFetch(realUrl); }
     catch (e) { return { html: null, url: realUrl }; }
     if (!res2.ok) return { html: null, url: res2.url };
-    resolvedUrlCache.set(originalUrl, realUrl);
-    return { html: await res2.text(), url: res2.url };
+    const html = await bodyText(res2);
+    if (html != null) resolvedUrlCache.set(originalUrl, realUrl);
+    return { html, url: res2.url };
   }
 
   /* ------------------------------------------------------------ scroll target */
@@ -169,18 +186,55 @@
     return null;
   }
 
+  // The part of a cite's snippet that can be found verbatim in the talk: the
+  // text before the first ellipsis and before the first inline footnote
+  // ("…obscurity,” 26 [ Doctrine and Covenants 1:30 ] bringing…" keeps
+  // "…obscurity,”"), whitespace collapsed, at most SNIPPET_KEY_MAX characters.
+  // null when fewer than SNIPPET_KEY_MIN remain — too short to pick out one
+  // paragraph.
+  const SNIPPET_KEY_MIN = 20;
+  const SNIPPET_KEY_MAX = 60;
+  function snippetKey(snippet) {
+    let s = String(snippet || '').replace(/^[\s\u00a0]*(?:…|\.\.\.)/, '');
+    const cut = s.search(/…|\.\.\.|(?:^|\s)\d{1,3}\s*\[/);
+    if (cut >= 0) s = s.slice(0, cut);
+    s = s.replace(/[\s\u00a0]+/g, ' ').trim();
+    if (s.length < SNIPPET_KEY_MIN) return null;
+    return s.slice(0, SNIPPET_KEY_MAX).trim();
+  }
+
+  // Whether `text` holds `key`, ignoring whitespace entirely: the build's
+  // snippets and the rendered talk disagree on spaces around inline markup
+  // ("common consent ," vs "common consent,") and on non-breaking spaces.
+  const squash = (s) => String(s || '').replace(/[\s\u00a0]+/g, '');
+  function snippetMatches(text, key) {
+    return !!key && squash(text).includes(squash(key));
+  }
+
+  // The innermost paragraph-like block whose text holds `key`, or null.
+  const SNIPPET_BLOCKS = 'p, li, blockquote, .btxk-paragraph, .btxk-std';
+  function bySnippet(container, key) {
+    if (!key) return null;
+    const firstIn = (n) => Array.from(n.querySelectorAll(SNIPPET_BLOCKS))
+      .find((b) => snippetMatches(b.textContent, key)) || null;
+    let hit = firstIn(container);
+    for (let inner = hit && firstIn(hit); inner; inner = firstIn(hit)) hit = inner;
+    return hit;
+  }
+
   // Locate the cite inside the rendered (sanitized) talk, per the corpus plan.
   // Render contract with talk-view: source ids survive, source classes come back
   // namespaced (`footnote` -> `btxk-footnote`), and each footnote carries its
   // number on `data-btx-footnum`. Change one side, change this.
+  // Falls back to the snippet's paragraph when the plan's target is missing.
   function findTarget(container, { plan, entry, live }) {
     if (plan.target === 'anchor' && live && entry.anchor) {
       const hit = byId(container, entry.anchor);
       if (hit) return hit;
     }
-    if (entry.citId == null) return null;
-    const span = byId(container, String(entry.citId)); // <span class="citation" id="{citId}">
-    if (!span) return null;
+    // <span class="citation" id="{citId}">
+    const span = entry.citId == null ? null : byId(container, String(entry.citId));
+    if (!span) return bySnippet(container, snippetKey(entry.snippet));
     if (plan.target !== 'bodyPassage') return span;
     const note = span.closest('.btxk-footnote');
     return (note && bodyPassageForFootnote(container, note)) || span;
@@ -215,7 +269,10 @@
     };
   }
 
-  const API = { load, corpusPlan, fullTalkUrl, pickSessionUrl, bouncedToConference, lastSlug };
+  const API = {
+    load, corpusPlan, fullTalkUrl, pickSessionUrl, bouncedToConference, lastSlug,
+    snippetKey, snippetMatches,
+  };
 
   if (typeof module !== 'undefined' && module.exports) module.exports = API;
   root.__BTX = Object.assign(root.__BTX || {}, { talkSource: API });
