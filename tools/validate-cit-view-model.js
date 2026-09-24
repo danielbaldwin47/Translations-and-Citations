@@ -169,6 +169,24 @@ eq(VM.cleanSnippet('It was so. Brigham Young 1 Then he spoke'),
   'It was so. Brigham Young 1 Then he spoke', 'a name and a number are no reference');
 eq(VM.cleanSnippet('eternal judgment (see John 5:29). Then'),
   '…eternal judgment (see John 5:29). Then', 'a talk’s own "(see …)" stays');
+// A bare reference's book is one word or a multi-word book's own shape, so
+// the prose before an inserted reference is never read as its book.
+eq(VM.cleanSnippet('What is it? The Zion of God. D&C 58:7 What does it mean?'),
+  'What is it? The Zion of God. What does it mean?', 'an answer ending in a period is prose, not a book');
+eq(VM.cleanSnippet('his name was Newel K. Whitney. D&C 72:8 Was he merely'),
+  '…his name was Newel K. Whitney. Was he merely', 'so is a name before an inserted reference');
+eq(VM.cleanSnippet('for ever. Amen. D&C 64:29, 33–43'), '…for ever. Amen.', 'so is "Amen."');
+eq(VM.cleanSnippet('Even so. Amen D&C 56:19-20'),
+  'Even so. Amen D&C 56:19-20', 'a word before a reference keeps both (the reference is mid-sentence)');
+eq(VM.cleanSnippet('very clear. In Doctrine and Covenants 68:25 D&C 68:25 we read'),
+  '…very clear. In Doctrine and Covenants 68:25 D&C 68:25 we read', 'the talk’s own "In Doctrine and Covenants…" stays');
+eq(VM.cleanSnippet('“Ye are bought with a price” 1 Cor. 7:23 In the Garden of…'),
+  '“Ye are bought with a price” In the Garden of…', 'prose the cut ended is no half-written reference');
+eq(VM.cleanSnippet('a great calm.” 8 Mark 4:39 Ever the Master…'),
+  '…a great calm.” Ever the Master…', 'nor after a note’s references');
+eq(VM.cleanSnippet('in your heart.” 13 Doctrine and…'), '…in your heart.” …', 'a multi-word book the cut left half-written goes');
+eq(VM.cleanSnippet('praiseworthy.” 1 A of F 1:13 The First'),
+  '…praiseworthy.” The First', 'an "X of Y" book is one book');
 eq(VM.cleanSnippet(''), '', 'empty stays empty');
 eq(VM.quoteSnippet('Born again'), '“Born again”', 'plain text is quoted');
 eq(VM.quoteSnippet('“Verily,” he said'), '“Verily,” he said', 'text already opening on a quote is not quoted twice');

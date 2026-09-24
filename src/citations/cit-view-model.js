@@ -197,17 +197,29 @@
   //                                "See" right after a lowercase word
   //   266 Prev Next STPJS 266      the Teachings page header, at the start
   // A bare reference needs chapter:verse ("John 3:16", not "Psalm 23"), so a
-  // name and a number in prose ("Brigham Young 1") never reads as one.
+  // name and a number in prose ("Brigham Young 1") never reads as one. Its
+  // book is NAME, stricter than a bracketed note's BOOK: one word ("Isa.",
+  // "D&C", "JS—H") or a multi-word book's own shape ("Doctrine and
+  // Covenants", "Joseph Smith—History", "Words of Mormon", "A of F"), so the
+  // prose before an inserted reference stays ("The Zion of God. D&C 58:7",
+  // "Amen D&C 56:19", "In Abraham 4:18 Abr. 4:18").
   const NUMS = String.raw`\d+(?:[–-]\d+)?(?:,\s?\d+(?:[–-]\d+)?)*`;
   const BOOK = String.raw`(?:[1-4]\s)?[A-Z][A-Za-z&.]*(?:(?:\s|—)(?:of|and|the|[A-Z][A-Za-z&.]*))*`;
   const REF = String.raw`${BOOK}\s\d+(?::${NUMS})?(?:\s\d+:${NUMS})*`;
   // A reference list the build's 200-character cut left half-written ("Mosiah…").
   const CUT_REF = String.raw`\s*(?:${BOOK}|[1-4])[\s\d:,–-]*(?=…$)`;
-  const VREF = String.raw`${BOOK}\s\d+:${NUMS}(?:\s\d+:${NUMS})*`;
+  const NAME = String.raw`(?:[1-4]\s)?(?:Doctrine and Covenants|Joseph Smith—[A-Z][a-z]+|` +
+    String.raw`[A-Z][A-Za-z&]*(?:—[A-Z]|\sof\s[A-Z][A-Za-z]*)?\.?)`;
+  // NAME as the cut may leave it ("Doctrine and…", "Words of…"); prose the
+  // cut ended ("In the Garden of…") is not one.
+  const CUT_NAME = String.raw`(?:[1-4]\s)?(?:Doctrine(?: and(?: Covenants)?)?|Joseph(?: Smith(?:—[A-Za-z]*)?)?|` +
+    String.raw`[A-Z][A-Za-z&]*(?:—[A-Z]?|\sof(?:\s[A-Z][A-Za-z]*)?)?\.?)`;
+  const CUT_VREF = String.raw`\s*(?:${CUT_NAME}|[1-4])[\s\d:,–-]*(?=…$)`;
+  const VREF = String.raw`${NAME}\s\d+:${NUMS}(?:\s\d+:${NUMS})*`;
   const SEE = String.raw`[Ss]ee(?:,? for example,| also)?`;
   // A run of references, as a note lists them: "James 2:23 see also 2 Chr.
   // 20:7 Isa. 41:8", "1 Cor. 3:16 see also 6:19", "… see also verse 19".
-  const RUN = String.raw`${VREF}(?:[;,]?\s+(?:${SEE}\s+)?(?:${VREF}|\d+:${NUMS}|verses?\s${NUMS}))*\.?(?:${CUT_REF})?`;
+  const RUN = String.raw`${VREF}(?:[;,]?\s+(?:${SEE}\s+)?(?:${VREF}|\d+:${NUMS}|verses?\s${NUMS}))*\.?(?:${CUT_VREF})?`;
   // A footnote marker for certain: 5–999, or 1–4 before a numbered book
   // ("14 1 Cor. 15:22") or before a book no number belongs to ("4 Helaman").
   // 1–4 before a book that takes one ("1 Cor.", "3 Nephi") may be the book's.
@@ -217,7 +229,7 @@
   // A reference the build's cut ended right after a sentence: "” 2 Ne.…",
   // "” Deut. 28:25, 37,…" (a bare "Then…" is prose, so a book needs its
   // number before or after it).
-  const CUT_END = String.raw`(?:[1-4]\s[A-Z][A-Za-z]*\.?|${BOOK}\s\d+:[\d:,–\s-]*)(?=…$)`;
+  const CUT_END = String.raw`(?:[1-4]\s[A-Z][A-Za-z]*\.?|${NAME}\s\d+:[\d:,–\s-]*)(?=…$)`;
   const RE = {
     pageAtEnd: /\s*\[\s*p\.\s*\d+[ab]?\s*\]\s*$/,
     page: /\s*\[\s*p\.\s*\d+[ab]?\s*\]\s*/g,
@@ -225,7 +237,7 @@
     seeNote: new RegExp(String.raw`(?:\s\d{1,3})?\s?\[\s*[Ss]ee(?:\s+(?:also\s+)?` +
       String.raw`(?:${REF}(?:[;,]?\s+(?:see also\s+)?${REF})*\.?(?:${CUT_REF})?|${CUT_REF})|(?=…$))(?:\s*\])?`, 'g'),
     noteMark: /\s\d{1,3}\s?\[\s*(?![^[\]]*\])/g,
-    markedNote: new RegExp(String.raw`${SENTENCE_END}\s+${MARKER}\s(?:${SEE}\s)?(?:${RUN}|${CUT_REF})`, 'g'),
+    markedNote: new RegExp(String.raw`${SENTENCE_END}\s+${MARKER}\s(?:${SEE}\s)?(?:${RUN}|${CUT_VREF})`, 'g'),
     insertedRef: new RegExp(String.raw`${SENTENCE_END}\s+(?:[1-4]\s)?(?:${SEE}\s)?` +
       String.raw`(?:${RUN}(?=\s+[A-Z“"‘(]|\s*…?$)|${CUT_END})`, 'g'),
     lostMarkerNote: new RegExp(String.raw`(?<=[a-z])\sSee(?:,? for example,| also)?\s${RUN}`, 'g'),
