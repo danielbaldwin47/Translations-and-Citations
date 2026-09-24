@@ -6,9 +6,14 @@
  * src/content/panel.js exports its state machine for Node (the DOM shell is
  * skipped when `document` is undefined). These checks pin down the toggle
  * semantics that used to live scattered in content.js callbacks: what a mode
- * click means, when the citation-layout toggle acts, and how an untranslatable
- * chapter forces citations — plus the view host's caching rules, which used to
- * be the orchestrator's citCache/transCache bookkeeping.
+ * click means, when the citation-layout toggle acts, how an untranslatable
+ * chapter shows citations and how the reader's Translation override for one
+ * visit works — plus the view host's caching rules, which used to be the
+ * orchestrator's citCache/transCache bookkeeping, the copy the Translation
+ * cards and errors show (setupCopy / besideCopy / errorCopy), and a few
+ * DOM-shell and orchestrator rules read from the source (toggle state and
+ * aria-pressed move together; icons are built from nodes; the talk view is
+ * cached; the citation-list hooks are guarded).
  *
  * Exits non-zero on any failure so it can gate a commit.
  */
@@ -39,6 +44,7 @@ eq(s.mode, 'translation', 'mode defaults to translation');
 eq(s.citationView, 'source', 'citationView defaults to source');
 eq(s.collapsed, false, 'collapsed defaults to false');
 eq(s.translatable, true, 'a fresh panel assumes a translatable chapter');
+eq(s.override, false, 'a fresh panel has no Translation override');
 
 s = fresh({ mode: 'citations', citationView: 'verse', collapsed: true });
 eq(s.mode, 'citations', 'persisted mode is adopted');
@@ -58,7 +64,12 @@ s.mode = 'citations';
 eq(P.effectiveMode(s), 'citations', 'translatable + citations preference -> citations');
 s.mode = 'translation';
 s.translatable = false;
-eq(P.effectiveMode(s), 'citations', 'an untranslatable chapter forces citations regardless of preference');
+eq(P.effectiveMode(s), 'citations', 'an untranslatable chapter shows citations regardless of preference');
+s.override = true;
+eq(P.effectiveMode(s), 'translation', "the visit's override shows Translation on an untranslatable chapter");
+s = fresh({ mode: 'citations' });
+s.override = true;
+eq(P.effectiveMode(s), 'translation', 'the override outranks a citations preference too');
 
 // ---- selectMode ----
 console.log('selectMode:');
@@ -67,15 +78,33 @@ eq(P.selectMode(s, 'citations'), true, 'switching mode reports a change');
 eq(s.mode, 'citations', '...and lands in the new mode');
 eq(P.selectMode(s, 'citations'), false, 're-selecting the current mode is a no-op');
 eq(P.selectMode(s, 'translation'), true, 'switching back reports a change');
-
-s = fresh({ mode: 'translation' });
-s.translatable = false;
-eq(P.selectMode(s, 'citations'), false, 'mode clicks are ignored on untranslatable chapters');
-eq(s.mode, 'translation', '...and the stored preference is untouched');
+eq(s.override, false, 'on a translatable chapter a click is the preference, never an override');
 
 s = fresh({ mode: 'translation' });
 eq(P.selectMode(s, 'bogus'), false, 'a garbage mode click cannot corrupt state');
 eq(s.mode, 'translation', '...and the mode is unchanged');
+
+// The Translation | Citations control is always shown. On a chapter no text
+// offers, Translation opens the setup card for this visit only.
+console.log('selectMode (untranslatable chapter):');
+s = fresh({ mode: 'citations' });
+P.setChapter(s, { key: 'alma/5', translatable: false });
+eq(P.selectMode(s, 'citations'), false, 'Citations is already showing: a no-op');
+eq(P.selectMode(s, 'translation'), true, 'Translation on an untranslatable chapter is a change');
+eq(P.effectiveMode(s), 'translation', '...it shows Translation (the setup card)');
+eq(s.override, true, '...through the override');
+eq(s.mode, 'citations', '...and the stored preference is not rewritten');
+eq(P.selectMode(s, 'translation'), false, 're-clicking Translation while overridden is a no-op');
+eq(P.selectMode(s, 'citations'), true, 'Citations while overridden is a change');
+eq(s.override, false, '...that just clears the override');
+eq(P.effectiveMode(s), 'citations', '...back to citations');
+eq(s.mode, 'citations', '...with the preference still untouched');
+
+s = fresh({ mode: 'translation' });
+P.setChapter(s, { key: 'alma/5', translatable: false });
+P.selectMode(s, 'translation');
+P.selectMode(s, 'citations');
+eq(s.mode, 'translation', 'a Translation preference survives an override and its clearing');
 
 // ---- selectCitationView ----
 console.log('selectCitationView:');
@@ -89,24 +118,50 @@ eq(P.selectCitationView(s, 'verse'), false, 'the layout toggle only acts while c
 eq(s.citationView, 'source', '...and the stored layout is untouched');
 
 s = fresh({ mode: 'translation', citationView: 'source' });
-s.translatable = false; // citations forced -> the toggle acts even though mode pref is translation
-eq(P.selectCitationView(s, 'verse'), true, 'forced citations (untranslatable) counts as citations showing');
+s.translatable = false; // citations shown -> the toggle acts even though mode pref is translation
+eq(P.selectCitationView(s, 'verse'), true, 'citations on an untranslatable chapter count as citations showing');
+s.override = true;
+eq(P.selectCitationView(s, 'source'), false, "...but not while the visit's override shows Translation");
 
-// ---- setTranslatable ----
-// Translatable means the chapter has a text to show beside it: every Bible
-// chapter (api.bible), and any chapter at all once a Church language is on.
-console.log('setTranslatable:');
+// ---- setChapter ----
+// Translatable means some text offers the chapter: an enabled api.bible
+// translation (Bible only) or a Church language that publishes its volume.
+// `key` names the chapter, so showing the same one again (a settings change
+// re-renders it) is told apart from arriving at the next one.
+console.log('setChapter:');
 s = fresh({ mode: 'translation' });
-eq(P.setTranslatable(s, true), false, 'translatable -> translatable does not change the effective mode');
-eq(P.setTranslatable(s, false), true, 'translatable -> not flips effective mode to citations');
+eq(P.setChapter(s, { key: 'john/3', translatable: true }), false, 'translatable -> translatable does not change the effective mode');
+eq(P.setChapter(s, { key: 'john/4', translatable: false }), true, 'translatable -> not flips the effective mode to citations');
 eq(P.effectiveMode(s), 'citations', '...effective mode is citations');
 eq(s.mode, 'translation', '...but the stored preference survives');
-eq(P.setTranslatable(s, true), true, 'not -> translatable restores the preferred mode (a change)');
+eq(P.setChapter(s, { key: 'john/5', translatable: true }), true, 'not -> translatable restores the preferred mode (a change)');
 eq(P.effectiveMode(s), 'translation', '...effective mode is translation again');
-eq(P.setTranslatable(s, undefined), false, 'a missing flag reads as translatable (the Bible default)');
+eq(P.setChapter(s, { key: 'john/6' }), false, 'a missing flag reads as translatable');
 
 s = fresh({ mode: 'citations' });
-eq(P.setTranslatable(s, false), false, 'citations preference: translatable -> not is not an effective change');
+eq(P.setChapter(s, { key: 'alma/5', translatable: false }), false, 'citations preference: translatable -> not is not an effective change');
+
+// The override lives for one visit to one chapter.
+s = fresh({ mode: 'citations' });
+P.setChapter(s, { key: 'alma/5', translatable: false });
+P.selectMode(s, 'translation');
+eq(P.setChapter(s, { key: 'alma/5', translatable: false }), false, 'the same chapter shown again keeps the override');
+eq(P.effectiveMode(s), 'translation', '...still on the setup card');
+// The reader turns on a language from the setup card: same chapter, now
+// translatable. They asked for Translation, so they stay in it.
+eq(P.setChapter(s, { key: 'alma/5', translatable: true }), false, 'the same chapter becoming translatable keeps Translation');
+eq(P.effectiveMode(s), 'translation', '...even under a citations preference');
+eq(P.setChapter(s, { key: 'alma/6', translatable: true }), true, 'the next chapter drops the override');
+eq(s.override, false, '...cleared');
+eq(P.effectiveMode(s), 'citations', '...and the preference decides again');
+
+s = fresh();
+P.setChapter(s, { key: 'alma/5', translatable: false });
+P.selectMode(s, 'translation');
+P.setChapter(s, { translatable: false });
+eq(s.override, false, 'a chapter with no key counts as a new one (the override does not leak)');
+P.setChapter(s, null);
+eq(P.effectiveMode(s), 'translation', 'a missing chapter reads as translatable, override cleared');
 
 // ---- View host ----
 // The DOM node is opaque to the core, so `{ name, key }` stands in for one.
@@ -152,7 +207,17 @@ eq(r.action, 'build', 'a different key rebuilds instead of re-mounting');
 r = show(v, 'citations', 'john/3::source');
 eq(r.action, 'build', '...and the superseded body is gone (one slot per name)');
 
-// cache:false — the talk reader, which must re-open from scratch every time.
+// The talk reader is cached like the rest: a trip to Translation and back
+// re-mounts the same talk at the offset it was left at.
+v = P.createViews();
+show(v, 'talk', 'talk-1#c9', { produced: true });
+P.saveViewScroll(v, 3200);
+show(v, 'translation', 'john/3::niv');
+r = show(v, 'talk', 'talk-1#c9');
+eq(r.action, 'restore', 'the talk that was open comes back');
+eq(r.entry.scrollTop, 3200, '...where it was left');
+
+// cache:false — a view that must be rebuilt every time.
 v = P.createViews();
 show(v, 'talk', 'talk-1#c9', { cache: false });
 r = show(v, 'talk', 'talk-1#c9', { cache: false });
@@ -259,6 +324,8 @@ eq(P.wantsScrollSync(fresh(), { visible: true, scrollSync: false }), false, 'the
 const untranslatable = fresh();
 untranslatable.translatable = false;
 eq(P.wantsScrollSync(untranslatable, syncable), false, 'an untranslatable chapter is citations, so it does not sync');
+untranslatable.override = true;
+eq(P.wantsScrollSync(untranslatable, syncable), true, "the visit's override is Translation, so it syncs");
 // Defensive: a missing flag must not read as "on" for visibility, nor as "off"
 // for the setting (the panel asks before its first settings read resolves).
 eq(P.wantsScrollSync(fresh(), {}), false, 'no visibility means no sync');
@@ -523,6 +590,65 @@ for (let next = step(walk, 1); next !== null; next = step(walk, 1)) {
 eq(walk, SCALE.max, 'stepping up from the minimum ends at the maximum');
 eq(notches, Math.round((SCALE.max - SCALE.min) / SCALE.step), 'the walk hits every notch on the grid, once');
 
+// ---- What the Translation cards and errors say ----
+// Copy rules the DOM shell renders verbatim: which heading, which action.
+console.log('setupCopy:');
+{
+  const bible = P.setupCopy({ chapter: 'John 3', bible: 'nokey' });
+  eq(bible.heading, 'Read John 3 in another translation or language', 'a Bible chapter offers translations and languages');
+  eq(bible.bible, { text: 'Bible translations such as NIV and NKJV need a free api.bible key.', button: 'Set up Bible translations' },
+    'no key yet: the api.bible block says what is needed and sets it up');
+  eq(P.setupCopy({ chapter: 'John 3', bible: 'noversions' }).bible.button, 'Choose Bible translations',
+    'a key but nothing turned on: the button goes to choosing');
+  const bofm = P.setupCopy({ chapter: 'Alma 5', bible: null });
+  eq(bofm.heading, 'Read Alma 5 in another language', 'off the Bible only languages are offered');
+  eq(bofm.bible, null, '...and there is no api.bible block');
+  eq(bofm.talks, 'See the talks that cite Alma 5', 'the talks link names the chapter');
+  eq(bofm.languages, 'Add a Church language…', 'the language picker prompts to add one');
+}
+
+console.log('besideCopy:');
+{
+  const b = (o) => P.besideCopy(Object.assign({ name: 'Spanish' }, o));
+  eq(b({ layout: 'columns', effective: 'columns' }),
+    { status: 'Spanish is shown beside the chapter.', note: '', widen: true }, 'columns that fit: beside, and collapsing widens them');
+  eq(b({ layout: 'columns', effective: 'interlinear', collapseFits: true }),
+    { status: 'Spanish is shown under each verse.', note: 'Not enough room for side by side.', widen: true },
+    'columns asked for but not fitting: the card says what the page really shows, and why — and collapsing makes room');
+  eq(b({ layout: 'columns', effective: 'interlinear', collapseFits: false }).widen, false,
+    'collapsing is not offered where it would not make room for columns either');
+  eq(b({ layout: 'interlinear', effective: 'interlinear' }),
+    { status: 'Spanish is shown under each verse.', note: '', widen: false }, 'under each verse: nothing to widen');
+  eq(b({ layout: 'columns', effective: null }).status, 'Spanish is shown beside the chapter.',
+    'before the split has mounted, the card states what was asked for');
+  eq(b({ layout: 'interlinear', effective: 'columns' }).status, 'Spanish is shown beside the chapter.',
+    'the effective layout wins over the setting');
+}
+
+console.log('errorCopy:');
+{
+  const C = require(path.join(ROOT, 'src/shared/constants.js'));
+  const e = (code, o) => P.errorCopy(Object.assign({ code, name: 'NIV', chapter: 'Psalm 23' }, o));
+  // The copy keys on C.ERR's values; they must stay the strings the core names.
+  for (const k of ['NO_KEY', 'INVALID_KEY', 'FORBIDDEN', 'NOT_FOUND', 'NETWORK', 'UNKNOWN']) eq(C.ERR[k], k, `C.ERR.${k} is '${k}'`);
+  eq(e('INVALID_KEY').action, 'settings', 'a rejected key points to settings');
+  eq(e('INVALID_KEY').message, 'api.bible didn’t accept your key.', '...in plain words, not a licensing problem');
+  eq(e('FORBIDDEN').message, 'NIV isn’t included with your api.bible key.', 'an unlicensed version names the version');
+  eq(e('FORBIDDEN', { alternatives: true }).hint, 'Add it at scripture.api.bible, or choose another translation above.',
+    '...and offers the dropdown only when it has something else');
+  eq(e('FORBIDDEN').hint, 'Add it at scripture.api.bible.', '...not when it has nothing else');
+  eq(e('NOT_FOUND'), { message: 'NIV doesn’t include Psalm 23.', hint: '', action: null }, 'a missing api.bible chapter: no action to take');
+  eq(e('NOT_FOUND', { church: true, name: 'Chinese, Simplified (Mandarin)', alternatives: true }),
+    { message: 'Psalm 23 isn’t available in Chinese, Simplified (Mandarin).', hint: 'Choose another language above.', action: null },
+    'a missing Church chapter names the language in English');
+  eq(e('NETWORK').action, 'retry', 'a network failure can be retried');
+  eq(e('NETWORK', { church: true }).message, 'Couldn’t reach churchofjesuschrist.org.', '...and names the site that failed');
+  eq(e('UNKNOWN'), { message: 'Something went wrong loading NIV.', hint: '', action: 'retry' }, 'anything else: retry');
+  eq(e('NO_KEY').action, 'settings', 'a key removed under enabled versions points to settings');
+  eq(e('RATE_LIMITED').action, null, 'the daily api.bible allowance used up: nothing to do but wait for tomorrow');
+  eq(C.ERR.RATE_LIMITED, 'RATE_LIMITED', "C.ERR.RATE_LIMITED is 'RATE_LIMITED'");
+}
+
 // ---- Telling our own scroll from the user's ----
 // The panel must never fight the user for the body. Every write records where
 // it left the body; a 'scroll' event that doesn't match that is the user's, and
@@ -534,6 +660,53 @@ check(P.isForeignScroll(340, 300) === true, 'a jump away from what we wrote is t
 check(P.isForeignScroll(260, 300) === true, '...in either direction');
 check(P.isForeignScroll(0, null) === true, 'a scroll before we have written anything is the user');
 check(P.isForeignScroll(0, undefined) === true, '...however that unwritten state is spelled');
+
+// ---- DOM shell contracts ----
+// Rules the shell keeps that a Node run cannot execute, read from the source.
+console.log('DOM shell:');
+const fs = require('fs');
+const panelSrc = fs.readFileSync(path.join(ROOT, 'src/content/panel.js'), 'utf8');
+const bodyOf = (name) => (panelSrc.match(new RegExp(`function ${name}\\([^)]*\\) \\{[\\s\\S]*?\\n {2}\\}\\n`)) || [''])[0];
+// A toggle's pressed state is written in the same call as its look, so a
+// screen reader and the eye can never disagree about which mode is on.
+check(/classList\.toggle\('btx-active', on\)[\s\S]{0,80}setAttribute\('aria-pressed'/.test(bodyOf('setPressed')),
+  'setPressed writes the active look and aria-pressed together');
+for (const name of ['applyModeUI', 'applyCitationViewUI']) {
+  const body = bodyOf(name);
+  check(body && /setPressed\(/.test(body) && !/btx-active/.test(body), `${name} sets toggle state only through setPressed`);
+}
+// Icons are built node by node (safe rendering: no markup strings).
+check(!/\.innerHTML\s*=/.test(panelSrc), 'panel.js never assigns innerHTML');
+check(/createElementNS\(SVG_NS/.test(panelSrc), 'icons are built with createElementNS');
+// One way to put the panel away: Collapse (and the toolbar icon, which
+// toggles the same persisted state). There is no second, unpersisted "close".
+check(!/onClose|btx-close|userClosed/.test(panelSrc), 'the panel has no close control besides Collapse');
+// The cards are the only Translation states that hide the stepper, and a
+// card never outlives its view.
+check(/function mountView\(entry\) \{[\s\S]*?setCard\(null\)/.test(panelSrc), 'mounting any view clears the card flag');
+check(/keepView\(views, kind === 'content'\)/.test(panelSrc), 'only a finished chapter earns a cache slot; every card and state re-renders');
+
+// Orchestrator wiring for the talk reader and the citation list.
+const contentSrc = fs.readFileSync(path.join(ROOT, 'src/content/content.js'), 'utf8');
+const openTalkSrc = (contentSrc.match(/function openTalk\(entry\) \{[\s\S]*?\n {2}\}\n/) || [''])[0];
+check(openTalkSrc && !/cache:\s*false/.test(openTalkSrc), 'the talk view is cached, so it re-mounts where it was left');
+check(/openEntry \? openTalk\(openEntry\) : renderCitations\(current\)/.test(contentSrc),
+  'Citations coming back re-opens the talk that was open');
+check(/const key = `\$\{citKey\(parsed\)\}::\$\{view\}`;/.test(contentSrc),
+  'the citations key is chapter + layout only (the reading verse only marks a re-mounted list)');
+check(/typeof citPanel\.refocus === 'function'/.test(contentSrc) && /typeof citPanel\.markVerse === 'function'/.test(contentSrc),
+  'the citation list hooks are called only where they exist');
+// The beside card claims the text is on the page, so whatever shows it asks
+// for the split too: after a Try again the split's own earlier load may have
+// failed.
+const churchSrc = (contentSrc.match(/async function loadChurchChapter\([^)]*\) \{[\s\S]*?\n {2}\}\n/) || [''])[0];
+check(/if \(layout !== 'panel'\) \{[\s\S]*?syncSplit\(\);[\s\S]*?kind: 'beside'/.test(churchSrc),
+  'the beside card is never shown without asking for the page split');
+// A pick made before the stored picks were read is written after them, not
+// over them (the setup card can add a language on a tab that never read them).
+const rememberSrc = (contentSrc.match(/function remember\(id\) \{[\s\S]*?\n {2}\}\n/) || [''])[0];
+check(/loadSelection\(\)\.then\([\s\S]*?storage\.local\.set/.test(rememberSrc),
+  'a remembered pick is stored only once the older picks are merged in');
 
 if (failures) {
   console.error(`\n${failures} check(s) failed.`);

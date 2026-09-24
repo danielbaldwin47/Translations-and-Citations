@@ -30,11 +30,19 @@ function eq(actual, expected, msg) {
 console.log('Schema:');
 const KEYS = [
   'apiKey', 'provider', 'enabledTranslations', 'defaultTranslationId', 'churchLanguages', 'churchLanguageLayout',
-  'actOnNonEngOnly', 'sidebarWidth', 'fontScale', 'scrollToSnippet', 'citationView',
-  'showCitationToggle', 'citationSourceMark', 'panelMode', 'panelCollapsed', 'scrollSync',
+  'actOnNonEngOnly', 'sidebarWidth', 'fontScale', 'citationView',
+  'panelMode', 'panelCollapsed', 'scrollSync',
 ];
 check(Array.isArray(S.KEYS), 'exports KEYS');
 eq(S.KEYS.slice().sort(), KEYS.slice().sort(), 'KEYS covers exactly the known settings');
+// Retired settings: talks always open at the cited passage, the By source |
+// By verse toggle always shows, and the coloured strip is the one source
+// marking. A value stored by an older version is an unknown key from now on.
+const RETIRED = ['scrollToSnippet', 'showCitationToggle', 'citationSourceMark'];
+for (const key of RETIRED) {
+  check(!S.KEYS.includes(key), `${key} is retired (not a setting)`);
+  check(!(key in S.normalize({ [key]: 'stored by an older version' })), `a stored ${key} is not exposed as a setting`);
+}
 
 const d = S.defaults();
 eq(Object.keys(d).sort(), KEYS.slice().sort(), 'defaults() has exactly the schema keys');
@@ -63,15 +71,6 @@ for (const bad of ['VERSE', 'by-verse', '', 0, null, {}, undefined]) {
     `citationView ${JSON.stringify(bad)} falls back to "source"`);
 }
 
-// ---- normalize: citationSourceMark (chip vs. coloured group edge) ----
-console.log('normalize (citationSourceMark):');
-eq(S.defaults().citationSourceMark, 'strip', 'citationSourceMark defaults to "strip"');
-eq(S.normalize({ citationSourceMark: 'chip' }).citationSourceMark, 'chip', 'citationSourceMark "chip" survives');
-for (const bad of ['CHIP', 'edge', '', 0, null, {}, undefined]) {
-  eq(S.normalize({ citationSourceMark: bad }).citationSourceMark, 'strip',
-    `citationSourceMark ${JSON.stringify(bad)} falls back to "strip"`);
-}
-
 // ---- normalize: panelMode (the panel's persisted mode preference) ----
 console.log('normalize (panelMode):');
 eq(S.defaults().panelMode, 'translation', 'panelMode defaults to "translation"');
@@ -94,7 +93,7 @@ for (const bad of ['true', 1, null, undefined, {}]) {
 
 // ---- normalize: booleans ----
 console.log('normalize (booleans):');
-for (const key of ['actOnNonEngOnly', 'scrollToSnippet', 'showCitationToggle', 'scrollSync']) {
+for (const key of ['actOnNonEngOnly', 'scrollSync']) {
   eq(S.defaults()[key], true, `${key} defaults to true`);
   eq(S.normalize({ [key]: false })[key], false, `${key} false survives`);
   eq(S.normalize({ [key]: true })[key], true, `${key} true survives`);
@@ -351,8 +350,9 @@ check(/HANDLED_KEYS: PANEL_HANDLED_KEYS/.test(panelSrc),
   'panel.js exposes its handled-settings list as panel.HANDLED_KEYS');
 check(/PANEL_HANDLED_KEYS = \[[^\]]*'citationView'/.test(panelSrc),
   'the citation layout is a panel-handled setting');
-check(/PANEL_HANDLED_KEYS = \[[^\]]*'citationSourceMark'/.test(panelSrc),
-  'the citation source marking is a panel-handled setting (pure CSS, no re-render)');
+for (const key of RETIRED) {
+  check(!new RegExp(key).test(panelSrc), `panel.js no longer handles the retired ${key}`);
+}
 check(/PANEL_HANDLED_KEYS = \[[^\]]*'fontScale'/.test(panelSrc),
   'the body text-size multiplier is a panel-handled setting (a CSS var, no re-render)');
 check(/setProperty\('--btx-size-scale'/.test(panelSrc),
@@ -394,21 +394,25 @@ for (const chip of ['btx-cit-count', 'btx-cit-range', 'btx-cit-tag']) {
 const stepRule = /#btx-root \.btx-font-step \{[^}]*\}/.exec(panelCss);
 check(stepRule && !/--btx-size-scale|--btx-body-size/.test(stepRule[0]),
   'the text-size stepper stays fixed-size chrome');
-// Every header control on one row at the minimum panel width: nothing rigid,
-// so adding the stepper cannot push the row into a wrap or an overflow.
-const headerRule = /#btx-root \.btx-header \{[^}]*\}/.exec(panelCss);
-check(headerRule && /flex-wrap: nowrap/.test(headerRule[0]), 'the header never wraps');
-check(/#btx-root \.btx-title \{[^}]*min-width: 0/.test(panelCss),
-  'the title can shrink so the controls always fit');
-check(/#btx-root \.btx-select \{[^}]*min-width:/.test(panelCss),
-  'the translation select shrinks to a floor rather than overflowing the header');
-// The buttons themselves are rigid, so the control box's floor is its own
-// content. `min-width: 0` here would remove that floor and let the box shrink
-// *past* its buttons, spilling them off the panel's right edge instead of
-// stopping the layout.
-const controlsRule = /#btx-root \.btx-controls \{[^}]*\}/.exec(panelCss);
-check(controlsRule && !/min-width: 0/.test(controlsRule[0]),
-  'the header controls keep a min-content floor, so the buttons cannot spill out of the panel');
+// Two chrome rows (header: mode control + Settings + Collapse; toolbar: the
+// mode's control + the stepper), each on one line at the minimum panel width.
+// In each row the buttons are rigid and the one wide control yields. These
+// regexes pin the rules that make that true; they cannot measure an overflow,
+// so the 280px check itself is a look at the real panel.
+const rows = /#btx-root \.btx-header,\s*#btx-root \.btx-toolbar \{[^}]*\}/.exec(panelCss);
+check(rows && /flex-wrap: nowrap/.test(rows[0]), 'neither chrome row wraps');
+check(/#btx-root \.btx-btn \{[^}]*flex: 0 0 auto/.test(panelCss), 'the icon and stepper buttons never shrink');
+for (const wide of ['btx-modes', 'btx-select', 'btx-cit-modes']) {
+  const rule = new RegExp(`#btx-root \\.${wide} \\{[^}]*\\}`).exec(panelCss);
+  check(rule && /flex: 1 1 auto/.test(rule[0]) && /min-width: 0/.test(rule[0]),
+    `.${wide} takes the row's spare width and yields it (a <select>'s floor would otherwise be its widest option)`);
+}
+// Text on an accent fill reads the contrast token, never a literal white:
+// white on the dark theme's light accent is about 1.9:1.
+check(/--btx-on-accent:/.test(panelCss), 'panel.css defines --btx-on-accent');
+check(!/color: #fff/i.test(panelCss.replace(/--btx-on-accent: #fff/g, '')),
+  'no panel rule hard-codes white text (it reads --btx-on-accent)');
+check(!/\.btx-mode/.test(citCss), 'the mode and citation-layout toggles are styled in panel.css only');
 const contentSrc = fs.readFileSync(path.join(ROOT, 'src/content/content.js'), 'utf8');
 check(/PANEL_KEYS = panel\.HANDLED_KEYS/.test(contentSrc),
   'content.js takes the panel-handled key list from the panel (no second copy)');

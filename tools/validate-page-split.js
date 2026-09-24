@@ -40,7 +40,7 @@ eq(P.wantsSplit({ ...on, layout: 'panel' }), false, 'the panel layout never touc
 eq(P.wantsSplit({ ...on, mode: 'citations' }), false, 'Citations mode takes the split away');
 eq(P.wantsSplit({ ...on, row: NIV }), false, 'an api.bible version stays in the panel');
 eq(P.wantsSplit({ ...on, row: null }), false, 'no row, no split');
-eq(P.wantsSplit({ ...on, visible: false }), false, 'a closed panel (or no chapter) means no split');
+eq(P.wantsSplit({ ...on, visible: false }), false, 'no chapter shown (or one the language preference hides) means no split');
 eq(P.wantsSplit({ ...on, visible: undefined }), false, 'visibility must be explicit');
 eq(P.wantsSplit({ ...on, layout: undefined }), false, 'an unknown layout does not split');
 
@@ -51,6 +51,23 @@ eq(P.fitWidth({ center: 662, left: 320, right: 1005, max: 1240 }), 660, 'fits be
 eq(P.fitWidth({ center: 860, left: 320, right: 1400, max: 1240 }), 1056, 'panel collapsed: the whole reading area');
 eq(P.fitWidth({ center: 960, left: 0, right: 1920, max: 1240 }), 1240, 'never wider than the cap');
 eq(P.fitWidth({ center: 100, left: 300, right: 400, max: 1240 }), 0, 'an impossible fit is zero, not negative');
+eq(P.readingRight({ width: 1600, reserve: 380 }), 1220, 'panel open: the reading area ends at its page reserve');
+eq(P.readingRight({ width: 1600, reserve: 0 }), 1600 - P.FLOAT_GUTTER_PX, "panel collapsed: short of the site's floating buttons");
+// The live site at 1600px, panel collapsed, navigation open: the column
+// centred at 960 used to reach 1580 and ran under the audio button (~1503).
+// Collapsing the panel: its reserve comes back and the column re-centres.
+// The live site at 1600px with the navigation docked (x 320) and the panel
+// open (reserve 380): the column centres at 770.
+eq(P.collapseFits({ center: 770, left: 320, width: 1600, reserve: 380, pad: 104, max: 1240 }), true,
+  'a wide window: collapsing leaves room for columns');
+// 1100px, the navigation overlaying the page up to x 320, panel open: the
+// column centres at 360, and even collapsed it would be about 436 wide.
+eq(P.collapseFits({ center: 360, left: 320, width: 1100, reserve: 380, pad: 104, max: 1240 }), false,
+  'a narrow window: collapsing would not make room, so it is not offered');
+eq(P.collapseFits({ center: 960, left: 0, width: 1920, reserve: 0, pad: 104, max: 1240 }), false,
+  'no reserve (collapsed already, or the bottom sheet): nothing to hand back');
+check(960 + P.fitWidth({ center: 960, left: 320, right: P.readingRight({ width: 1600, reserve: 0 }), max: 1240 }) / 2 <= 1600 - P.FLOAT_GUTTER_PX,
+  "a collapsed panel's widened columns stop short of the floating buttons");
 eq(P.effectiveLayout('columns', 1056 - 104), 'columns', 'a wide area gets columns');
 eq(P.effectiveLayout('columns', 660 - 104), 'interlinear', 'too narrow for two readable columns -> under each verse');
 eq(P.effectiveLayout('columns', 2 * P.MIN_COLUMN_PX + P.GAP_PX), 'columns', 'exactly the minimum still gets columns');
@@ -97,6 +114,9 @@ check((shell.match(/\.appendChild\(/g) || []).length === (shell.match(/(layer|no
 check(!/partner\.(style|setAttribute|classList|appendChild|remove)|row\.partner\.(style|setAttribute|classList)/.test(shell),
   "the site's elements are read (getComputedStyle, rects), never written");
 check(/getAttribute\('data-uri'\) === s\.uri/.test(shell), 'it mounts only once the site shows the chapter it loaded');
+check(/readingRight\(\{ width, reserve \}\)/.test(shell), 'the reading area ends where the pure rule says');
+check(/effective !== s\.effective \|\| roomier !== s\.collapseFits\)[\s\S]{0,300}s\.onLayout\(\{ effective, collapseFits: roomier \}\)/.test(shell),
+  'the layout callback fires where what fits changes, and only there');
 const css = fs.readFileSync(path.join(ROOT, 'src/content/page-split.css'), 'utf8');
 const selectors = css.replace(/\/\*[\s\S]*?\*\//g, '').split('}').map((r) => r.split('{')[0].trim()).filter(Boolean);
 check(selectors.every((sel) => sel.split(',').every((one) => /^(html\[data-btx-split[^\]]*\]|\.btx-split-)/.test(one.trim()))),

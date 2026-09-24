@@ -112,6 +112,70 @@ eq(T.pickText(churchOnly, ['niv', 'niv']), 'church:' + L1.code,
 eq(T.pickText(list, ['niv']), 'niv', '...and is still the pick back on a Bible chapter (the preference was not rewritten)');
 eq(T.pickText([], ['niv']), null, 'an empty list picks nothing');
 
+console.log('mruFrom / rememberPick:');
+eq(T.mruFrom('niv'), ['niv'], 'a single stored id (before the list existed) becomes a one-item list');
+eq(T.mruFrom(['church:spa', 'niv', 'church:spa', '', 7]), ['church:spa', 'niv'], 'duplicates and non-ids are dropped');
+eq(T.mruFrom(undefined), [], 'nothing stored, no preference');
+eq(T.rememberPick(['niv', 'church:spa'], 'church:spa'), ['church:spa', 'niv'], 'a pick moves to the front');
+eq(T.rememberPick('niv', 'church:jpn'), ['church:jpn', 'niv'], '...of a migrated single id too');
+eq(T.rememberPick(['a', 'b', 'c', 'd', 'e', 'f'], 'g'), ['g', 'a', 'b', 'c', 'd', 'e'], `the list keeps the ${T.MRU_MAX} newest`);
+eq(T.rememberPick(['niv'], ''), ['niv'], 'an empty pick changes nothing');
+{
+  // Spanish on Alma 5, then NIV on John 3: Alma 6 still opens in Spanish.
+  const spa = C.CHURCH_LANGUAGES.find((l) => l.code === 'spa');
+  const jpn = C.CHURCH_LANGUAGES.find((l) => l.code === 'jpn');
+  const bofm = T.textsFor({ isBible: false, collection: 'bofm', languages: [jpn.code, spa.code], pageLang: 'eng' });
+  const mru = T.rememberPick(T.rememberPick([], 'church:spa'), 'niv');
+  eq(mru, ['niv', 'church:spa'], 'NIV picked after Spanish is the newest');
+  eq(T.pickText(bofm, mru.concat('niv')), 'church:spa',
+    'back on the Book of Mormon the newest pick it offers wins, not its first row');
+}
+
+console.log('labelFor / menuFor:');
+const SPA_ROW = T.rowFor('spa');
+eq(T.labelFor(NIV, [NIV]), 'NIV — New International Version', 'an api.bible row reads "abbr — name"');
+eq(T.labelFor(SPA_ROW, [SPA_ROW]), 'Español — Spanish', 'a Church row reads "native name — English name"');
+if (ENG) eq(T.labelFor(T.rowFor('eng'), []), 'English', 'English reads once');
+const WEBU = (id, extra) => Object.assign({ id, abbr: 'WEBU', name: 'World English Bible Updated', provider: C.PROVIDER_APIBIBLE }, extra);
+const webus = [WEBU('72f4e6dc683324df-01'), WEBU('72f4e6dc683324df-02'), WEBU('72f4e6dc683324df-03')];
+eq(webus.map((r) => T.labelFor(r, webus)), [
+  'WEBU — World English Bible Updated (1)', 'WEBU — World English Bible Updated (2)', 'WEBU — World English Bible Updated (3)',
+], 'identical rows saved before descriptions existed are told apart by their id edition');
+const described = [WEBU('x-01', { description: 'Ecumenical' }), WEBU('x-02', { description: 'Protestant' })];
+eq(described.map((r) => T.labelFor(r, described)), [
+  'WEBU — World English Bible Updated (Ecumenical)', 'WEBU — World English Bible Updated (Protestant)',
+], "...and by api.bible's description when there is one");
+const sameDesc = [WEBU('a', { description: 'Protestant' }), WEBU('b', { description: 'Protestant' })];
+eq(sameDesc.map((r) => T.labelFor(r, sameDesc)), [
+  'WEBU — World English Bible Updated (1)', 'WEBU — World English Bible Updated (2)',
+], 'rows nothing else tells apart are numbered in list order');
+eq(T.labelFor(WEBU('x-01', { description: 'Protestant' }), [NIV]), 'WEBU — World English Bible Updated',
+  'a row with no twin carries no suffix, description or not');
+
+eq(T.menuFor([NIV, SPA_ROW]), [
+  { label: 'Bible translations', items: [{ id: 'niv', label: 'NIV — New International Version' }] },
+  { label: 'Church languages', items: [{ id: 'church:spa', label: 'Español — Spanish' }] },
+], 'both kinds on offer: two headed groups, Bible translations first');
+eq(T.menuFor([SPA_ROW]), [{ label: null, items: [{ id: 'church:spa', label: 'Español — Spanish' }] }],
+  'one kind: one group with no heading');
+eq(T.menuFor([]), [], 'nothing on offer: an empty menu (the select hides)');
+
+console.log('languagesToAdd:');
+{
+  const bofmLangs = T.languagesToAdd({ collection: 'bofm', pageLang: 'eng', enabled: [] });
+  check(bofmLangs.length > 50, 'a Book of Mormon chapter offers every language publishing the Book of Mormon');
+  check(!bofmLangs.some((l) => l.code === 'eng'), "the page's own language is not offered");
+  eq(bofmLangs.find((l) => l.code === 'spa'), { code: 'spa', label: 'Español — Spanish' }, 'each reads as it will in the dropdown');
+  eq(bofmLangs.map((l) => l.code), C.CHURCH_LANGUAGES.map((l) => l.code).filter((c) => bofmLangs.some((l) => l.code === c)),
+    'in the table order (the widest coverage first)');
+  if (bofmOnly && bibleOnly) {
+    const nt = T.languagesToAdd({ collection: 'nt', pageLang: 'eng', enabled: [] }).map((l) => l.code);
+    check(nt.includes(bibleOnly.code) && !nt.includes(bofmOnly.code), 'a New Testament chapter offers only languages publishing the New Testament');
+  }
+  check(!T.languagesToAdd({ collection: 'bofm', pageLang: 'eng', enabled: ['spa'] }).some((l) => l.code === 'spa'),
+    'a language already on is not offered again');
+}
+
 // ---- chapterUri / apiUrl -----------------------------------------------------
 console.log('chapterUri / apiUrl:');
 eq(T.chapterUri({ collection: 'dc-testament', ldsBook: 'dc', chapter: '76' }), '/scriptures/dc-testament/dc/76',

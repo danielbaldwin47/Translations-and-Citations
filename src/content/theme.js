@@ -4,6 +4,10 @@
  * reading content and copy them into the panel as CSS variables. This makes the
  * panel track light/dark/sepia and the font-size slider automatically.
  *
+ * Two fonts are mirrored: the reading font (--btx-font/--btx-size/--btx-line,
+ * from the chapter's verses) for text the reader compares with the page, and
+ * the UI font (--btx-ui-font, the site's body font) for the panel's chrome.
+ *
  * Interface:
  *   mirror(resolveTarget) -> { refresh() }
  *       Style the target element like the site and keep it that way: the initial
@@ -55,13 +59,24 @@
   // Family and line-height come from the winning size's biggest paragraph, so
   // the three mirrored values describe one real paragraph rather than three.
   // Ties go to document order, so a re-apply on an unchanged page is a no-op.
+  //
+  // Paragraphs in the page's chrome are never the chapter's text, however much
+  // of it there is: the site's navigation drawer sits inside `main`, before the
+  // chapter, with a 14px sans <p> per book and chapter, and on a long book it
+  // outweighs the verses. A sample says so with `inChrome` (it sits inside one
+  // of CHROME_SELECTOR's structural hooks — tags and roles, ADR-0005).
   const MAX_TEXT_SAMPLES = 40; // bounded: this runs on every re-apply
+  const CHROME_SELECTOR = 'nav, header, footer, aside, [role="navigation"]';
+
+  function isReadingText(sample) {
+    return !!sample && !sample.inChrome && !!sample.size && sample.chars > 0;
+  }
 
   function dominantTextStyle(samples) {
     if (!samples || !samples.length) return null;
     const bySize = new Map();
     for (const sample of samples) {
-      if (!sample || !sample.size || !(sample.chars > 0)) continue;
+      if (!isReadingText(sample)) continue;
       const group = bySize.get(sample.size);
       if (!group) {
         bySize.set(sample.size, { chars: sample.chars, best: sample });
@@ -84,7 +99,7 @@
   // reserves page width with a margin on <html>, so wake-ups arrive that carry
   // no new styling. Answering them with a write is how a watcher turns into a
   // loop. Same captured values -> no write -> the wake-up dies here.
-  const VAR_KEYS = ['bg', 'fg', 'headerBg', 'headerH', 'font', 'size', 'line', 'dark'];
+  const VAR_KEYS = ['bg', 'fg', 'headerBg', 'headerH', 'font', 'uiFont', 'size', 'line', 'dark'];
 
   function sameVars(a, b) {
     if (!a || !b) return false;
@@ -97,6 +112,8 @@
       ALIGN_MAX_DELAY,
       nextAlignDelay,
       MAX_TEXT_SAMPLES,
+      CHROME_SELECTOR,
+      isReadingText,
       dominantTextStyle,
       VAR_KEYS,
       sameVars,
@@ -150,22 +167,25 @@
   // structural hooks only. Null when there is no plausible reading column, in
   // which case the caller keeps the single-element fallback.
   //
-  // Widest first, deliberately — the opposite of resolveReadingContainer, which
-  // wants one representative element. The pick below is weighted by how much
-  // text each size covers, so a container wider than the chapter is harmless
-  // (the chapter still holds most of the text in it) while one narrower than
-  // the chapter is fatal: `main [data-aid]` resolves to the *first* such block
-  // in document order, which on a /study page wraps the chapter heading. Sample
-  // that alone and we are back to mirroring the heading, which is this bug.
+  // The chapter's article first: it wraps the whole chapter (heading, summary,
+  // verses), so the pick below — weighted by how much text each size covers —
+  // still lands on the verses. Then wider fallbacks, never narrower ones: a
+  // container wider than the chapter is harmless (its chrome is skipped, and
+  // the chapter holds most of the rest), while `main [data-aid]` resolves to
+  // the *first* such block in document order, which on a /study page wraps
+  // only the chapter heading — sample that alone and the panel mirrors the
+  // heading (issue #33). The opposite order to resolveReadingContainer, which
+  // wants one representative element.
   function resolveReadingColumn() {
-    return firstMatch(['main', 'article', 'main [data-aid]']);
+    return firstMatch(['main article', 'article', 'main', 'main [data-aid]']);
   }
 
   // Computed size/family/line-height of the column's paragraphs, with how much
   // text each holds — the input to dominantTextStyle. Bounded by
   // MAX_TEXT_SAMPLES: this runs on every re-apply, including each step of the
-  // launch alignment chain. The chapter sits at the top of the column, so the
-  // budget is spent on it before it reaches anything below.
+  // launch alignment chain. Chrome paragraphs are skipped (isReadingText's rule,
+  // applied before the computed-style read) so the budget is spent on the
+  // chapter's own text.
   function sampleTextStyles(column) {
     if (!column) return [];
     const out = [];
@@ -173,7 +193,7 @@
     for (const el of paras) {
       if (out.length >= MAX_TEXT_SAMPLES) break;
       const chars = (el.textContent || '').trim().length;
-      if (!chars) continue;
+      if (!chars || el.closest(CHROME_SELECTOR)) continue;
       const cs = getComputedStyle(el);
       if (cs.display === 'none' || cs.visibility === 'hidden') continue;
       out.push({ chars, size: cs.fontSize, font: cs.fontFamily, line: lineHeightOf(cs) });
@@ -259,6 +279,8 @@
       headerBg: captureHeaderBg(bg, dark),
       headerH: captureHeaderHeight(),
       font: text.font || 'Georgia, serif',
+      // The site's own chrome font: what its toolbars and navigation are set in.
+      uiFont: getComputedStyle(document.body).fontFamily || 'system-ui, sans-serif',
       size: text.size || '17px',
       line: text.line || '27.2px', // 17px × 1.6, stated as a length like every other line value
       dark,
@@ -273,6 +295,7 @@
     if (v.headerBg) targetEl.style.setProperty('--btx-header-bg', v.headerBg);
     if (v.headerH) targetEl.style.setProperty('--btx-header-h', v.headerH + 'px');
     targetEl.style.setProperty('--btx-font', v.font);
+    targetEl.style.setProperty('--btx-ui-font', v.uiFont);
     targetEl.style.setProperty('--btx-size', v.size);
     targetEl.style.setProperty('--btx-line', v.line);
     targetEl.setAttribute('data-btx-theme', v.dark ? 'dark' : 'light');
