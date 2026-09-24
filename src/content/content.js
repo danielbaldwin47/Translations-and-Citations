@@ -8,6 +8,8 @@
  *    dropdown's rows and the pick among them are __BTX.churchText's pure
  *    textsFor / pickText (api.bible versions, then Church languages)
  *  - answers the panel's renderMode event with fresh mode content
+ *  - answers the toolbar icon (TOGGLE_PANEL): collapse or expand the panel; on
+ *    a chapter the language preference hides, show it for this tab instead
  *  - names each view and supplies its content key; it holds no panel DOM
  *
  * Runs once per page. Shared modules (constants/settings/books) and the other
@@ -30,10 +32,10 @@
 
   const SELECTION_KEY = 'btxSelectedTranslation';
 
-  // Settings the panel reacts to by itself (owning some, displaying others,
-  // e.g. showCitationToggle). A change touching only these never needs the
-  // orchestrator's full re-render — the panel adopts it and fires renderMode
-  // when it made the mounted content stale. The list belongs to the panel; we
+  // Settings the panel reacts to by itself (owning some, e.g. panelMode, and
+  // applying others, e.g. sidebarWidth). A change touching only these never
+  // needs the orchestrator's full re-render — the panel adopts it and fires
+  // renderMode when it made the mounted content stale. The list belongs to the panel; we
   // read it rather than keeping a copy that could drift.
   const PANEL_KEYS = panel.HANDLED_KEYS;
 
@@ -49,10 +51,11 @@
   let current = null; // parsed location
   let reqToken = 0; // guards against stale responses
   let retryTimer = null;
-  let userClosed = false;
+  // The toolbar icon clicked on a chapter the `actOnNonEngOnly` preference
+  // hides: show chapters in this tab whatever their language. Never persisted.
+  let forceShow = false;
   let themeMirror = null; // theme.mirror handle — the theme module keeps the panel in sync
   let currentKey = null; // dedupes repeat navigation events for the same chapter
-  let scrollToSnippet = true; // open sources scrolled to the cited paragraph
 
   function getStored(key) {
     return new Promise((resolve) => {
@@ -102,6 +105,12 @@
     });
   }
 
+  // Whether the panel appears on this chapter at all: English pages, unless
+  // the reader asked for other languages (the setting, or the toolbar icon).
+  function showsOn(parsed, e) {
+    return forceShow || e.actOnNonEngOnly === false || parsed.lang === 'eng';
+  }
+
   function storeSelection(id) {
     try { chrome.storage.local.set({ [SELECTION_KEY]: id }); } catch (e) { /* ignore */ }
   }
@@ -128,24 +137,18 @@
     ++splitToken;
     pageSplit.hide();
 
-    if (userClosed) {
-      panel.hide();
-      return;
-    }
-
     const e = await loadEnabled();
 
-    // Respect the "English pages only" preference.
-    if (e.actOnNonEngOnly !== false && parsed.lang !== 'eng') {
+    if (!showsOn(parsed, e)) {
       panel.hide();
       syncSplit();
       return;
     }
 
-    // Every Bible chapter is translatable (with nothing enabled it says so);
-    // any other chapter only once a Church language gives it a text.
+    // Translatable = some text offers this chapter: an enabled api.bible
+    // translation (Bible only) or a Church language publishing its volume.
     texts = textsForChapter(parsed, e);
-    panel.showChapter({ title: refLabel(parsed), translatable: parsed.isBible !== false || texts.length > 0 });
+    panel.showChapter({ key, translatable: texts.length > 0 });
     if (themeMirror) themeMirror.refresh(); // the panel is on screen: theme it now
 
     await renderActiveMode();
@@ -170,7 +173,7 @@
     const row = findTranslation(activeId);
     const layout = e && e.churchLanguageLayout;
     const want = pageSplit.wantsSplit({
-      visible: !!current && !userClosed && !!e && !(e.actOnNonEngOnly !== false && current.lang !== 'eng'),
+      visible: !!current && !!e && showsOn(current, e),
       mode: panel.effectiveMode(),
       row,
       layout,
@@ -270,7 +273,6 @@
         entry,
         source: entry.source || {},
         onBack: () => renderCitations(current),
-        autoScroll: scrollToSnippet,
       }),
     });
   }
@@ -389,6 +391,21 @@
     } catch (e) { /* ignore */ }
   }
 
+  // No chapter on this page: nothing to show or hide. A chapter the language
+  // preference hid: the click is the reader asking for it, so show it, open.
+  async function onToolbarClick() {
+    if (!current) return;
+    const e = await loadEnabled();
+    if (showsOn(current, e)) {
+      panel.toggleCollapsed();
+      return;
+    }
+    forceShow = true;
+    panel.toggleCollapsed(false);
+    currentKey = null;
+    render();
+  }
+
   // ---- Wire up ----
   async function init() {
     await panel.init({
@@ -402,22 +419,18 @@
       },
       onRetry: () => loadChapter(),
       onGear: () => send({ type: C.MSG.OPEN_OPTIONS }),
-      onClose: () => { userClosed = true; panel.hide(); syncSplit(); },
     });
-
-    scrollToSnippet = (await SETTINGS.get()).scrollToSnippet;
 
     // Hand the theme module the panel root (null while there's nothing shown);
     // it owns applying, aligning and re-applying from here on.
-    themeMirror = theme.mirror(() => (current && !userClosed ? panel.getRootEl() : null));
+    themeMirror = theme.mirror(() => (current ? panel.getRootEl() : null));
 
     detect.setupNavigation(() => render());
 
     // Settings changed (options page, or another tab) -> adopt what's ours, and
     // re-render only when it wasn't our own write and something the panel
     // doesn't own by itself moved.
-    SETTINGS.subscribe(({ next, changed, own }) => {
-      scrollToSnippet = next.scrollToSnippet;
+    SETTINGS.subscribe(({ changed, own }) => {
       if (own) return; // we already rendered the change that caused this write
       if (!changed.some((k) => !PANEL_KEYS.includes(k))) return;
       enabled = null;
@@ -425,18 +438,12 @@
       if (current) render();
     });
 
-    // Toolbar icon toggles the panel.
-    chrome.runtime.onMessage.addListener((msg) => {
-      if (msg && msg.type === C.MSG.TOGGLE_PANEL) {
-        userClosed = !userClosed;
-        if (userClosed) {
-          panel.hide();
-          syncSplit();
-        } else {
-          currentKey = null; // force re-render after re-opening
-          render();
-        }
-      }
+    // The toolbar icon. Answered at once, so the worker can tell a tab with a
+    // panel from one without (where it opens the options page instead).
+    chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+      if (!msg || msg.type !== C.MSG.TOGGLE_PANEL) return;
+      sendResponse({ ok: true });
+      onToolbarClick();
     });
 
     render();

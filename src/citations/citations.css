@@ -47,68 +47,8 @@
   white-space: nowrap;
 }
 
-/* ---- Mode toggle (segmented control: joined halves, filled active segment) ---- */
-#btx-root .btx-modes {
-  display: flex;
-  gap: 0;
-  padding: 7px 10px;
-  border-bottom: 1px solid var(--btx-border);
-  flex: 0 0 auto;
-}
-#btx-root .btx-mode {
-  flex: 1;
-  appearance: none;
-  border: 1px solid var(--btx-border);
-  background: transparent;
-  color: var(--btx-muted);
-  font: inherit;
-  font-size: 13px;
-  padding: 5px 8px;
-  cursor: pointer;
-  transition: background 0.12s, color 0.12s;
-}
-#btx-root .btx-mode:first-child { border-radius: 7px 0 0 7px; border-right-width: 0; }
-#btx-root .btx-mode:last-child { border-radius: 0 7px 7px 0; }
-#btx-root .btx-mode:hover:not(.btx-active) { color: var(--btx-fg); background: var(--btx-border); }
-#btx-root .btx-mode.btx-active {
-  background: var(--btx-accent);
-  border-color: var(--btx-accent);
-  color: #fff;
-}
-
-/* Citation-layout sub-toggle (By source | By verse). Shown only in citations
-   mode; hidden when the user disables it in settings. Lighter/pill look so it
-   reads as a sub-control under the primary mode toggle (active = accent outline). */
-#btx-root .btx-cit-modes {
-  display: none;                 /* shown only in citations mode (rule below) */
-  gap: 4px;
-  padding: 6px 10px;
-  border-bottom: 1px solid var(--btx-border);
-  flex: 0 0 auto;
-}
-#btx-root[data-btx-mode='citations'] .btx-cit-modes { display: flex; }
-/* MUST stay after the rule above: equal specificity, so source order wins. */
-#btx-root.btx-cit-toggle-off .btx-cit-modes { display: none; }
-#btx-root .btx-cit-mode {
-  flex: 1;
-  appearance: none;
-  border: 1px solid var(--btx-border);
-  background: transparent;
-  color: var(--btx-muted);
-  font: inherit;
-  font-size: 12px;
-  padding: 3px 8px;
-  border-radius: 999px;
-  cursor: pointer;
-  transition: background 0.12s, color 0.12s, border-color 0.12s;
-}
-#btx-root .btx-cit-mode:hover:not(.btx-active) { color: var(--btx-fg); }
-#btx-root .btx-cit-mode.btx-active {
-  color: var(--btx-accent);
-  border-color: var(--btx-accent);
-  background: color-mix(in srgb, var(--btx-accent) 10%, transparent);
-  font-weight: 600;
-}
+/* The Translation | Citations and By source | By verse controls are panel
+   chrome: their rules live in src/content/panel.css. */
 
 /* ---- Citation list (accordion: verse -> source type -> talks) ---- */
 #btx-root .btx-cit-summary {

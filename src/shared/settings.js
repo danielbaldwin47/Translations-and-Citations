@@ -111,7 +111,9 @@
   }
 
   // ---- Schema -------------------------------------------------------------
-  // One entry per setting: its default and its single normalizer.
+  // One entry per setting: its default and its single normalizer. A retired
+  // setting (scrollToSnippet, showCitationToggle, citationSourceMark) is simply
+  // absent: an old stored value is an unknown key, carried through writes.
   const SCHEMA = {
     apiKey: { def: '', norm: str('') },
     provider: { def: APIBIBLE, norm: oneOf([APIBIBLE, BIBLEAPI], APIBIBLE) },
@@ -139,16 +141,9 @@
       def: FONT_SCALE_DEFAULT,
       norm: clampedStep(FONT_SCALE_MIN, FONT_SCALE_MAX, FONT_SCALE_STEP, FONT_SCALE_DEFAULT),
     },
-    // Open sources scrolled to the cited paragraph.
-    scrollToSnippet: { def: true, norm: bool(true) },
-    // Citation layout. One documented default, used by every context.
+    // Citation layout. One documented default, used by every context; its one
+    // editor is the panel's By source | By verse toggle.
     citationView: { def: 'source', norm: oneOf(['source', 'verse'], 'source') },
-    // Show the citation-layout sub-toggle in the panel.
-    showCitationToggle: { def: true, norm: bool(true) },
-    // How a citation row shows its source type: 'chip' = an acronym tile (GC /
-    // JoD / JS) at the right of each row; 'strip' = no tile, the source-type
-    // group carries a coloured left edge instead and the text reclaims the width.
-    citationSourceMark: { def: 'strip', norm: oneOf(['chip', 'strip'], 'strip') },
     // Let the page's scroll move the Translation panel. Off means the panel
     // never scrolls on its own — no tracking, no eased re-alignment; where the
     // user puts it is where it stays.

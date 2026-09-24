@@ -40,7 +40,7 @@ eq(P.wantsSplit({ ...on, layout: 'panel' }), false, 'the panel layout never touc
 eq(P.wantsSplit({ ...on, mode: 'citations' }), false, 'Citations mode takes the split away');
 eq(P.wantsSplit({ ...on, row: NIV }), false, 'an api.bible version stays in the panel');
 eq(P.wantsSplit({ ...on, row: null }), false, 'no row, no split');
-eq(P.wantsSplit({ ...on, visible: false }), false, 'a closed panel (or no chapter) means no split');
+eq(P.wantsSplit({ ...on, visible: false }), false, 'no chapter shown (or one the language preference hides) means no split');
 eq(P.wantsSplit({ ...on, visible: undefined }), false, 'visibility must be explicit');
 eq(P.wantsSplit({ ...on, layout: undefined }), false, 'an unknown layout does not split');
 

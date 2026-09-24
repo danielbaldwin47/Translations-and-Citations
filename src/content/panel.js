@@ -1,26 +1,36 @@
 /*
  * The side panel — a deep module that owns everything panel-shaped: its DOM,
- * its state (mode, citation layout, collapsed, width, translatable), the
- * persistence of that state through __BTX.settings, scroll-sync, and
- * drag-to-resize. It is also the *view host*: callers ask for a named view and
- * the panel decides whether to rebuild it or re-mount the one it cached, and
- * it is the only writer of the body's scroll position. The orchestrator
- * supplies chapter context and content; it never sequences panel setters,
- * persists panel state, or holds panel DOM.
+ * its state (mode, citation layout, collapsed, width, translatable, the
+ * visit's Translation override), the persistence of that state through
+ * __BTX.settings, scroll-sync, and drag-to-resize. It is also the *view
+ * host*: callers ask for a named view and the panel decides whether to
+ * rebuild it or re-mount the one it cached, and it is the only writer of the
+ * body's scroll position. The orchestrator supplies chapter context and
+ * content; it never sequences panel setters, persists panel state, or holds
+ * panel DOM.
  *
  * Interface:
  *   init(handlers)                 build the DOM, adopt persisted state, wire
  *                                  controls; must be awaited before use
- *   showChapter({ title, translatable })  make the panel visible for a
+ *   showChapter({ key, translatable })  make the panel visible for a
  *                                  chapter (also invalidates every cached
- *                                  view); `translatable` is false when the
- *                                  chapter has no text to show beside it
+ *                                  view). `key` names the chapter, so showing
+ *                                  the same one again keeps the visit's
+ *                                  Translation override; `translatable` is
+ *                                  false when no text offers the chapter
  *   hide()
- *   effectiveMode()                'translation' | 'citations' — citations is
- *                                  forced on chapters that aren't translatable
+ *   toggleCollapsed(force)         collapse to the edge tab or expand — flip,
+ *                                  or `force` true/false like classList.toggle
+ *                                  (the toolbar icon); persisted like the
+ *                                  header's Collapse button
+ *   effectiveMode()                'translation' | 'citations' — see the pure
+ *                                  effectiveMode for the rule
  *   citationView()                 'source' | 'verse'
  *   showView({ name, key, cache, render })  mount the named view; see the view
  *                                  host section below. Returns render's result.
+ *   keepView(keep)                 the mounted view says whether what it
+ *                                  rendered may be re-mounted (false for an
+ *                                  error or a spinner)
  *   scrollIntoView(target, { clearTop, frames })  reveal a node inside the
  *                                  mounted view — near the middle of the body,
  *                                  so the text leading into it is visible, and
@@ -41,9 +51,9 @@
  *   populateTranslations(list, selectedId)
  *   getRootEl()
  *
- * handlers: { renderMode(mode), onTranslationChange(id), onGear, onClose,
- *   onRetry }. `renderMode` fires whenever the panel invalidated its own body
- *   content (mode toggle, citation-layout toggle, a synced change from another
+ * handlers: { renderMode(mode), onTranslationChange(id), onGear, onRetry }.
+ *   `renderMode` fires whenever the panel invalidated its own body content
+ *   (mode toggle, citation-layout toggle, a synced change from another
  *   context); the orchestrator answers by rendering that mode's content.
  *   After showChapter() the orchestrator renders the current effectiveMode()
  *   itself — showChapter never fires events.
@@ -86,24 +96,34 @@
       citationView: init.citationView === 'verse' ? 'verse' : 'source',
       collapsed: init.collapsed === true,
       translatable: true,
+      override: false,
+      chapter: null,
     };
   }
 
-  // A chapter with no text to show beside it (a non-Bible chapter while no
-  // Church language is enabled) forces citations; `mode` keeps the user's
-  // preference untouched for the next chapter that has one.
+  // `mode` is the stored preference; what shows is the effective mode. A
+  // chapter with no text to show beside it (no api.bible translation or Church
+  // language offers it) shows citations and leaves the preference untouched
+  // for the next chapter that has one. `override` is the reader asking for
+  // Translation anyway on this visit — the setup card — and it outranks the
+  // rest until the chapter changes or Citations is clicked.
   function effectiveMode(s) {
+    if (s.override) return 'translation';
     return s.translatable ? s.mode : 'citations';
   }
 
-  // A mode-segment click. True when the mode changed (content must re-render);
-  // false for a re-click or on an untranslatable chapter, where the toggle is
-  // inert.
+  // A mode-segment click. True when the effective mode changed (content must
+  // re-render). On a translatable chapter a click is the preference; on one
+  // that isn't, Translation sets the override instead, so the stored
+  // preference is never rewritten by a visit. Citations always clears it.
   function selectMode(s, m) {
     if (m !== 'citations' && m !== 'translation') return false;
-    if (!s.translatable || m === s.mode) return false;
-    s.mode = m;
-    return true;
+    const before = effectiveMode(s);
+    if (m === before) return false;
+    if (m === 'citations') s.override = false;
+    if (s.translatable) s.mode = m;
+    else if (m === 'translation') s.override = true;
+    return effectiveMode(s) !== before;
   }
 
   // A citation-layout click. Only acts while citations are showing.
@@ -115,11 +135,17 @@
     return true;
   }
 
-  // A new chapter arrived. True when the *effective* mode flipped (a
-  // translatable chapter giving way to one that isn't, or back).
-  function setTranslatable(s, translatable) {
+  // A chapter was shown: a new one, or the same one again after a settings
+  // change (`key` tells them apart). A new chapter drops the override; the same
+  // one keeps it, so a reader who opened the setup card and then turned on a
+  // language stays in Translation. True when the effective mode flipped.
+  function setChapter(s, chapter) {
+    const c = chapter || {};
     const before = effectiveMode(s);
-    s.translatable = translatable !== false;
+    const key = c.key == null ? null : String(c.key);
+    if (key === null || key !== s.chapter) s.override = false;
+    s.chapter = key;
+    s.translatable = c.translatable !== false;
     return effectiveMode(s) !== before;
   }
 
@@ -426,7 +452,7 @@
 
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = {
-      createState, effectiveMode, selectMode, selectCitationView, setTranslatable,
+      createState, effectiveMode, selectMode, selectCitationView, setChapter,
       stepFontScale,
       createViews, saveViewScroll, selectView, keepView, settleView, dropViews,
       viewRestoresScroll, wantsScrollSync,
@@ -451,7 +477,7 @@
   // The settings this panel handles by itself when they change. Exposed as
   // panel.HANDLED_KEYS so the orchestrator can skip its full re-render for a
   // change touching only these — one list, no mirror to drift.
-  const PANEL_HANDLED_KEYS = ['sidebarWidth', 'fontScale', 'citationView', 'showCitationToggle', 'citationSourceMark', 'panelMode', 'panelCollapsed', 'scrollSync'];
+  const PANEL_HANDLED_KEYS = ['sidebarWidth', 'fontScale', 'citationView', 'panelMode', 'panelCollapsed', 'scrollSync'];
 
   let ui = null; // refs once built
   const cbs = {}; // event handlers set by init()
@@ -480,62 +506,102 @@
     return n;
   }
 
+  // Icons: shapes on a 24-unit grid, stroked in currentColor so each follows
+  // its button's colour and the theme. Built node by node, never from markup.
+  const SVG_NS = 'http://www.w3.org/2000/svg';
+  const PANEL_FRAME = [['rect', { x: 3, y: 3, width: 18, height: 18, rx: 2 }], ['path', { d: 'M15 3v18' }]];
+  const ICONS = {
+    settings: [
+      ['circle', { cx: 12, cy: 12, r: 3 }],
+      ['path', { d: 'M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z' }],
+    ],
+    collapse: PANEL_FRAME.concat([['path', { d: 'm8 9 3 3-3 3' }]]), // chevron toward the edge
+    expand: PANEL_FRAME.concat([['path', { d: 'm10 15-3-3 3-3' }]]), // chevron out of it
+  };
+
+  function svgNode(tag, attrs) {
+    const n = document.createElementNS(SVG_NS, tag);
+    for (const k of Object.keys(attrs)) n.setAttribute(k, String(attrs[k]));
+    return n;
+  }
+
+  function icon(name, size) {
+    const svg = svgNode('svg', {
+      viewBox: '0 0 24 24', width: size, height: size, fill: 'none', stroke: 'currentColor',
+      'stroke-width': 1.8, 'stroke-linecap': 'round', 'stroke-linejoin': 'round',
+      'aria-hidden': 'true', focusable: 'false',
+    });
+    for (const [tag, attrs] of ICONS[name]) svg.appendChild(svgNode(tag, attrs));
+    return svg;
+  }
+
+  // A button whose visible content is a glyph or an icon: its accessible name
+  // and its tooltip are the same words.
+  function labelled(node, label) {
+    node.setAttribute('aria-label', label);
+    node.title = label;
+    return node;
+  }
+
+  // A segmented control: buttons in a named group, the chosen one pressed.
+  function segmented(cls, label, buttons) {
+    const group = el('div', cls);
+    group.setAttribute('role', 'group');
+    group.setAttribute('aria-label', label);
+    for (const b of buttons) group.appendChild(b);
+    return group;
+  }
+
+  function setPressed(button, on) {
+    button.classList.toggle('btx-active', on);
+    button.setAttribute('aria-pressed', on ? 'true' : 'false');
+  }
+
+  // Two rows of chrome above the body. The header row lines up with the
+  // site's toolbar and holds what is always there: the mode control, Settings
+  // and Collapse. The toolbar row under it holds the current mode's controls —
+  // the translation dropdown, or the By source | By verse toggle — beside the
+  // text-size stepper.
   function ensureRoot() {
     const existing = document.getElementById('btx-root');
     if (existing && ui) return ui;
 
     const rootEl = existing || el('div', null);
     rootEl.id = 'btx-root';
+    rootEl.setAttribute('role', 'complementary');
+    rootEl.setAttribute('aria-label', 'Translations & Citations');
     rootEl.setAttribute('data-btx-theme', 'light');
     rootEl.setAttribute('data-btx-mode', 'translation');
-    rootEl.setAttribute('data-btx-source-mark', 'strip');
 
     const panel = el('div', 'btx-panel');
-    const header = el('div', 'btx-header');
-    const title = el('div', 'btx-title', 'Compare');
-    const select = el('select', 'btx-select');
-    select.title = 'Choose translation';
 
+    const modeTranslation = el('button', 'btx-mode', 'Translation');
+    const modeCitations = el('button', 'btx-mode', 'Citations');
+    const modes = segmented('btx-modes', 'Show', [modeTranslation, modeCitations]);
+    const gear = labelled(el('button', 'btx-btn btx-icon-btn btx-gear'), 'Settings');
+    gear.appendChild(icon('settings', 18));
+    const collapse = labelled(el('button', 'btx-btn btx-icon-btn btx-collapse'), 'Collapse panel');
+    collapse.appendChild(icon('collapse', 18));
+    const header = el('div', 'btx-header');
+    header.appendChild(modes);
+    header.appendChild(gear);
+    header.appendChild(collapse);
+
+    const select = el('select', 'btx-select');
+    labelled(select, 'Translation');
+    const citViewSource = el('button', 'btx-cit-mode', 'By source');
+    const citViewVerse = el('button', 'btx-cit-mode', 'By verse');
+    const citModes = segmented('btx-cit-modes', 'Group citations', [citViewSource, citViewVerse]);
     // Text-size stepper. Two buttons rather than the options page's slider
     // because the size is read-and-adjust: the reader is looking at the text
     // while stepping it. Both write the same setting the slider does.
-    const smaller = el('button', 'btx-btn btx-font-step', 'A−');
-    smaller.title = 'Smaller text';
-    const larger = el('button', 'btx-btn btx-font-step btx-font-larger', 'A+');
-    larger.title = 'Larger text';
-
-    const gear = el('button', 'btx-btn btx-gear', '⚙');
-    gear.title = 'Settings';
-    const collapse = el('button', 'btx-btn btx-collapse', '»');
-    collapse.title = 'Collapse';
-    const close = el('button', 'btx-btn btx-close', '✕');
-    close.title = 'Hide panel';
-
-    const controls = el('div', 'btx-controls');
-    controls.appendChild(select);
-    controls.appendChild(smaller);
-    controls.appendChild(larger);
-    controls.appendChild(gear);
-    controls.appendChild(collapse);
-    controls.appendChild(close);
-
-    header.appendChild(title);
-    header.appendChild(controls);
-
-    // Mode toggle: Translation | Citations
-    const modes = el('div', 'btx-modes');
-    const modeTranslation = el('button', 'btx-mode btx-active', 'Translation');
-    const modeCitations = el('button', 'btx-mode', 'Citations');
-    modes.appendChild(modeTranslation);
-    modes.appendChild(modeCitations);
-
-    // Citation-layout sub-toggle: By source | By verse (shown only in citations
-    // mode; CSS-gated off data-btx-mode, hidden via .btx-cit-toggle-off setting).
-    const citModes = el('div', 'btx-cit-modes');
-    const citViewSource = el('button', 'btx-cit-mode btx-active', 'By source');
-    const citViewVerse = el('button', 'btx-cit-mode', 'By verse');
-    citModes.appendChild(citViewSource);
-    citModes.appendChild(citViewVerse);
+    const smaller = labelled(el('button', 'btx-btn btx-font-step', 'A−'), 'Smaller text');
+    const larger = labelled(el('button', 'btx-btn btx-font-step btx-font-larger', 'A+'), 'Larger text');
+    const toolbar = el('div', 'btx-toolbar');
+    toolbar.appendChild(select);
+    toolbar.appendChild(citModes);
+    toolbar.appendChild(smaller);
+    toolbar.appendChild(larger);
 
     const body = el('div', 'btx-body');
     const footer = el('div', 'btx-footer');
@@ -546,14 +612,13 @@
 
     panel.appendChild(resize);
     panel.appendChild(header);
-    panel.appendChild(modes);
-    panel.appendChild(citModes);
+    panel.appendChild(toolbar);
     panel.appendChild(body);
     panel.appendChild(footer);
 
-    // Collapsed tab pinned to the right edge.
-    const tab = el('button', 'btx-tab', 'Translation & Citations');
-    tab.title = 'Show panel';
+    // The collapsed panel: one icon tab on the window's right edge.
+    const tab = labelled(el('button', 'btx-tab'), 'Show Translations & Citations');
+    tab.appendChild(icon('expand', 20));
 
     rootEl.appendChild(panel);
     rootEl.appendChild(tab);
@@ -568,7 +633,6 @@
     smaller.addEventListener('click', () => onFontStep(-1));
     larger.addEventListener('click', () => onFontStep(1));
     gear.addEventListener('click', () => cbs.onGear && cbs.onGear());
-    close.addEventListener('click', () => cbs.onClose && cbs.onClose());
     collapse.addEventListener('click', () => setCollapsed(true));
     tab.addEventListener('click', () => setCollapsed(false));
     modeTranslation.addEventListener('click', () => onModeClick('translation'));
@@ -584,7 +648,7 @@
       scrollFadeTimer = setTimeout(() => body.classList.remove('btx-scrolling'), 1000);
     }, { passive: true });
 
-    ui = { rootEl, panel, header, title, select, smaller, larger, modes, modeTranslation, modeCitations, citModes, citViewSource, citViewVerse, body, footer, tab, resize };
+    ui = { rootEl, panel, header, toolbar, select, smaller, larger, modes, modeTranslation, modeCitations, citModes, citViewSource, citViewVerse, body, footer, tab, collapse, resize };
     return ui;
   }
 
@@ -592,8 +656,8 @@
 
   function applyModeUI() {
     const cit = effectiveMode(state) === 'citations';
-    ui.modeTranslation.classList.toggle('btx-active', !cit);
-    ui.modeCitations.classList.toggle('btx-active', cit);
+    setPressed(ui.modeTranslation, !cit);
+    setPressed(ui.modeCitations, cit);
     ui.select.style.display = cit ? 'none' : '';
     ui.footer.style.display = cit ? 'none' : '';
     ui.rootEl.setAttribute('data-btx-mode', cit ? 'citations' : 'translation');
@@ -602,26 +666,14 @@
 
   function applyCitationViewUI() {
     const verse = state.citationView === 'verse';
-    ui.citViewVerse.classList.toggle('btx-active', verse);
-    ui.citViewSource.classList.toggle('btx-active', !verse);
+    setPressed(ui.citViewVerse, verse);
+    setPressed(ui.citViewSource, !verse);
   }
 
   function applyCollapsedUI() {
     ui.rootEl.classList.toggle('btx-collapsed', state.collapsed);
     refreshScrollSync();
     updatePageReserve();
-  }
-
-  // Settings: whether the citation-layout sub-toggle is shown at all.
-  function applyCitToggleVisible(on) {
-    ui.rootEl.classList.toggle('btx-cit-toggle-off', on === false);
-  }
-
-  // Settings: how a citation row marks its source type (acronym chip vs. a
-  // coloured group edge). Pure CSS off the root attribute — the citation DOM
-  // carries both hooks whichever is chosen, so no re-render.
-  function applyCitSourceMark(mark) {
-    ui.rootEl.setAttribute('data-btx-source-mark', mark === 'chip' ? 'chip' : 'strip');
   }
 
   // The reader's text-size multiplier. It is a *second* variable rather than a
@@ -673,10 +725,13 @@
 
   // ---- User actions --------------------------------------------------------
 
+  // A click that only sets the visit's override leaves the stored preference
+  // as it was, so it writes nothing.
   function onModeClick(m) {
+    const preferred = state.mode;
     if (!selectMode(state, m)) return;
     applyModeUI();
-    persist({ panelMode: state.mode });
+    if (state.mode !== preferred) persist({ panelMode: state.mode });
     requestRender();
   }
 
@@ -701,11 +756,16 @@
     persist({ fontScale: applyFontScale(next) });
   }
 
+  // Focus follows the control across the swap: a keyboard user who collapses
+  // lands on the tab, and on Collapse again when expanding. Focus elsewhere
+  // (the toolbar icon, a synced change) is left where it is.
   function setCollapsed(collapsed) {
     const c = collapsed === true;
     if (state.collapsed === c) return;
+    const hadFocus = ui.rootEl.contains(document.activeElement);
     state.collapsed = c;
     applyCollapsedUI();
+    if (hadFocus) (c ? ui.tab : ui.collapse).focus();
     persist({ panelCollapsed: c });
   }
 
@@ -736,15 +796,13 @@
   }
 
   // Another context (options page, a synced machine, or our own patch echo)
-  // changed the settings. Width and sub-toggle visibility are pure appearance
-  // — always applied. State we already applied before persisting is skipped
+  // changed the settings. Width and text size are pure appearance — always
+  // applied. State we already applied before persisting is skipped
   // via `own`; a genuinely external state change is adopted and, if it makes
   // the mounted content stale, triggers a re-render.
   function onSettingsChange({ next, changed, own }) {
     if (changed.includes('sidebarWidth')) applyWidth(next.sidebarWidth);
     if (changed.includes('fontScale')) applyFontScale(next.fontScale);
-    if (changed.includes('showCitationToggle')) applyCitToggleVisible(next.showCitationToggle);
-    if (changed.includes('citationSourceMark')) applyCitSourceMark(next.citationSourceMark);
     if (own) return;
     // When the same write also moved a key the panel doesn't handle, the
     // orchestrator's own settings subscriber will do a full re-render — firing
@@ -787,8 +845,6 @@
     scrollSync = s.scrollSync; // before applyModeUI: it asserts the sync predicate
     applyWidth(s.sidebarWidth);
     applyFontScale(s.fontScale);
-    applyCitToggleVisible(s.showCitationToggle);
-    applyCitSourceMark(s.citationSourceMark);
     applyModeUI();
     applyCitationViewUI();
     applyCollapsedUI();
@@ -798,13 +854,10 @@
   function showChapter(ctx) {
     ensureRoot();
     stopBodyScroll(); // a chase aimed at the outgoing chapter dies with it
-    dropViews(views); // a different chapter — nothing cached still applies
+    dropViews(views); // re-shown, if nothing else — nothing cached still applies
     visible = true;
     ui.rootEl.style.display = '';
-    ui.title.textContent = (ctx && ctx.title) || '';
-    setTranslatable(state, ctx && ctx.translatable);
-    ui.modes.style.display = state.translatable ? '' : 'none';
-    ui.tab.textContent = state.translatable ? 'Translation & Citations' : 'Citations';
+    setChapter(state, ctx);
     applyModeUI();
     updatePageReserve();
   }
@@ -1290,7 +1343,12 @@
       hide,
       effectiveMode: () => effectiveMode(state),
       citationView: () => state.citationView,
+      toggleCollapsed: (force) => {
+        ensureRoot();
+        setCollapsed(force === undefined ? !state.collapsed : force === true);
+      },
       showView,
+      keepView: (keep) => keepView(views, keep),
       scrollIntoView,
       showTranslation,
       populateTranslations,

@@ -14,7 +14,11 @@
  *                     one to mirror? The chapter heading is a paragraph too,
  *                     and it comes first in document order — the answer has to
  *                     be "the size most of the text is set in", by character
- *                     count, or the panel mirrors the heading (issue #33).
+ *                     count, or the panel mirrors the heading (issue #33). And
+ *                     the navigation drawer's paragraphs never count, however
+ *                     many there are, or the panel mirrors 14px sans.
+ *   sameVars          is a re-apply a no-op? Covers every mirrored value,
+ *                     both fonts included.
  *
  * Exits non-zero on any failure so it can gate a commit.
  */
@@ -123,14 +127,37 @@ eq(
 
 check(T.MAX_TEXT_SAMPLES > 0 && T.MAX_TEXT_SAMPLES <= 100, 'the paragraph sample is bounded (it runs on every re-apply)');
 
+// ---- the page's chrome is never the chapter's text ----
+// The site's navigation drawer sits inside `main`, before the chapter: one 14px
+// sans <p> per book and chapter. On a long book that is more characters than
+// the verses in the sample, so by weight alone it would win — and the panel
+// would read in the drawer's font, flipping whenever the drawer opens.
+console.log('chrome paragraphs:');
+const nav = (size, chars) => Object.assign(s(size, chars, 'Sans', '22.4px'), { inChrome: true });
+check(!T.isReadingText(nav('14px', 30)), 'a paragraph inside the page chrome is not reading text');
+check(T.isReadingText(s('18px', 30)), 'a paragraph outside it is');
+check(!T.isReadingText(null) && !T.isReadingText(s('18px', 0)) && !T.isReadingText(s('', 30)),
+  'nothing, an empty paragraph and a sizeless one are not reading text either');
+const drawer = Array.from({ length: 30 }, () => nav('14px', 12)); // 360 chars of "John 1", "John 2", …
+eq(
+  T.dominantTextStyle(drawer.concat([s('18px', 120, 'Serif', '28.8px'), s('18px', 90, 'Serif', '28.8px')])),
+  { size: '18px', font: 'Serif', line: '28.8px' },
+  'thirty navigation paragraphs outweighing the verses still lose to them',
+);
+eq(T.dominantTextStyle(drawer), null, 'a sample of nothing but chrome mirrors nothing (the caller keeps its fallback)');
+for (const hook of ['nav', 'header', 'footer', 'aside', '[role="navigation"]']) {
+  check(T.CHROME_SELECTOR.split(/,\s*/).includes(hook), `${hook} counts as page chrome (a structural hook, ADR-0005)`);
+}
+
 // ---- redundant applies ----
 // The theme is woken by the reading column reflowing, and the panel reserves
 // page width with a margin on <html> — so wake-ups arrive carrying no new
 // styling. Writing on those is how a watcher becomes a loop.
 console.log('sameVars:');
-const vars = { bg: 'rgb(255,255,255)', fg: 'rgb(20,20,20)', headerBg: 'rgb(240,240,240)', headerH: 48, font: 'Body, serif', size: '17px', line: '27px', dark: false };
+const vars = { bg: 'rgb(255,255,255)', fg: 'rgb(20,20,20)', headerBg: 'rgb(240,240,240)', headerH: 48, font: 'Body, serif', uiFont: 'Chrome, sans-serif', size: '17px', line: '27px', dark: false };
 const copy = () => Object.assign({}, vars);
 
+check(T.VAR_KEYS.includes('font') && T.VAR_KEYS.includes('uiFont'), 'both fonts are mirrored values (a change to either is written)');
 check(T.sameVars(vars, copy()), 'an unchanged capture is recognised as unchanged (no write, no loop)');
 check(T.sameVars(vars, vars), 'the same object is unchanged');
 check(!T.sameVars(vars, null), 'the first capture always writes (nothing to compare against)');
