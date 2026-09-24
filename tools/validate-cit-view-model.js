@@ -6,8 +6,8 @@
  * groups, one row per talk) with no DOM involved, so the list's rules are
  * checkable here: anchor-verse dedup, one row per talk, both citation-layout
  * orderings, which groups start open, snippet cleaning and quoting, every label
- * (summary, counts, verse, range, screen-reader), and the filter / collapse-all
- * state transitions.
+ * (summary, counts, verse, range, screen-reader), the filter / collapse-all
+ * state transitions, and the talk reader's heading.
  *
  * Exits non-zero on any failure so it can gate a commit.
  */
@@ -409,6 +409,28 @@ console.log('Toolbar state:');
   const after = VM.applyPlan(filtered, collapse);
   eq(after.open[view.groups[0].children[0].uid], true, 'a nested source-type group stays open for next time');
   eq(VM.collapseLabel(view, after), null, 'all folded -> the button hides');
+}
+
+// --- talk reader heading ---------------------------------------------------
+{
+  const h = VM.talkHeading(gc('David L. Buckner', '“Ye Are My Friends”', 'October 2024'), [1, 2, 3, 4, 5]);
+  eq(h.title, '“Ye Are My Friends”', 'a talk heading is titled by the talk');
+  eq(h.speaker, 'David L. Buckner', 'the speaker opens the byline');
+  eq(h.where, 'October 2024 General Conference', 'the source label closes the byline');
+  eq(h.chip.text, 'vv. 1–5', 'the chip names the cited verses');
+  eq(h.chip.a11yLabel, 'Go to the cited passage, verses 1 to 5', 'and says what it does');
+
+  // Every TPJS source ships an empty title.
+  const t = VM.talkHeading({ c: 'T', sp: 'Joseph Smith, Jr.', ti: '', lbl: 'Teachings of the Prophet Joseph Smith, p. 264' }, [5]);
+  eq(t.title, 'Teachings of the Prophet Joseph Smith, p. 264', 'TPJS is titled by its page label');
+  eq(t.where, null, 'so the byline does not repeat it');
+  eq(t.chip.text, 'v. 5', 'a one-verse chip');
+
+  const bare = VM.talkHeading({}, []);
+  eq(bare.title, 'Untitled talk', 'no title and no label');
+  eq(bare.speaker, null, 'no speaker line when the speaker is unknown');
+  eq(bare.chip.text, 'Cited passage', 'a cite without verses still gets a chip');
+  eq(bare.chip.a11yLabel, 'Go to the cited passage', 'with a plain label');
 }
 
 if (failures) { console.error(`\n${failures} check(s) failed.`); process.exit(1); }

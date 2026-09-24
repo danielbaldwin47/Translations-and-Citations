@@ -5,10 +5,11 @@
  */
 
 /* ---- Chip family ----
- * The small right-side chips (group count, verse-range badge) are one 26px
- * tile family — one height, one radius, one neutral surface — so a count on a
- * group header and the range badge on the entries under it share a right-hand
- * edge down the panel, which is what makes the column read as structure. They
+ * The small chips (group count, verse-range badge, the talk reader's verse
+ * chip) are one 26px tile family — one height, one radius, one neutral
+ * surface — so a count on a group header and the range badge on the entries
+ * under it share a right-hand edge down the panel, which is what makes the
+ * column read as structure. They
  * must size themselves: the panel body inherits the site's line-height, and
  * Chrome resolves that to an absolute px (~27px at the default 17px/1.6),
  * which then inherits verbatim into every descendant regardless of its own
@@ -29,7 +30,8 @@
   --btx-chip-radius: 7px;
 }
 #btx-root .btx-cit-count,
-#btx-root .btx-cit-range {
+#btx-root .btx-cit-range,
+#btx-root .btx-talk-chip {
   flex: 0 0 auto;
   box-sizing: border-box;
   min-width: var(--btx-chip-h);
@@ -396,63 +398,201 @@
   border-left-color: var(--btx-src-fg);
 }
 
-/* ---- Inline talk reader ---- */
-/* Sticky within the scrolling panel body, so "‹ Back" and "Open full talk" stay
-   reachable while deep in a long talk. Negative margins stretch it to the body's
-   edges (cancelling the body padding) so content scrolls cleanly underneath.
-   Sticky pins the *margin* box, not the border box, so the top offset has to
-   undo the negative top margin — the two must sum to zero. With `top: 0` the
-   header came to rest a body-padding below the top of the scrollport, and talk
-   text scrolled through the strip that left (issue #26). Both numbers come from
-   panel.css's body-padding variables (the manifest always loads it alongside
-   this file) so they can't drift from the padding they undo. */
+/* ---- Inline talk reader ----
+ * Header chrome (Back, verse chip, external link, title), byline, hint and
+ * the highlight menu are fixed px in the UI font, like the rest of the panel's
+ * chrome; only the talk's text (.btx-talk) is in the reading font and scales
+ * with the reader's text size.
+ */
+/* Sticky within the scrolling panel body, so Back and the verse chip stay
+   reachable while deep in a long talk. Negative margins stretch it to the
+   body's edges (cancelling the body padding) so content scrolls cleanly
+   underneath. Sticky pins the *margin* box, not the border box, so the top
+   offset has to undo the negative top margin — the two must sum to zero. With
+   `top: 0` the header came to rest a body-padding below the top of the
+   scrollport, and talk text scrolled through the strip that left (issue #26).
+   Both numbers come from panel.css's body-padding variables (the manifest
+   always loads it alongside this file) so they can't drift from the padding
+   they undo. */
 #btx-root .btx-talk-header {
   position: sticky;
   top: calc(-1 * var(--btx-body-pad-top));
   z-index: 3;
   background: var(--btx-bg);
   display: flex;
-  align-items: center;
+  flex-direction: column;
   gap: 8px;
-  margin: calc(-1 * var(--btx-body-pad-top)) calc(-1 * var(--btx-body-pad-x)) 10px;
-  padding: 10px var(--btx-body-pad-x) 8px;
+  margin: calc(-1 * var(--btx-body-pad-top)) calc(-1 * var(--btx-body-pad-x)) 12px;
+  padding: 10px var(--btx-body-pad-x);
   border-bottom: 1px solid var(--btx-border);
+  line-height: 1.3;
+}
+/* Clicking the talk's text focuses the view (for Esc and arrow keys); that
+   focus is not a place the reader navigated to, so it shows no ring. */
+#btx-root .btx-talk-view:focus { outline: none; }
+#btx-root .btx-talk-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+#btx-root .btx-talk-back,
+#btx-root .btx-talk-ext {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 28px;
+  border-radius: 7px;
+  color: var(--btx-fg);
+  background: transparent;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
 }
 #btx-root .btx-talk-back {
-  flex: 0 0 auto;
+  margin-right: auto;
+  gap: 2px;
+  padding: 0 10px 0 5px;
   border: 1px solid var(--btx-border);
-  background: transparent;
-  color: var(--btx-fg);
-  border-radius: 6px;
-  padding: 3px 8px;
-  cursor: pointer;
   font: inherit;
   font-size: 13px;
+  line-height: 1;
 }
-#btx-root .btx-talk-back:hover { background: var(--btx-border); }
-#btx-root .btx-talk-meta { flex: 1 1 auto; min-width: 0; }
-/* Single-line ellipsis keeps the sticky header shallow; full title in the talk body. */
-#btx-root .btx-talk-title,
-#btx-root .btx-talk-sub {
-  white-space: nowrap;
+#btx-root .btx-talk-ext {
+  width: 28px;
+  color: var(--btx-muted);
+  text-decoration: none;
+}
+#btx-root .btx-talk-back:hover,
+#btx-root .btx-talk-ext:hover { background: var(--btx-border); color: var(--btx-fg); }
+/* The cited verses, in the chip family's shape; a button that re-reveals the
+   passage. */
+#btx-root .btx-talk-chip {
+  appearance: none;
+  font-family: inherit;
+  font-size: 11px;
+  letter-spacing: 0.014em;
+  padding: 0 9px;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+}
+#btx-root .btx-talk-chip:hover {
+  color: var(--btx-fg);
+  background: color-mix(in srgb, var(--btx-accent) 20%, var(--btx-border));
+}
+#btx-root .btx-talk-chip[hidden] { display: none; }
+#btx-root .btx-talk-title {
+  margin: 0;
+  font-family: inherit;
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1.3;
+  letter-spacing: -0.01em;
+  color: var(--btx-fg);
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
   overflow: hidden;
-  text-overflow: ellipsis;
 }
-#btx-root .btx-talk-title { font-weight: 700; font-size: 14px; }
-#btx-root .btx-talk-sub { font-size: 12px; color: var(--btx-muted); }
-#btx-root .btx-talk { font-size: var(--btx-body-size); line-height: var(--btx-body-line); }
-#btx-root .btx-talk p { margin: 0 0 0.7em; }
-#btx-root .btx-talk h1, #btx-root .btx-talk h2, #btx-root .btx-talk h3 { font-size: 1em; font-weight: 700; margin: 1em 0 0.4em; }
+/* Byline and hint scroll away with the text; they sit outside the article so
+   saved highlights keep their block indices. */
+#btx-root .btx-talk-byline {
+  margin: 0 0 12px;
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--btx-muted);
+  overflow-wrap: anywhere;
+}
+#btx-root .btx-talk-speaker { color: var(--btx-fg); font-weight: 600; }
+#btx-root .btx-talk-hint {
+  margin: 0 0 14px;
+  padding: 6px 10px;
+  border-radius: 7px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--btx-muted);
+  background: color-mix(in srgb, #f4c430 16%, transparent);
+}
+#btx-root .btx-talk-error-link { font-size: 13px; color: var(--btx-accent); }
+
+/* ---- Talk text ---- */
+#btx-root .btx-talk {
+  font-family: var(--btx-font);
+  font-size: var(--btx-body-size);
+  line-height: var(--btx-body-line);
+  max-width: 40em;
+}
+#btx-root .btx-talk p,
+#btx-root .btx-talk .btxk-paragraph { margin: 0 0 0.7em; }
+#btx-root .btx-talk h1, #btx-root .btx-talk h2, #btx-root .btx-talk h3 {
+  font-family: inherit;
+  font-size: 1em;
+  font-weight: 700;
+  line-height: inherit;
+  margin: 1.2em 0 0.4em;
+}
+#btx-root .btx-talk .btxk-topic { font-weight: 700; margin: 1.1em 0 0.3em; }
+/* Layout debris from the source pages: Journal of Discourses page breaks
+   (and the hyphen of a word split across one, so "be-" + "long" reads
+   "belong"), the STPJS page number and its Prev/Next links, and the
+   pre-2013 General Conference reference line the byline already says. All
+   display-only: the text stays in textContent, so highlight offsets hold. */
+#btx-root .btx-talk .btxk-hyphen,
+#btx-root .btx-talk .btxk-break,
+#btx-root .btx-talk .btxk-pageNum,
+#btx-root .btx-talk > .btxk-body > .btxk-reference { display: none; }
+
+/* The cite: its target is tinted (a paragraph, or the reference itself), and
+   the paragraph around it carries an accent bar in the gutter. */
 #btx-root .btx-cit-highlight {
   background: color-mix(in srgb, var(--btx-accent) 22%, transparent);
   border-radius: 4px;
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--btx-accent) 22%, transparent);
 }
+#btx-root .btx-talk .btx-cit-passage {
+  padding-left: 10px;
+  box-shadow: inset 3px 0 0 var(--btx-accent);
+}
+#btx-root .btx-talk .btx-cit-passage.btx-cit-highlight {
+  box-shadow: inset 3px 0 0 var(--btx-accent), 0 0 0 3px color-mix(in srgb, var(--btx-accent) 22%, transparent);
+}
 
-/* ---- Bundled Joseph Smith (STPJS) talk markup ---- */
-/* In-body footnote markers (footRef) and the bottom footnote-list numbers render
-   as small blue superscript, matching the translation reader's verse numbers. */
+/* References BYU inserted into early General Conference and Journal of
+   Discourses text: smaller and muted, so they read as apparatus rather than
+   the speaker's words, and never split across lines. Their punctuation comes
+   from data-btx-open/close (talk-view's refPunctuation). The spacer BYU put
+   inside each reference is lifted out in front of it (talk-view) and drawn
+   zero-width: it stays a line-break opportunity, and where the text has no
+   space of its own (btx-ref-gap) a margin gives the gap. */
+#btx-root .btx-talk .btxk-ccontainer,
+#btx-root .btx-talk .btxk-citation { color: var(--btx-muted); }
+#btx-root .btx-talk .btxk-ccontainer,
+#btx-root .btx-talk :not(.btxk-ccontainer) > .btxk-citation { font-size: 0.85em; }
+/* line-height 1: smaller text on the paragraph's absolute line-height would
+   sit off the baseline and push its line apart from the others. */
+#btx-root .btx-talk .btxk-ccontainer,
+#btx-root .btx-talk .btxk-citation { line-height: 1; }
+#btx-root .btx-talk .btxk-citation { white-space: nowrap; }
+#btx-root .btx-talk .btxk-ccontainer::before { content: attr(data-btx-open); }
+#btx-root .btx-talk .btxk-ccontainer::after { content: attr(data-btx-close); }
+#btx-root .btx-talk .btx-ref-spacer { font-size: 0; line-height: 0; }
+#btx-root .btx-talk .btx-ref-gap + .btxk-citation { margin-inline-start: 0.3em; }
+#btx-root .btx-talk .btxk-citation.btx-cit-highlight { color: var(--btx-fg); font-weight: 600; }
+/* A footnote list is nothing but references: ordinary text there. */
+#btx-root .btx-talk .btxk-footnote .btxk-ccontainer,
+#btx-root .btx-talk .btxk-footnote .btxk-citation { color: inherit; font-size: inherit; line-height: inherit; }
+
+/* ---- Notes and note markers ----
+ * In-body markers — STPJS footRef / lettered textFootRef, and live General
+ * Conference note markers whose number is kept on data-value and drawn here
+ * (the site's own CSS drew it the same way) — and the STPJS footnote-list
+ * numbers render as small accent superscripts, matching the translation
+ * reader's verse numbers.
+ */
 #btx-root .btx-talk .btxk-footRef,
+#btx-root .btx-talk .btxk-textFootRef,
+#btx-root .btx-talk .btxk-textMark,
+#btx-root .btx-talk sup[data-value],
 #btx-root .btx-talk .btx-footnum {
   font-size: 0.62em;
   font-weight: 700;
@@ -460,24 +600,25 @@
   line-height: 0;
   color: var(--btx-accent);
 }
-#btx-root .btx-talk .btxk-footRef { margin-left: 1px; }
-#btx-root .btx-talk .btx-footnum { margin-right: 4px; }
-/* Drop the leftover "Prev"/"Next" page nav from the bundled HTML. */
-#btx-root .btx-talk .btxk-prev,
-#btx-root .btx-talk .btxk-next { display: none; }
-/* "Open full talk" link, pinned top-right in the reader header. */
-#btx-root .btx-talk-source {
-  flex: 0 0 auto;
-  align-self: flex-start;
-  color: var(--btx-accent);
-  font-size: 12px;
-  text-decoration: none;
-  white-space: nowrap;
-  border: 1px solid var(--btx-border);
-  border-radius: 6px;
-  padding: 3px 8px;
+#btx-root .btx-talk sup[data-value]::before { content: attr(data-value); }
+#btx-root .btx-talk .btxk-footRef,
+#btx-root .btx-talk .btxk-textFootRef,
+#btx-root .btx-talk sup[data-value] { margin-left: 1px; }
+#btx-root .btx-talk .btx-footnum,
+#btx-root .btx-talk .btxk-textMark { margin-right: 4px; }
+/* Live General Conference notes (the site's footer.notes). */
+#btx-root .btx-talk .btxk-notes {
+  margin-top: 1.6em;
+  padding-top: 0.9em;
+  border-top: 1px solid var(--btx-border);
+  font-size: 0.85em;
+  color: var(--btx-muted);
 }
-#btx-root .btx-talk-source:hover { background: var(--btx-border); }
+#btx-root .btx-talk .btxk-notes > .btxk-title { font-weight: 700; color: var(--btx-fg); margin-bottom: 0.5em; }
+/* The site's reset strips list numbers; the notes need theirs. */
+#btx-root .btx-talk .btxk-notes ol { margin: 0; padding-inline-start: 1.9em; list-style: decimal outside; }
+#btx-root .btx-talk .btxk-notes li { display: list-item; margin: 0 0 0.45em; }
+#btx-root .btx-talk .btxk-notes li p { margin: 0; }
 
 /* ---- Local highlights (saved on this machine) ---- */
 #btx-root .btx-hl {
@@ -488,6 +629,8 @@
 #btx-root[data-btx-theme='dark'] .btx-hl {
   background: color-mix(in srgb, #f4c430 38%, transparent);
 }
+/* The action menu lives in the talk's view (highlights.js) but is fixed to
+   the viewport beside the selection; any scroll of the reader hides it. */
 #btx-root .btx-hl-menu {
   position: fixed;
   z-index: 2147483600;
@@ -496,15 +639,22 @@
   border-radius: 8px;
   box-shadow: 0 4px 14px rgba(0, 0, 0, 0.22);
   padding: 3px;
+  line-height: 1;
 }
+#btx-root .btx-hl-menu[hidden] { display: none; }
 #btx-root .btx-hl-btn {
   appearance: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
   border: none;
   background: transparent;
   color: var(--btx-fg);
   font: inherit;
   font-size: 13px;
-  padding: 5px 10px;
+  line-height: 1;
+  padding: 0 10px 0 8px;
   border-radius: 6px;
   cursor: pointer;
   white-space: nowrap;

@@ -7,7 +7,8 @@
  * anchor at which verse, one row per talk, the corpus -> source-type bucketing,
  * both citation-layout orderings, which groups start open, snippet cleaning and
  * quoting, every label (summary, counts, verse, range, screen-reader), and the
- * filter / collapse-all state transitions. cit-panel is a thin adapter from
+ * filter / collapse-all state transitions. It also owns the talk reader's
+ * heading (talkHeading: title, byline, verse chip). cit-panel is a thin adapter from
  * these descriptors to elements, which keeps this module reachable from Node
  * (tools/validate-cit-view-model.js). The adapter owns only copy that depends
  * on no data: the loading line, the filter placeholder, the Clear filter
@@ -456,9 +457,33 @@
     return rows;
   }
 
+  // --- talk reader heading ---------------------------------------------------
+
+  // What the talk reader's header and byline say for one cite:
+  //   title      the talk's title; Teachings of the Prophet Joseph Smith has
+  //              none, so its page label ("…Joseph Smith, p. 264") stands in
+  //   speaker    byline line 1 (null when unknown)
+  //   where      byline line 2: the source label, unless it is already the title
+  //   chip       the cited verses ("vv. 1–5") and their spoken form for the
+  //              button that re-reveals the cited passage
+  function talkHeading(source, versesInChapter) {
+    const s = source || {};
+    const title = s.ti || s.lbl || 'Untitled talk';
+    const vs = versesInChapter && versesInChapter.length ? versesInChapter : null;
+    return {
+      title,
+      speaker: s.sp || null,
+      where: s.lbl && s.lbl !== title ? s.lbl : null,
+      chip: {
+        text: vs ? verseLabel(vs) : 'Cited passage',
+        a11yLabel: 'Go to the cited passage' + (vs ? ', ' + spokenVerses(vs) : ''),
+      },
+    };
+  }
+
   const VM = {
     formatVerses, verseLabel, anchorVerses, cleanSnippet, quoteSnippet, verseUid,
-    buildView,
+    buildView, talkHeading,
     initialState, filterPlan, applyPlan, collapseAllPlan, collapseLabel, allRows,
   };
 
