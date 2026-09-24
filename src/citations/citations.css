@@ -48,10 +48,6 @@
   color: color-mix(in srgb, var(--btx-fg) 78%, transparent);
   background: var(--btx-border);
 }
-/* Retired source-acronym tile: no longer rendered. Delete this rule together
-   with 'btx-cit-tag' in validate-settings.js's fixed-size chip check. */
-#btx-root .btx-cit-tag { display: none; }
-
 /* The Translation | Citations and By source | By verse controls are panel
    chrome: their rules live in src/content/panel.css. */
 

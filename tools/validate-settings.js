@@ -385,7 +385,7 @@ const citCss = fs.readFileSync(path.join(ROOT, 'src/citations/citations.css'), '
 check(/\.btx-talk \{[^}]*var\(--btx-body-size\)/.test(citCss),
   'the talk reader reads the composed size too');
 // Chips are chrome: they must never pick the multiplier up.
-for (const chip of ['btx-cit-count', 'btx-cit-range', 'btx-cit-tag']) {
+for (const chip of ['btx-cit-count', 'btx-cit-range']) {
   const rule = new RegExp(`\\.${chip} \\{[^}]*\\}`).exec(citCss);
   check(rule && !/--btx-size-scale/.test(rule[0]), `${chip} stays fixed-size chrome`);
 }
