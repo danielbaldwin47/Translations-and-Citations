@@ -223,6 +223,9 @@ eq(F.languageGroups(offered).reduce((n, x) => n + x.langs.length, 0), offered.le
   'every offered language lands in exactly one group');
 eq(F.groupSummary(groups[0]), 'All standard works · 2 languages', 'a group summary counts its languages');
 eq(F.groupSummary(groups[1]), 'Bible and Book of Mormon · 1 language', 'and pluralizes');
+eq(F.groupSummary(groups[0], 1), 'All standard works · 1 of 2 languages', 'while searching, it counts the matches left in view');
+eq(F.groupSummary(groups[0], 2), 'All standard works · 2 languages', 'a search that leaves the whole group reads as no search');
+eq(F.groupSummary(groups[0], null), 'All standard works · 2 languages', 'no search: the plain count');
 
 const lang = (code) => C.CHURCH_LANGUAGES.find((l) => l.code === code);
 check(F.matchesLanguage(lang('spa'), 'espanol'), 'the search ignores accents (espanol finds Español)');
@@ -286,6 +289,13 @@ check(!/write\(/.test(bodyOf('refreshList')),
   'refreshing the list on open writes nothing (a cached list can be a day old)');
 check(/type: C\.MSG\.LIST_BIBLES, key, refresh: !!explicit/.test(bodyOf('connect')),
   'Connect fetches the list afresh; an automatic try may take the cache');
+check(/again\.focus\(/.test(bodyOf('renderTranslations')),
+  'rebuilding the list puts focus back on the row that had it (a refresh must not drop a keyboard reader)');
+check(/listRefresh\.then\(/.test(bodyOf('focusSection')) && /listRefresh = refreshList\(\)/.test(bodyOf('init')),
+  'a deep link to `bible` waits for the list refresh before choosing the key field or the list');
+const worker = fs.readFileSync(path.join(ROOT, 'src/background/service-worker.js'), 'utf8');
+check(/code === C\.ERR\.INVALID_KEY\) await CACHE\.dropBibles\(\)/.test(worker),
+  'the worker drops the cached version list once api.bible rejects the stored key (else the page says "Connected")');
 
 // Every single-value setting this form edits belongs in FIELDS — that table is
 // what makes the autosave and fillForm (and so the dirty flag) agree about it.
@@ -333,11 +343,15 @@ for (const name of ['connect', 'renderTranslations', 'refreshList']) {
   const body = bodyOf(name);
   check(body && !/buildLanguageList|churchLanguages/.test(body), `${name} never builds or touches the Church-language list`);
 }
+check(/groupSummary\(g\.group, filtering \? n : null\)/.test(bodyOf('applyLanguageFilter')),
+  'a search updates each group\'s count to the languages it leaves in view');
 check(/span\.lang = lang\.tag/.test(bodyOf('nativeName')) && /span\.dir = 'auto'/.test(bodyOf('nativeName')),
   'native language names are tagged with their language and direction');
 
 // No nested scroll boxes: every list grows the page instead.
 check(!/max-height|overflow(-y)?:\s*(auto|scroll)/.test(css), 'options.css has no nested scroll box');
+check(!/(\.status|\.save-status)(:empty)?\s*\{[^}]*display:\s*none/.test(css),
+  'the live regions (key status, autosave toast) are never display:none, so their messages are announced');
 check(/--on-accent/.test(css) && /button\.primary \{[^}]*color: var\(--on-accent\)/.test(css),
   'text on the accent uses --on-accent (readable in dark mode)');
 check(/accent-color: var\(--accent\)/.test(css), 'checkboxes, radios and sliders take the page accent');

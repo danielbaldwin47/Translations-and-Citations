@@ -225,14 +225,17 @@
     }
     return groups;
   }
-  function groupSummary(group) {
-    return `${group.label} · ${plural(group.langs.length, 'language', 'languages')}`;
+  // `shown` is how many of the group's languages a search leaves in view.
+  function groupSummary(group, shown) {
+    const n = group.langs.length;
+    if (shown == null || shown === n) return `${group.label} · ${plural(n, 'language', 'languages')}`;
+    return `${group.label} · ${shown} of ${n} languages`;
   }
 
   // The language search: case-, accent- and apostrophe-insensitive, over the
   // language's own name, its English name and its code.
   const fold = (s) => String(s || '').normalize('NFD')
-    .replace(/[̀-ͯʹ-ʿ'’`]/g, '').toLowerCase();
+    .replace(/[\u0300-\u036f\u02b9-\u02bf'\u2019`]/g, '').toLowerCase();
   function matchesLanguage(lang, q) {
     const needle = fold(q).trim();
     if (!needle) return true;
@@ -291,6 +294,7 @@
   let connectSeq = 0; // the newest list request owns the status line
   let lastTried = ''; // the key a paste/change last tried, so a blur doesn't retry it
   let connectTimer = 0;
+  let listRefresh = Promise.resolve(); // the newest refreshList, settled once its result is on screen
 
   // Keys changed on screen and not yet written. They outrank a change
   // arriving from elsewhere, so those controls are left alone.
@@ -413,6 +417,7 @@
   // `onIds` are the versions to show checked and `wanted` the default to
   // preselect — both passed in, never read back off the controls this rebuilds.
   function renderTranslations(onIds, wanted) {
+    const focused = versionInputs().find((c) => c === document.activeElement);
     const { yours, more } = versionGroups(available, onIds);
     const on = new Set(onIds || []);
     els.yoursRows.textContent = '';
@@ -424,6 +429,9 @@
     els.moreVersions.hidden = !more.length;
     els.moreSummary.textContent = moreLabel(more.length);
     refreshDefaultOptions(wanted);
+    // A keyboard reader on a row keeps their place when the rows are rebuilt.
+    const again = focused && versionInputs().find((c) => c.value === focused.value);
+    if (again) again.focus({ preventScroll: true });
   }
 
   // `wanted` is the id to preselect — passed in, never read back off the
@@ -565,12 +573,14 @@
 
   const langRows = []; // { lang, label, group }
   const langGroups = []; // <details>
+  const groupOf = new Map(); // <details> -> { group, summary }
 
   function buildLanguageList() {
     languageGroups(offeredLanguages(C.CHURCH_LANGUAGES)).forEach((group, i) => {
       const details = el('details', 'lang-group');
       details.open = i === 0;
       const summary = el('summary', '', groupSummary(group));
+      groupOf.set(details, { group, summary });
       const grid = el('div', 'checklist-grid');
       grid.setAttribute('role', 'group');
       grid.setAttribute('aria-label', group.label);
@@ -646,6 +656,8 @@
         if (hit) n++;
       }
       details.hidden = n === 0;
+      const g = groupOf.get(details);
+      g.summary.textContent = groupSummary(g.group, filtering ? n : null);
       // Every group opens while searching; clearing the search puts back
       // what the reader had open.
       if (filtering) {
@@ -742,13 +754,25 @@
     card.classList.remove('flash');
     void card.offsetWidth; // restart the highlight
     card.classList.add('flash');
-    let target = els.fontScale;
-    if (section === 'languages') target = els.langFilter;
-    if (section === 'bible') {
-      const first = keyState === 'connected' && versionInputs().find((c) => !c.closest('[hidden]') && !c.closest('details:not([open])'));
-      target = first || els.apiKey;
+    if (section !== 'bible') {
+      (section === 'languages' ? els.langFilter : els.fontScale).focus({ preventScroll: true });
+      return;
     }
-    target.focus({ preventScroll: true });
+    // Where to land depends on whether the key still works, which the list
+    // refresh in flight decides. Focus the reader moves meanwhile stays theirs.
+    const before = document.activeElement;
+    listRefresh.then(() => {
+      const now = document.activeElement;
+      if (now === before || now === document.body || !now) bibleTarget().focus({ preventScroll: true });
+    });
+  }
+
+  // A connected key: the first translation turned on (else the first shown).
+  // Anything else: the key field.
+  function bibleTarget() {
+    if (keyState !== 'connected') return els.apiKey;
+    const shown = versionInputs().filter((c) => !c.closest('[hidden]') && !c.closest('details:not([open])'));
+    return shown.find((c) => c.checked) || shown[0] || els.apiKey;
   }
 
   async function takeFocusRequest() {
@@ -818,7 +842,7 @@
         connectSeq++;
         showStoredList();
         fillForm(changed.concat(LIST_KEYS));
-        refreshList();
+        listRefresh = refreshList();
         return;
       }
       fillForm(changed);
@@ -833,7 +857,7 @@
     window.addEventListener('pagehide', flush);
 
     showKeyState();
-    refreshList();
+    listRefresh = refreshList();
     const fromHash = () => focusSection(location.hash.slice(1));
     window.addEventListener('hashchange', fromHash);
     fromHash();

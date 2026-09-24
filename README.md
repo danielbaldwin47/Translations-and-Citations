@@ -37,8 +37,7 @@ Copyrighted translations can't be bundled, so the extension reads them from
 **[scripture.api.bible](https://scripture.api.bible/)** with your own free key:
 
 1. Create a free account at <https://scripture.api.bible/> and add the
-   translations you want to your key (the free plan allows up to three
-   copyrighted ones, such as NIV, NKJV and NIrV).
+   translations you want to your key (NIV, NKJV and NIrV, for example).
 2. Open the extension's settings (the gear in the panel, or the toolbar icon on
    any page outside Gospel Library) and paste the key under **Bible translations**.
    It connects by itself; the translations you added are turned on, and NIV

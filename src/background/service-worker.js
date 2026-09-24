@@ -5,7 +5,8 @@
  * Messages (C.MSG):
  *   GET_ENABLED_TRANSLATIONS -> what the panel may offer (translations, Church
  *                               languages, default, hasKey, …)
- *   GET_CHAPTER              -> one chapter as IR, cache first, rate-limited
+ *   GET_CHAPTER              -> one chapter as IR, cache first, rate-limited;
+ *                               a rejected key also drops the cached version list
  *   LIST_BIBLES { key?, refresh? }
  *                            -> the versions on a key (default: the stored one).
  *                               Served from the cache when it holds that key's
@@ -90,6 +91,9 @@ async function handleGetChapter(msg) {
     }
     result = await API.fetchApiBibleChapter(s.apiKey, bibleId, chapterId);
     await RATE.consume();
+    // The stored key stopped working: its cached version list would still tell
+    // the options page "Connected", so the page fetches afresh and says why.
+    if (result.error && result.error.code === C.ERR.INVALID_KEY) await CACHE.dropBibles();
   }
 
   if (result.error) return result;

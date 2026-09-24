@@ -3,7 +3,7 @@
  * Loaded into the service worker via importScripts -> attaches to self.__BTX.cache.
  *
  *   getChapter(provider, bibleId, chapterId) / setChapter(…, payload)
- *   getBibles(key) / setBibles(bibles, key)
+ *   getBibles(key) / setBibles(bibles, key) / dropBibles()
  *
  * Chapters are static text, so they get a long TTL; the cache mainly exists to
  * relieve the api.bible rate limits and make re-navigation instant. An index of
@@ -11,7 +11,9 @@
  *
  * The bibles list has one slot, stamped with a fingerprint of the api.bible key
  * it came from: a list is only ever handed back for the same key. The
- * fingerprint is a hash, so the key itself is stored only in settings.
+ * fingerprint is a hash, so the key itself is stored only in settings. A key
+ * api.bible has since rejected (regenerated, revoked) still fingerprints the
+ * same, so the worker drops the slot when that happens.
  */
 (function (root) {
   'use strict';
@@ -110,6 +112,9 @@
   async function setBibles(bibles, key) {
     await localSet({ [C.BIBLES_CACHE_KEY]: { bibles, keyPrint: keyPrint(key), ts: Date.now() } });
   }
+  async function dropBibles() {
+    await localRemove(C.BIBLES_CACHE_KEY);
+  }
 
-  root.__BTX.cache = { getChapter, setChapter, getBibles, setBibles };
+  root.__BTX.cache = { getChapter, setChapter, getBibles, setBibles, dropBibles };
 })(self);
