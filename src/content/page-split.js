@@ -35,7 +35,11 @@
  *                English element gets the translation's height as min-height
  *                when the translation runs longer). A translated block with no
  *                English partner (French numbers Psalm superscriptions as
- *                verses) rides under the pair before it rather than vanishing.
+ *                verses) rides under the pair before it rather than vanishing;
+ *                an English block with no translated partner (Japanese and
+ *                Korean Bible chapters have no chapter summary) keeps to the
+ *                English column, open space beside it. English blocks are
+ *                found by the translation's own rule (churchText.blockElements).
  *                Falls back to interlinear while two columns wouldn't each get
  *                MIN_COLUMN_PX of text. The visible reading area ends at the
  *                panel's page reserve, or FLOAT_GUTTER_PX short of the window
@@ -131,20 +135,31 @@
     return rows;
   }
 
+  // English blocks with no pair (groupRows' row ids), in page order: Japanese
+  // Daniel 1 has no chapter summary, so `study_summary1` is solo there.
+  function soloIds(englishIds, pairedIds) {
+    const paired = new Set(pairedIds);
+    return englishIds.filter((id) => id && !paired.has(id));
+  }
+
   // The per-id rules that give each pair its room. `rows` are measured with
   // only the measuring rules applied: { id, eng, tr, mb } — English height,
   // translation height (tail included), English margin-bottom, all px. With
   // `measure`, only what has to hold while measuring: the columns' width.
-  function rowRules(rows, layout, measure) {
+  // `solo` (soloIds) keep to the English column in columns, like every pair;
+  // interlinear leaves them alone.
+  function rowRules(rows, layout, measure, solo = []) {
     const out = [];
+    const column = `width: calc(50% - ${GAP_PX / 2}px) !important; box-sizing: border-box !important;`;
     for (const r of rows) {
       if (layout === 'columns') {
         const room = !measure && r.tr > r.eng ? ` min-height: ${Math.ceil(r.tr)}px !important;` : '';
-        out.push(`html[data-btx-split="columns"] ${cssId(r.id)} { width: calc(50% - ${GAP_PX / 2}px) !important; box-sizing: border-box !important;${room} }`);
+        out.push(`html[data-btx-split="columns"] ${cssId(r.id)} { ${column}${room} }`);
       } else if (!measure) {
         out.push(`html[data-btx-split="interlinear"] ${cssId(r.id)} { margin-bottom: ${Math.ceil(r.mb + r.tr + INTERLINEAR_GAP_PX)}px !important; }`);
       }
     }
+    if (layout === 'columns') for (const id of solo) out.push(`html[data-btx-split="columns"] ${cssId(id)} { ${column} }`);
     return out.join('\n');
   }
 
@@ -161,7 +176,7 @@
 
   const CORE = {
     GAP_PX, MIN_COLUMN_PX, MAX_SECTION_PX, FLOAT_GUTTER_PX, TAIL_GAP_PX: 8,
-    wantsSplit, readingRight, collapseFits, fitWidth, effectiveLayout, groupRows, rowRules, cssId, moved,
+    wantsSplit, readingRight, collapseFits, fitWidth, effectiveLayout, groupRows, soloIds, rowRules, cssId, moved,
   };
 
   if (typeof module !== 'undefined' && module.exports) module.exports = CORE;
@@ -171,6 +186,7 @@
 
   const SAN = () => root.__BTX.sanitize;
   const DIR = (bcp47) => root.__BTX.churchText.dirOf(bcp47);
+  const BLOCKS = (node) => root.__BTX.churchText.blockElements(node);
   const ATTR = 'data-btx-split';
   const TYPO = ['fontFamily', 'fontSize', 'fontStyle', 'fontWeight', 'lineHeight', 'letterSpacing',
     'textTransform', 'textAlign', 'textIndent', 'fontVariant'];
@@ -379,15 +395,17 @@
       }
     }
     for (const it of s.items) it.node.hidden = !shown.has(it.node);
+    const english = BLOCKS(article).filter((el) => !s.layer.contains(el)).map((el) => el.id);
+    const solo = soloIds(english, rows.map((row) => row.id));
 
-    s.rowStyle.textContent = rowRules(rows, s.effective, true);
+    s.rowStyle.textContent = rowRules(rows, s.effective, true, solo);
     const measured = rows.map((row) => ({
       id: row.id,
       eng: row.partner.getBoundingClientRect().height,
       tr: row.nodes.reduce((h, n, i) => h + n.getBoundingClientRect().height + (i ? CORE.TAIL_GAP_PX : 0), 0),
       mb: parseFloat(getComputedStyle(row.partner).marginBottom) || 0,
     }));
-    s.rowStyle.textContent = rowRules(measured, s.effective, false);
+    s.rowStyle.textContent = rowRules(measured, s.effective, false, solo);
 
     const top = article.getBoundingClientRect().top;
     for (const row of rows) {

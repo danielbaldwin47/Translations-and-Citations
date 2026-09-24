@@ -60,7 +60,9 @@ end-to-end verification.
   follows its own verse list; an api.bible 429 no longer retries forever (at
   most three waits, then Try again); enabling ~20 translations no longer fills
   the 8 KB sync item (rows are stored slim); the page split refits when the
-  site's footnote panel opens; the panel moves below the site header when the
+  site's footnote panel opens, and an English block with nothing beside it
+  (the Japanese Bible has no chapter summaries) stays in the English column
+  instead of running under the translation; the panel moves below the site header when the
   header would run under it; a settings change no longer resets the open talk
   or the citation filter; A− / A+ keep your place.
 - New extension icons; one product name, "Translations & Citations".

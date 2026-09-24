@@ -63,9 +63,13 @@
  *   .marker (footnote letters, and the  -> dropped
  *   text markers *, *) of some
  *   translations), span.para-mark, rt/rp
- *   footer (the study notes), nav, figure, img, table, script, style
- *                                      -> dropped whole
+ *   footer (the study notes), nav, aside, figure, img, table, script,
+ *   style, template                    -> dropped whole
  *   any other inline element           -> flattened to its text
+ * blockElements(root) returns the candidate block elements in page order —
+ * every p and h1–h6 outside the dropped ones; chapterFrom keeps those with
+ * text. __BTX.pageSplit walks the English article with it, so both sides are
+ * read by one rule.
  * Every block also carries the source element's `id` when it has one (p5,
  * title_number1, …) — the same in every language, which is how __BTX.pageSplit
  * pairs a block with the English element it translates.
@@ -319,18 +323,15 @@
     return paraOf(node, 'p');
   }
 
-  function collectBlocks(node, blocks) {
+  function blockElements(node, found = []) {
     for (const child of kids(node)) {
       if (child.nodeType !== ELEMENT) continue; // whitespace between blocks
       const tag = tagOf(child);
       if (SKIP[tag]) continue;
-      if (tag === 'p' || /^h[1-6]$/.test(tag)) {
-        const b = blockOf(child);
-        if (b) blocks.push(b);
-        continue;
-      }
-      collectBlocks(child, blocks); // header, div.body-block, section, …
+      if (tag === 'p' || /^h[1-6]$/.test(tag)) found.push(child);
+      else blockElements(child, found); // header, div.body-block, section, …
     }
+    return found;
   }
 
   function isVerse(block) {
@@ -344,8 +345,7 @@
   }
 
   function chapterFrom(rootNode, meta) {
-    const blocks = [];
-    if (rootNode) collectBlocks(rootNode, blocks);
+    const blocks = rootNode ? blockElements(rootNode).map(blockOf).filter(Boolean) : [];
     const m = meta || {};
     const attrs = m.pageAttributes || {};
     const bcp47 = typeof attrs['data-bcp47-lang'] === 'string' ? attrs['data-bcp47-lang'] : '';
@@ -371,7 +371,7 @@
 
   const CORE = {
     PROVIDER, ID_PREFIX, MRU_MAX, rowFor, textsFor, pickText, mruFrom, rememberPick, labelFor, menuFor, languagesToAdd,
-    chapterUri, apiUrl, chapterFrom, servesChapter, dirOf,
+    chapterUri, apiUrl, chapterFrom, blockElements, servesChapter, dirOf,
   };
 
   if (typeof module !== 'undefined' && module.exports) module.exports = CORE;
