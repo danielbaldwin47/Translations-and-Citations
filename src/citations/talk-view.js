@@ -20,9 +20,12 @@
  * and revealed on open; the verse chip reveals it again.
  *
  * Re-mount: the panel caches a loaded talk and re-mounts the same DOM at its
- * scroll offset, so every listener lives on the view's own elements. Esc on
- * the view closes a highlight menu first, then goes Back. A failed load asks
- * the panel not to cache it (panel.keepView(false)) and offers Try again.
+ * scroll offset without calling open(), so every listener lives on the view's
+ * own elements, except Esc. Esc is one listener on #btx-root (bound on the
+ * first open): while a talk is mounted and the panel is expanded, Esc from
+ * anywhere in the panel but a form field closes a highlight menu first, then
+ * goes Back. Back takes focus on a fresh build only. A failed load asks the
+ * panel not to cache it (panel.keepView(false)) and offers Try again.
  *
  * Render contract with talk-source.findTarget and highlights: source ids
  * survive, source classes come back prefixed `btxk-`, footnotes carry
@@ -269,6 +272,34 @@
     if (p && p.keepView) p.keepView(keep);
   }
 
+  // Esc goes Back from wherever focus sits in the panel: the talk's text, its
+  // header, or the panel's chrome after a mode switch re-mounted the talk.
+  // A showing highlight menu closes first. Not while the panel is collapsed,
+  // and not from a form field (Esc there belongs to the field). One listener
+  // on #btx-root, bound on the first open, acting on whichever talk is
+  // mounted — a cached talk is re-mounted without open() running again.
+  let escRoot = null;
+  function bindEsc() {
+    const p = panel();
+    const rootEl = (p && p.getRootEl && p.getRootEl()) || document.getElementById('btx-root');
+    if (!rootEl || rootEl === escRoot) return;
+    escRoot = rootEl;
+    rootEl.addEventListener('keydown', onEsc);
+  }
+
+  function onEsc(e) {
+    if (e.key !== 'Escape' || e.defaultPrevented) return;
+    const rootEl = e.currentTarget;
+    if (rootEl.classList.contains('btx-collapsed')) return;
+    if (e.target && e.target.closest && e.target.closest('input, select, textarea')) return;
+    const back = rootEl.querySelector('.btx-talk-view .btx-talk-back');
+    if (!back) return;
+    e.preventDefault();
+    const hl = highlights();
+    if (hl && hl.dismiss()) return;
+    back.click();
+  }
+
   /* -------------------------------------------------------------------- open */
 
   async function open(host, opts) {
@@ -310,13 +341,9 @@
     const body = el('div', 'btx-talk-scroll');
     host.append(header, body);
 
-    host.addEventListener('keydown', (e) => {
-      if (e.key !== 'Escape' || e.defaultPrevented) return;
-      e.preventDefault();
-      const hl = highlights();
-      if (hl && hl.dismiss()) return;
-      back.click();
-    });
+    bindEsc();
+    // A fresh build only: a re-mounted talk leaves focus where the reader put
+    // it (the mode button that brought it back), and Esc still reaches it.
     back.focus({ preventScroll: true });
 
     // The sticky header covers the top of the body; the passage must clear it.

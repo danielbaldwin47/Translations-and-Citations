@@ -6,8 +6,9 @@
  * groups, one row per talk) with no DOM involved, so the list's rules are
  * checkable here: anchor-verse dedup, one row per talk, both citation-layout
  * orderings, which groups start open, snippet cleaning and quoting, every label
- * (summary, counts, verse, range, screen-reader), the filter / collapse-all
- * state transitions, and the talk reader's heading.
+ * (summary, counts, verse, range, screen-reader, empty state), plain-text
+ * titles, the filter / collapse-all state transitions, and the talk reader's
+ * heading.
  *
  * Exits non-zero on any failure so it can gate a commit.
  */
@@ -77,6 +78,10 @@ eq(VM.verseLabel([16]), 'v. 16', 'verseLabel singular');
 eq(VM.verseLabel([3, 4]), 'vv. 3–4', 'verseLabel plural');
 eq(VM.verseLabel([3, 4, 5, 6, 10, 11]), 'vv. 3–6, 10–11', 'verseLabel of a split range');
 eq(VM.verseUid(16), 'v:16', 'verseUid names the by-verse group');
+// The index files a chapter's closing note (JS—H 1) as verse 1000.
+eq(VM.verseLabel([1000]), 'Note', 'the note is labelled Note, not v. 1000');
+eq(VM.verseLabel([1, 2, 1000]), 'vv. 1–2, note', 'verses and the note');
+eq(VM.verseLabel([5, 1000]), 'v. 5, note', 'one verse and the note');
 
 // --- snippet cleaning -------------------------------------------------------
 // Each case is a shape found in the shipped data (tools/build-citation-data.js
@@ -117,6 +122,71 @@ eq(VM.cleanSnippet('upon me [that is upon Jesus Christ], he shall'),
 eq(VM.cleanSnippet('a still small voice 1 Kgs. 19:12 [Laughter]. Before'),
   '…a still small voice 1 Kgs. 19:12 [Laughter]. Before', 'a bracket after a verse number is not a footnote');
 eq(VM.cleanSnippet('  Hope   comes of faith  .'), 'Hope comes of faith.', 'whitespace collapses, no space before punctuation');
+// Unbracketed debris, each only after a sentence ends.
+eq(VM.cleanSnippet('and have everlasting life.” 25 John 3:16'),
+  '…and have everlasting life.”', 'a live-GC note marker and its reference after a closing quote go');
+eq(VM.cleanSnippet('“I that speak unto thee am he.” 8 John 4:26 He demonstrated'),
+  '“I that speak unto thee am he.” He demonstrated', 'the note goes up to the prose that resumes');
+eq(VM.cleanSnippet('a “Friend of God.” 30 James 2:23 see also 2 Chr. 20:7 Isa. 41:8 Long ago'),
+  '…a “Friend of God.” Long ago', 'a note’s whole run of references goes, see also and all');
+eq(VM.cleanSnippet('which temple ye are.” 5 1 Corinthians 3:16–17 see also verse 19'),
+  '…which temple ye are.”', 'a marker before a numbered book, and a bare "verse 19"');
+eq(VM.cleanSnippet('“yielding [our] hearts unto God” 4 Helaman 3:35 and “[receiving] his image'),
+  '“…yielding [our] hearts unto God” and “[receiving] his image', 'a 1–4 before a book no number belongs to is a marker');
+eq(VM.cleanSnippet('I would ask, can ye feel so now?” 14 Alma…'),
+  'I would ask, can ye feel so now?” …', 'a note the cut ended at its book goes');
+eq(VM.cleanSnippet('“opposition in all things” 2 Nephi 2:11 is not a flaw'),
+  '“…opposition in all things” 2 Nephi 2:11 is not a flaw', 'a 1–4 before a numbered book mid-sentence is the book’s');
+eq(VM.cleanSnippet('“come unto Christ” 34 Jacob 1:7 Omni 1:26 Moroni 10:30, 32 D&C 20:59 can also be extended'),
+  '“…come unto Christ” can also be extended', 'a certain marker goes even mid-sentence');
+eq(VM.cleanSnippet('prepared for this mortal life. 15 [See Doctrine and Covenants 49:17 138 Moses 3:5 6:36'),
+  '…prepared for this mortal life.', 'the references a "[See" note left behind go too');
+eq(VM.cleanSnippet('266 Prev Next STPJS 266 Enoch was a man'),
+  'Enoch was a man', 'the Teachings page header goes');
+eq(VM.cleanSnippet('111 Prev Next STPJS 111 the time for the first two'),
+  '…the time for the first two', 'and a passage it leaves mid-sentence gets its "…"');
+eq(VM.cleanSnippet('light, and condemnation follows. John 3:19 D&C 20:14-15'),
+  '…light, and condemnation follows.', 'references BYU inserted between sentences go');
+eq(VM.cleanSnippet('meek and lowly of heart. Matt. 11:29 We must confess'),
+  '…meek and lowly of heart. We must confess', 'an inserted reference before a new sentence goes');
+eq(VM.cleanSnippet('from such turn away” 2 Timothy 3:5 I repeat'),
+  '…from such turn away” I repeat', 'an inserted reference after a closing quote goes');
+eq(VM.cleanSnippet('there is a God in Israel.” 1 Sam. 17:44–46'),
+  '…there is a God in Israel.”', 'an inserted reference at the end goes');
+eq(VM.cleanSnippet('for tomorrow we die” 2 Ne.…'),
+  '…for tomorrow we die” …', 'an inserted reference the cut left half-written goes');
+eq(VM.cleanSnippet('unto the other” Deut. 28:25, 37,…'),
+  '…unto the other” …', 'so does one cut inside its verse list');
+eq(VM.cleanSnippet('strengthen your family by example. In 1…'),
+  '…strengthen your family by example. In 1…', 'a sentence the cut ended is prose, not a reference');
+eq(VM.cleanSnippet('His children See, for example, Matthew 28:19–20 Ephesians 4:11–13 Jacob 5:61–62…'),
+  'His children…', 'a note whose marker was lost goes by its capital "See"');
+eq(VM.cleanSnippet('“Touch not mine anointed,” 1 Chr. 16:22 saith the Lord.'),
+  '“Touch not mine anointed,” 1 Chr. 16:22 saith the Lord.', 'a reference mid-sentence stays: it may be the talk’s own');
+eq(VM.cleanSnippet('“He is love.” 2 Nephi 2:25 teaches that'),
+  '“He is love.” 2 Nephi 2:25 teaches that', 'a sentence that goes on after a reference keeps it');
+eq(VM.cleanSnippet('It was so. Brigham Young 1 Then he spoke'),
+  'It was so. Brigham Young 1 Then he spoke', 'a name and a number are no reference');
+eq(VM.cleanSnippet('eternal judgment (see John 5:29). Then'),
+  '…eternal judgment (see John 5:29). Then', 'a talk’s own "(see …)" stays');
+// A bare reference's book is one word or a multi-word book's own shape, so
+// the prose before an inserted reference is never read as its book.
+eq(VM.cleanSnippet('What is it? The Zion of God. D&C 58:7 What does it mean?'),
+  'What is it? The Zion of God. What does it mean?', 'an answer ending in a period is prose, not a book');
+eq(VM.cleanSnippet('his name was Newel K. Whitney. D&C 72:8 Was he merely'),
+  '…his name was Newel K. Whitney. Was he merely', 'so is a name before an inserted reference');
+eq(VM.cleanSnippet('for ever. Amen. D&C 64:29, 33–43'), '…for ever. Amen.', 'so is "Amen."');
+eq(VM.cleanSnippet('Even so. Amen D&C 56:19-20'),
+  'Even so. Amen D&C 56:19-20', 'a word before a reference keeps both (the reference is mid-sentence)');
+eq(VM.cleanSnippet('very clear. In Doctrine and Covenants 68:25 D&C 68:25 we read'),
+  '…very clear. In Doctrine and Covenants 68:25 D&C 68:25 we read', 'the talk’s own "In Doctrine and Covenants…" stays');
+eq(VM.cleanSnippet('“Ye are bought with a price” 1 Cor. 7:23 In the Garden of…'),
+  '“Ye are bought with a price” In the Garden of…', 'prose the cut ended is no half-written reference');
+eq(VM.cleanSnippet('a great calm.” 8 Mark 4:39 Ever the Master…'),
+  '…a great calm.” Ever the Master…', 'nor after a note’s references');
+eq(VM.cleanSnippet('in your heart.” 13 Doctrine and…'), '…in your heart.” …', 'a multi-word book the cut left half-written goes');
+eq(VM.cleanSnippet('praiseworthy.” 1 A of F 1:13 The First'),
+  '…praiseworthy.” The First', 'an "X of Y" book is one book');
 eq(VM.cleanSnippet(''), '', 'empty stays empty');
 eq(VM.quoteSnippet('Born again'), '“Born again”', 'plain text is quoted');
 eq(VM.quoteSnippet('“Verily,” he said'), '“Verily,” he said', 'text already opening on a quote is not quoted twice');
@@ -172,6 +242,33 @@ console.log('By-verse layout:');
   const jodRow = v4.children[0].rows[0];
   eq(jodRow.sub, 'On Rebirth · vol. 26, p. 278', 'Journal of Discourses volume:page is spelled out');
   eq(jodRow.a11yLabel, 'Young, On Rebirth, vol. 26, p. 278', 'no range in the label of a single-verse row');
+}
+
+{
+  // A few titles carry an italicised word's markup; every surface shows text.
+  const src = gc('Reyna I. Aburto', '<em>We</em> Are The Church of Jesus Christ', '2022-04');
+  const row = VM.buildView(makeData([{ citId: 'a', verses: [3], source: src }]), OPTS).groups[0].children[0].rows[0];
+  eq(row.sub, 'We Are The Church of Jesus Christ · 2022-04', 'the row’s title line drops the tags');
+  eq(row.a11yLabel, 'Reyna I. Aburto, We Are The Church of Jesus Christ, 2022-04', 'so does its screen-reader label');
+  check(!/[<>]/.test(row.search) && row.search.includes('we are the church'), 'and the filter haystack');
+  eq(VM.talkHeading(src, [3]).title, 'We Are The Church of Jesus Christ', 'and the talk reader’s title');
+  eq(VM.talkHeading(gc('Hugh B. Brown', '<b>This</b> Gospel…Not <b>A</b> Gospel', '1958-04'), [1]).title,
+    'This Gospel…Not A Gospel', 'every tag in a title goes');
+}
+
+{
+  // The note (verse 1000) is its own group, after the verses, named "Note".
+  const data = makeData([
+    { citId: 'a', verses: [5], source: gc('A', 'T', '2020-04') },
+    { citId: 'n', verses: [1000], source: gc('Cowdery', 'Note', '1990-04') },
+  ]);
+  const view = VM.buildView(data, OPTS);
+  deep(view.groups.map((g) => g.label), ['Verse 5', 'Note'], 'the note group is named Note and comes last');
+  eq(view.groups[1].a11yLabel, 'Note, 1 talk', 'and names itself that way to a screen reader');
+  eq(VM.buildView(data, SRC).groups[0].rows.find((r) => r.citId === 'n').rangeLabel, 'Note',
+    'a by-source row that cites the note is badged Note');
+  eq(VM.buildView(data, SRC).groups[0].rows.find((r) => r.citId === 'n').a11yLabel,
+    'Cowdery, Note, 1990-04, the note', 'and says so to a screen reader');
 }
 
 {
@@ -342,6 +439,14 @@ console.log('Empty states:');
   eq(zero.empty, true, 'zero cites is empty');
   eq(zero.emptyText, 'No talks cite John 3.', 'chapter with no citing talks');
   eq(zero.summary, null, 'no summary line when empty');
+
+  // A shard that indexes no chapter at all (the Official Declarations) is a
+  // gap in the index, not a book no talk cites.
+  const gap = VM.buildView({ verseOrder: [], byVerse: {}, entries: {}, uniqueTotal: 0,
+    bookIndexed: false, bookName: 'Official Declarations' }, { view: 'verse', fullName: 'Official Declaration', chapter: 1 });
+  eq(gap.emptyText, 'The citation index has no entries for Official Declarations.', 'an unindexed book says the index has nothing');
+  eq(VM.buildView({ verseOrder: [], byVerse: {}, entries: {}, uniqueTotal: 0, bookIndexed: true, bookName: 'Esther' },
+    { view: 'verse', fullName: 'Esther', chapter: 1 }).emptyText, 'No talks cite Esther 1.', 'an indexed book with an empty chapter');
 }
 
 // --- filter + collapse-all ------------------------------------------------
@@ -399,6 +504,9 @@ console.log('Toolbar state:');
   eq(plan2.preFilterOpen[v3.uid], true, 'the first capture is not overwritten by filtered opens');
   eq(plan2.summary, '0 of 14 talks match', 'the summary says nothing matched');
   eq(plan2.noResults, 'No talks match “nelsonx”.', 'the no-results line quotes the query');
+  eq(plan2.summaryShown, false, 'with no matches only the no-results line shows (the summary stays for screen readers)');
+  eq(plan.summaryShown, true, 'with matches the summary shows');
+  eq(idle.summaryShown, true, 'and without a query');
   eq(plan2.collapseLabel, null, 'nothing visible -> no Collapse all button');
 
   // Clearing restores the pre-filter open state and drops the capture.
@@ -439,6 +547,13 @@ console.log('Talk heading:');
 
   eq(VM.talkHeading({ c: 'G', sp: 'A', ti: 'T', lbl: '09 2023 General Conference' }, [1]).where,
     'October 2023 General Conference', 'the byline names a session as the list does');
+  eq(VM.talkHeading(jod('Moses Thatcher', 'Discourse', '1885-04', 'Journal of Discourses 26:306'), [5]).where,
+    'Journal of Discourses, vol. 26, p. 306', 'the byline spells a Journal of Discourses place as the list does');
+  eq(VM.talkHeading(jod('X', 'Y', '1885-04', 'Journal of Discourses'), [5]).where,
+    'Journal of Discourses', 'a label with no volume:page is left as it is');
+  const note = VM.talkHeading(gc('Oliver Cowdery', 'T', '1990-04'), [1000]);
+  eq(note.chip.text, 'Note', 'a chip for the note says Note');
+  eq(note.chip.a11yLabel, 'Go to the cited passage, the note', 'and its spoken form');
 
   const bare = VM.talkHeading({}, []);
   eq(bare.title, 'Untitled talk', 'no title and no label');

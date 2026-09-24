@@ -70,14 +70,34 @@
     return parts.join(', ');
   }
 
+  // The index files a chapter's closing note as verse 1000 (Oliver Cowdery's
+  // note after Joseph Smith—History 1; one cite each on Malachi 4 and
+  // Revelation 22). It is no verse, so every label names it "Note", and it
+  // sorts after the verses.
+  const NOTE_VERSE = 1000;
+  const isNote = (v) => v >= NOTE_VERSE;
+  const splitNote = (vs) => {
+    const verses = (vs || []).filter((v) => !isNote(v));
+    return { verses, note: verses.length < (vs || []).length };
+  };
+
+  // "v. 16", "vv. 3–5, 10", "Note", "vv. 1–2, note".
   function verseLabel(vs) {
-    return (vs && vs.length > 1 ? 'vv. ' : 'v. ') + formatVerses(vs);
+    const { verses, note } = splitNote(vs);
+    if (!verses.length && note) return 'Note';
+    return (verses.length > 1 ? 'vv. ' : 'v. ') + formatVerses(verses) + (note ? ', note' : '');
   }
 
   // The same range spelled for a screen reader: "verses 3 to 5, 10".
   function spokenVerses(vs) {
-    return (vs.length > 1 ? 'verses ' : 'verse ') + formatVerses(vs).replace(/–/g, ' to ');
+    const { verses, note } = splitNote(vs);
+    if (!verses.length && note) return 'the note';
+    return (verses.length > 1 ? 'verses ' : 'verse ') + formatVerses(verses).replace(/–/g, ' to ')
+      + (note ? ', and the note' : '');
   }
+
+  // A by-verse group's name.
+  const groupLabel = (v) => (isNote(v) ? 'Note' : `Verse ${v}`);
 
   const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
 
@@ -123,11 +143,32 @@
       out = lbl.replace(/\s*General Conference\s*$/i, '').trim();
     } else if (s.c === 'J') {
       out = lbl.replace(/^Journal of Discourses\s*/i, '').trim();
-      const m = /^(\d+):(\d+)$/.exec(out);
-      if (m) out = `vol. ${m[1]}, p. ${m[2]}`;
+      out = jodPlace(out) || out;
     } else if (s.c === 'T') out = lbl.replace(/^Teachings of the Prophet Joseph Smith,?\s*/i, '').trim();
     return out || s.d || '';
   }
+
+  // "26:278" -> "vol. 26, p. 278"; null for anything else.
+  function jodPlace(volPage) {
+    const m = /^(\d+):(\d+)$/.exec(volPage);
+    return m ? `vol. ${m[1]}, p. ${m[2]}` : null;
+  }
+
+  // The source label whole, as the talk reader's byline states it: sessions
+  // named as in the list, and a Journal of Discourses place spelled the same
+  // way the list spells it ("Journal of Discourses, vol. 26, p. 306").
+  function longLabel(s) {
+    const lbl = sourceLabel(s);
+    if (s.c !== 'J') return lbl;
+    const m = /^Journal of Discourses\s*(\S.*)$/i.exec(lbl);
+    const place = m && jodPlace(m[1].trim());
+    return place ? `Journal of Discourses, ${place}` : lbl;
+  }
+
+  // A talk's title as plain text. A few titles carry the markup of an
+  // italicised word ("<em>We</em> Are The Church…"); every surface that shows
+  // or searches a title reads it through here.
+  const titleOf = (s) => String(s.ti || '').replace(/<\/?[a-z][^>]*>/gi, '').trim();
 
   // --- snippet cleaning ------------------------------------------------------
   // Snippets are the talk paragraph's text as the build stripped it, so they
@@ -141,11 +182,54 @@
   //                                as early as "8 [ See…")
   //   16 [Scriptures give…         an unclosed prose footnote: only the marker
   //                                goes, since nothing marks where it ends
+  // and the unbracketed debris:
+  //   life.” 25 John 3:16          after a sentence ends (. ! ? or a closing
+  //                                quote): a live-GC note's marker, then its
+  //                                references, whatever follows
+  //   follows. John 3:19 D&C 20:14  after a sentence ends: a reference BYU
+  //                                inserted (Journal of Discourses, early
+  //                                General Conference), only when a new
+  //                                sentence, a quote or the end follows
+  //                                ("…” 2 Nephi 2:25 teaches" may be the
+  //                                talk's own words), or one the cut left
+  //                                half-written ("” 2 Ne.…")
+  //   His children See, for example,  a note whose marker was lost: capital
+  //                                "See" right after a lowercase word
+  //   266 Prev Next STPJS 266      the Teachings page header, at the start
+  // A bare reference needs chapter:verse ("John 3:16", not "Psalm 23"), so a
+  // name and a number in prose ("Brigham Young 1") never reads as one. Its
+  // book is NAME, stricter than a bracketed note's BOOK: one word ("Isa.",
+  // "D&C", "JS—H") or a multi-word book's own shape ("Doctrine and
+  // Covenants", "Joseph Smith—History", "Words of Mormon", "A of F"), so the
+  // prose before an inserted reference stays ("The Zion of God. D&C 58:7",
+  // "Amen D&C 56:19", "In Abraham 4:18 Abr. 4:18").
   const NUMS = String.raw`\d+(?:[–-]\d+)?(?:,\s?\d+(?:[–-]\d+)?)*`;
   const BOOK = String.raw`(?:[1-4]\s)?[A-Z][A-Za-z&.]*(?:(?:\s|—)(?:of|and|the|[A-Z][A-Za-z&.]*))*`;
   const REF = String.raw`${BOOK}\s\d+(?::${NUMS})?(?:\s\d+:${NUMS})*`;
   // A reference list the build's 200-character cut left half-written ("Mosiah…").
   const CUT_REF = String.raw`\s*(?:${BOOK}|[1-4])[\s\d:,–-]*(?=…$)`;
+  const NAME = String.raw`(?:[1-4]\s)?(?:Doctrine and Covenants|Joseph Smith—[A-Z][a-z]+|` +
+    String.raw`[A-Z][A-Za-z&]*(?:—[A-Z]|\sof\s[A-Z][A-Za-z]*)?\.?)`;
+  // NAME as the cut may leave it ("Doctrine and…", "Words of…"); prose the
+  // cut ended ("In the Garden of…") is not one.
+  const CUT_NAME = String.raw`(?:[1-4]\s)?(?:Doctrine(?: and(?: Covenants)?)?|Joseph(?: Smith(?:—[A-Za-z]*)?)?|` +
+    String.raw`[A-Z][A-Za-z&]*(?:—[A-Z]?|\sof(?:\s[A-Z][A-Za-z]*)?)?\.?)`;
+  const CUT_VREF = String.raw`\s*(?:${CUT_NAME}|[1-4])[\s\d:,–-]*(?=…$)`;
+  const VREF = String.raw`${NAME}\s\d+:${NUMS}(?:\s\d+:${NUMS})*`;
+  const SEE = String.raw`[Ss]ee(?:,? for example,| also)?`;
+  // A run of references, as a note lists them: "James 2:23 see also 2 Chr.
+  // 20:7 Isa. 41:8", "1 Cor. 3:16 see also 6:19", "… see also verse 19".
+  const RUN = String.raw`${VREF}(?:[;,]?\s+(?:${SEE}\s+)?(?:${VREF}|\d+:${NUMS}|verses?\s${NUMS}))*\.?(?:${CUT_VREF})?`;
+  // A footnote marker for certain: 5–999, or 1–4 before a numbered book
+  // ("14 1 Cor. 15:22") or before a book no number belongs to ("4 Helaman").
+  // 1–4 before a book that takes one ("1 Cor.", "3 Nephi") may be the book's.
+  const NUMBERED = String.raw`(?:Sam|K(?:in)?gs|Chr|Cor|Th|Tim|Pet|J(?:oh)?n|Ne)`;
+  const MARKER = String.raw`(?:[5-9]|\d{2,3}|[1-4](?=\s[1-4]\s)|[1-4](?!\s${NUMBERED}))`;
+  const SENTENCE_END = String.raw`(?<=[.!?”"’])`;
+  // A reference the build's cut ended right after a sentence: "” 2 Ne.…",
+  // "” Deut. 28:25, 37,…" (a bare "Then…" is prose, so a book needs its
+  // number before or after it).
+  const CUT_END = String.raw`(?:[1-4]\s[A-Z][A-Za-z]*\.?|${NAME}\s\d+:[\d:,–\s-]*)(?=…$)`;
   const RE = {
     pageAtEnd: /\s*\[\s*p\.\s*\d+[ab]?\s*\]\s*$/,
     page: /\s*\[\s*p\.\s*\d+[ab]?\s*\]\s*/g,
@@ -153,6 +237,11 @@
     seeNote: new RegExp(String.raw`(?:\s\d{1,3})?\s?\[\s*[Ss]ee(?:\s+(?:also\s+)?` +
       String.raw`(?:${REF}(?:[;,]?\s+(?:see also\s+)?${REF})*\.?(?:${CUT_REF})?|${CUT_REF})|(?=…$))(?:\s*\])?`, 'g'),
     noteMark: /\s\d{1,3}\s?\[\s*(?![^[\]]*\])/g,
+    markedNote: new RegExp(String.raw`${SENTENCE_END}\s+${MARKER}\s(?:${SEE}\s)?(?:${RUN}|${CUT_VREF})`, 'g'),
+    insertedRef: new RegExp(String.raw`${SENTENCE_END}\s+(?:[1-4]\s)?(?:${SEE}\s)?` +
+      String.raw`(?:${RUN}(?=\s+[A-Z“"‘(]|\s*…?$)|${CUT_END})`, 'g'),
+    lostMarkerNote: new RegExp(String.raw`(?<=[a-z])\sSee(?:,? for example,| also)?\s${RUN}`, 'g'),
+    stpjsHeader: /^\s*\d+\s+Prev\s+Next\s+STPJS\s+\d+\s*/,
   };
 
   // A page break at the very end means the passage runs on overleaf, so it
@@ -160,8 +249,10 @@
   // "…" inside any opening quote mark.
   function cleanSnippet(raw) {
     let t = String(raw || '');
+    t = t.replace(RE.stpjsHeader, '');
     t = t.replace(RE.pageAtEnd, '…').replace(RE.page, ' ');
     t = t.replace(RE.closedNote, ' ').replace(RE.seeNote, ' ').replace(RE.noteMark, ' ');
+    t = t.replace(RE.markedNote, ' ').replace(RE.insertedRef, ' ').replace(RE.lostMarkerNote, ' ');
     t = t.replace(/\s+/g, ' ').replace(/\s+([,.;:!?])(?=\s|$)/g, '$1').trim();
     t = t.replace(/([\p{L}\p{N},;:])\s+…$/u, '$1…');
     t = t.replace(/^([“"‘'])\s+/, '$1');
@@ -237,17 +328,18 @@
     const s = entry.source || {};
     const where = shortLabel(s);
     const speaker = s.sp || 'Unknown speaker';
+    const title = titleOf(s);
     const snippet = cleanSnippet(entry.snippet);
-    const haystack = [s.sp, s.ti, s.lbl, where].concat(talk.cites.map((c) => cleanSnippet(c.snippet)));
+    const haystack = [s.sp, title, s.lbl, where].concat(talk.cites.map((c) => cleanSnippet(c.snippet)));
     return {
       uid: `${uidPrefix}/${i}:${entry.citId}`,
       citId: entry.citId,
       talkId: talkIdOf(entry),
       speaker,
       rangeLabel: rangeVerses ? verseLabel(rangeVerses) : null,
-      sub: [s.ti, where].filter(Boolean).join(' · ') || null,
+      sub: [title, where].filter(Boolean).join(' · ') || null,
       snippet: quoteSnippet(snippet),
-      a11yLabel: [speaker, s.ti, where, rangeVerses && spokenVerses(rangeVerses)].filter(Boolean).join(', '),
+      a11yLabel: [speaker, title, where, rangeVerses && spokenVerses(rangeVerses)].filter(Boolean).join(', '),
       search: haystack.filter(Boolean).join(' ').toLowerCase(),
       entry,
     };
@@ -302,7 +394,7 @@
       }
 
       groups.push(groupDesc({
-        uid, kind: 'verse', key: String(v), verse: v, label: `Verse ${v}`,
+        uid, kind: 'verse', key: String(v), verse: v, label: groupLabel(v),
         count, open: focus, focus, children,
       }));
     }
@@ -336,6 +428,16 @@
 
   const summaryLine = (n) => `${talkCount(n)} ${n === 1 ? 'cites' : 'cite'} this chapter`;
 
+  // Why a chapter shows no talks. A book whose shard indexes no chapter at all
+  // (the Official Declarations) is a gap in the index, not a book nobody cites.
+  function emptyText(data, opts) {
+    if (!data) return 'No citation data for this book.';
+    if (data.bookIndexed === false) {
+      return `The citation index has no entries for ${data.bookName || opts.fullName || 'this book'}.`;
+    }
+    return `No talks cite ${`${opts.fullName || ''} ${opts.chapter}`.trim()}.`;
+  }
+
   // opts: { view: 'verse'|'source', fullName, chapter, focusVerse }
   // data: citData.chapterData(...) — null when the book has no shard.
   function buildView(data, opts) {
@@ -343,12 +445,11 @@
     // Callers pass the layout through from the settings; the fallback matches
     // that schema's default ('source') rather than inventing a second one.
     const layout = opts.view === 'verse' ? 'verse' : 'source';
-    const where = `${opts.fullName || ''} ${opts.chapter}`.trim();
 
     if (!data || !data.verseOrder.length || data.uniqueTotal === 0) {
       return {
         layout, empty: true,
-        emptyText: !data ? 'No citation data for this book.' : `No talks cite ${where}.`.trim(),
+        emptyText: emptyText(data, opts),
         summary: null, talks: 0, showTools: false, groups: [], focusUid: null,
       };
     }
@@ -423,12 +524,16 @@
     });
 
     const anyMatch = matched.size > 0;
+    const noResults = filtering && !anyMatch ? `No talks match “${shown}”.` : null;
     const plan = {
       filtering, anyMatch, hidden, open, preFilterOpen, counts, a11y,
       summary: filtering
         ? `${matched.size} of ${talkCount(viewModel.talks)} ${matched.size === 1 ? 'matches' : 'match'}`
         : viewModel.summary,
-      noResults: filtering && !anyMatch ? `No talks match “${shown}”.` : null,
+      // With no matches the no-results line says it on screen; the summary
+      // still speaks its count to a screen reader, out of sight.
+      summaryShown: !noResults,
+      noResults,
     };
     plan.collapseLabel = collapseLabel(viewModel, { open }, hidden);
     return plan;
@@ -472,17 +577,18 @@
   // --- talk reader heading ---------------------------------------------------
 
   // What the talk reader's header and byline say for one cite:
-  //   title      the talk's title; Teachings of the Prophet Joseph Smith has
-  //              none, so its page label ("…Joseph Smith, p. 264") stands in
+  //   title      the talk's title as plain text; Teachings of the Prophet
+  //              Joseph Smith has none, so its page label ("…Joseph Smith,
+  //              p. 264") stands in
   //   speaker    byline line 1 (null when unknown)
-  //   where      byline line 2: the source label (sessions named as in the
-  //              list), unless it is already the title
-  //   chip       the cited verses ("vv. 1–5") and their spoken form for the
-  //              button that re-reveals the cited passage
+  //   where      byline line 2: the source label whole (longLabel), unless it
+  //              is already the title
+  //   chip       the cited verses ("vv. 1–5", "Note") and their spoken form for
+  //              the button that re-reveals the cited passage
   function talkHeading(source, versesInChapter) {
     const s = source || {};
-    const lbl = sourceLabel(s);
-    const title = s.ti || lbl || 'Untitled talk';
+    const lbl = longLabel(s);
+    const title = titleOf(s) || lbl || 'Untitled talk';
     const vs = versesInChapter && versesInChapter.length ? versesInChapter : null;
     return {
       title,
