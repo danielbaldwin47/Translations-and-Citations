@@ -28,7 +28,7 @@
 
   const citData = () => root.__BTX && root.__BTX.citData;
 
-  // Per-corpus policy (CONTEXT.md "Corpus"):
+  // Per-corpus policy (GLOSSARY.md "Corpus"):
   //   fetch  'live'    — same-origin fetch from churchofjesuschrist.org
   //          'bundled' — the shipped talks/{talkId}.html.gz
   //   target 'anchor'       — the talk's paragraph anchor (pN), citation span as fallback
