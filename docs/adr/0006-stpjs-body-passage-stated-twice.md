@@ -3,7 +3,7 @@
 STPJS (corpus `T`) puts its citation spans in a bottom footnote list and marks
 the annotated body text with `<span class="footRef">N</span>`. One domain rule —
 *a `T` cite means the body passage its footnote annotates, not the footnote's
-reference line* (CONTEXT.md, "Body passage") — is implemented twice:
+reference line* (GLOSSARY.md, "Body passage") — is implemented twice:
 
 - `tools/build-citation-data.js` → `stpjsBodyPassage(html, num)`: Node, regex
   over the **raw** DB HTML, producing snippet **text** at build time.

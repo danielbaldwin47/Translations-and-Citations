@@ -1,6 +1,6 @@
 # Changelog
 
-High-level only. Mechanism lives in module headers, `CONTEXT.md`, and
+High-level only. Mechanism lives in module headers, `GLOSSARY.md`, and
 `docs/adr/`. Versions are the extension's own numbering (`manifest.json`),
 starting fresh at 0.x for the first tagged release.
 

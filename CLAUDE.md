@@ -2,7 +2,7 @@
 
 Guidance for working in this repo. Read this first. Domain terms (cite, talk,
 corpus, source type, anchor verse, snippet, view, page-synced, …) are defined in
-**`CONTEXT.md`** — use its vocabulary. Hard-to-reverse decisions live in
+**`GLOSSARY.md`** — use its vocabulary. Hard-to-reverse decisions live in
 **`docs/adr/`**; check them before proposing structural changes.
 
 ## What this is
@@ -51,7 +51,7 @@ content are not redistributable, so **never** the Chrome Web Store (ADR-0003).
 - **Settings go through `__BTX.settings`** — never `chrome.storage.sync`
   directly (`validate-settings.js` enforces this).
 - **Docs are written for agents.** Before creating or editing `CLAUDE.md`,
-  `CONTEXT.md`, anything under `docs/`, or a module header comment, load
+  `GLOSSARY.md`, anything under `docs/`, or a module header comment, load
   `/mattpocock-skills:writing-for-agents` and apply it.
 
 ## Layout
@@ -306,5 +306,5 @@ validators — go there before changing behaviour.
   via `gh`. See `docs/agents/issue-tracker.md`.
 - **Triage labels:** the five canonical roles, default strings. See
   `docs/agents/triage-labels.md`.
-- **Domain docs:** single-context: `CONTEXT.md` + `docs/adr/`. See
+- **Domain docs:** single-context: `GLOSSARY.md` + `docs/adr/`. See
   `docs/agents/domain.md`.

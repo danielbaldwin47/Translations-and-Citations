@@ -161,7 +161,7 @@ header comment of each file is its interface doc.
 | `tools/build-citation-data.js` | builds `src/citations/data/` from the BYU DBs |
 | `tools/validate-*.js`, `tools/test-talk-source.js` | Node checks, no deps (each names the module it covers) |
 | `tools/make-icons.js` | regenerates the icon PNGs |
-| `CLAUDE.md`, `CONTEXT.md`, `docs/adr/` | agent guidance, domain vocabulary, architecture decisions |
+| `CLAUDE.md`, `GLOSSARY.md`, `docs/adr/` | agent guidance, domain vocabulary, architecture decisions |
 
 ## Development
 
