@@ -363,3 +363,25 @@ A corpus indexed with only facts per cite — talk, verses, speaker, date,
 title, URL — and no snippets or bundled talk prose. A property of one corpus
 within a pack: a pack may bundle one corpus and index another references-only.
 _Avoid_: metadata index, stripped index, references-only index (the pack as a whole is mixed)
+
+**Pack vintage**:
+The latest conference a data pack covers, together with the date stamp of the
+BYU database it was built from. Part of the pack descriptor; shown to the
+reader.
+_Avoid_: data version, index date
+
+**Pack refresh**:
+Rebuilding a data pack from newer inputs: a new BYU database, or a newly
+published conference. A refresh changes data only, never code.
+_Avoid_: regeneration, data update, rebuild
+
+**Cite provenance**:
+Which source a cite's facts came from: BYU's database, or the Church's own talk
+page (its footnotes and scripture links). A property of one cite within a pack.
+_Avoid_: origin, source (which names the talk)
+
+**Bridge cite**:
+A cite whose provenance is the Church's talk page, for a conference newer than
+the pack's BYU database, so the pack covers that conference before BYU does.
+The next refresh from a BYU database covering the conference replaces it.
+_Avoid_: provisional cite, interim cite, Church cite
