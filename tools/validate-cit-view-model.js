@@ -32,9 +32,23 @@ const visibleRowIds = (view, plan) =>
   VM.allRows(view).filter((r) => !plan.hidden[r.uid]).map((r) => r.citId);
 
 // --- fixtures -------------------------------------------------------------
+// Pack descriptors as the build writes them for each pack mode
+// (tools/build-citation-data.js packDescriptor): the public pack lists no T.
+const CORPORA = {
+  G: { sourceType: 'General Conference', text: 'live-church', target: 'anchor', excerpt: 'bundled', inclusion: 'all' },
+  E: { sourceType: 'General Conference', text: 'bundled', target: 'citationSpan', excerpt: 'bundled', inclusion: 'all' },
+  J: { sourceType: 'Journal of Discourses', text: 'bundled', target: 'citationSpan', excerpt: 'bundled', inclusion: 'all' },
+};
+const PACK_FACTS = { vintage: '2026-04', base: { db: 'core.53.db', updated: '2026-05-18' }, derived: [] };
+const PUBLIC = Object.assign({ flavor: 'public', corpora: CORPORA }, PACK_FACTS);
+const PERSONAL = Object.assign({ flavor: 'personal', corpora: Object.assign({}, CORPORA, {
+  T: { sourceType: 'Teachings of the Prophet Joseph Smith', text: 'bundled', target: 'bodyPassage', excerpt: 'bundled', inclusion: 'all' },
+}) }, PACK_FACTS);
+
 // Shape mirrors citData.chapterData: entries keyed by citId, each carrying its
-// talk and in-chapter verse span, plus a verse -> citId index.
-function makeData(cites) {
+// talk and in-chapter verse span, plus a verse -> citId index and the pack
+// descriptor (the personal one unless a test names another).
+function makeData(cites, pack) {
   const byVerse = {};
   const entries = {};
   for (const c of cites) {
@@ -48,7 +62,7 @@ function makeData(cites) {
     for (const v of c.verses) (byVerse[v] = byVerse[v] || []).push(c.citId);
   }
   const verseOrder = Object.keys(byVerse).map(Number).sort((a, b) => a - b);
-  return { verseOrder, byVerse, entries, uniqueTotal: cites.length };
+  return { verseOrder, byVerse, entries, uniqueTotal: cites.length, pack: pack || PERSONAL };
 }
 
 // Labels in the shipped sources.json shapes.
@@ -426,6 +440,61 @@ console.log('Summary line:');
     ({ citId: 'c' + i, talkId: i < 2 ? 'same' : undefined, verses: [i + 1], source: gc('S', 'T', '2020-04') })));
   eq(VM.buildView(repeat, OPTS).talks, 12, 'talks are counted once each');
   eq(VM.buildView(repeat, OPTS).groups.every((g) => g.open), true, 'the open-everything threshold counts talks');
+}
+
+// --- source types from the pack descriptor --------------------------------
+console.log('Source types from the descriptor:');
+{
+  const cites = [
+    { citId: 'g', verses: [16], source: gc('Oaks', 'C', '2021-10') },
+    { citId: 'j', verses: [16], source: jod('Young', 'A', '1857-07') },
+    { citId: 't', verses: [16], source: tpjs('Smith', '', '') },
+    { citId: 't2', verses: [20], source: tpjs('Smith', '', '') },
+  ];
+  const personal = VM.buildView(makeData(cites, PERSONAL), OPTS);
+  deep(personal.groups[0].children.map((c) => c.label),
+    ['General Conference', 'Journal of Discourses', 'Teachings of the Prophet Joseph Smith'],
+    'the personal pack shows the TPJS source type');
+
+  const pub = makeData(cites, PUBLIC);
+  for (const view of [VM.buildView(pub, OPTS), VM.buildView(pub, SRC)]) {
+    const labels = allGroups(view).map((g) => g.label);
+    check(!labels.includes('Teachings of the Prophet Joseph Smith'), `${view.layout}: the public pack has no TPJS group`);
+    check(VM.allRows(view).every((r) => r.entry.source.c !== 'T'), `${view.layout}: and no TPJS row`);
+    eq(view.talks, 2, `${view.layout}: a corpus the descriptor lacks counts no talks`);
+    eq(view.summary, '2 talks cite this chapter', `${view.layout}: nor does the summary`);
+  }
+  deep(VM.buildView(pub, OPTS).groups.map((g) => g.label), ['Verse 16'],
+    'a verse cited only by a missing corpus has no group');
+  deep(VM.buildView(pub, SRC).groups.map((g) => g.key), ['gc', 'jod'], 'by source: one group per source type the pack lists');
+
+  const onlyT = VM.buildView(makeData([cites[2]], PUBLIC), OPTS);
+  eq(onlyT.empty, true, 'a chapter cited only by a missing corpus is empty');
+  eq(onlyT.emptyText, 'No talks cite John 3.', 'and says no talk cites it');
+
+  // Source types are the descriptor's sourceType values, in its order.
+  const reordered = { flavor: 'public', corpora: { J: CORPORA.J, G: CORPORA.G, E: CORPORA.E } };
+  deep(VM.buildView(makeData(cites, reordered), SRC).groups.map((g) => g.label),
+    ['Journal of Discourses', 'General Conference'], 'groups follow the descriptor\'s order');
+  const renamed = { flavor: 'public', corpora: { G: Object.assign({}, CORPORA.G, { sourceType: 'Conference Talks' }) } };
+  const rg = VM.buildView(makeData(cites, renamed), SRC).groups;
+  deep(rg.map((g) => g.label), ['Conference Talks'], 'a group is labelled with the descriptor\'s sourceType');
+  eq(rg[0].countClass, 'btx-grp-conference-talks', 'a new source type gets its own chip class');
+  eq(VM.buildView(makeData([cites[0]], null), OPTS).groups.length, 1, '(fixture: makeData defaults to the personal pack)');
+  eq(VM.buildView(Object.assign(makeData([cites[0]]), { pack: undefined }), OPTS).empty, true,
+    'with no descriptor no corpus exists');
+}
+
+// --- footer: the pack vintage ----------------------------------------------
+console.log('Footer:');
+{
+  const data = makeData([{ citId: 'a', verses: [3], source: gc('A', 'T', '2020-04') }], PUBLIC);
+  eq(VM.buildView(data, OPTS).footer, 'Citations through April 2026', 'the footer names the vintage\'s conference');
+  eq(VM.buildView(data, SRC).footer, 'Citations through April 2026', 'in both layouts');
+  const oct = Object.assign({}, PUBLIC, { vintage: '2025-10' });
+  eq(VM.buildView(makeData([], oct), OPTS).footer, 'Citations through October 2025', 'an empty chapter still shows it');
+  eq(VM.buildView(null, OPTS).footer, null, 'no data, no footer');
+  eq(VM.buildView(makeData([], Object.assign({}, PUBLIC, { vintage: '' })), OPTS).footer, null, 'no vintage, no footer');
 }
 
 console.log('Empty states:');
