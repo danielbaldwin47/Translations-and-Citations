@@ -1,24 +1,44 @@
 /* PROTOTYPE — throwaway, branch prototype/fetched-excerpts only. Never merge. */
 
-/* Reserved skeleton: holds the excerpt's three lines before the text arrives. */
-#btx-root .btx-proto-reserve {
-  margin-top: 9px;
-  padding-top: 9px;
-  border-top: 1px solid color-mix(in srgb, var(--btx-border) 60%, transparent);
-  height: calc(13px * var(--btx-size-scale) * 1.6 * 3);
-  box-sizing: content-box;
+/* A pending row's slot is a .btx-cit-snippet (same box, font, 3-line clamp)
+   holding invisible filler text of the excerpt's bundled length, so it takes
+   the height the excerpt will take. Mode is data-btx-proto-ph on <html>,
+   set by the strip. */
+#btx-root .btx-proto-slot { position: relative; }
+#btx-root .btx-proto-filler { color: transparent; user-select: none; }
+
+/* "Loading…": a quiet label over the reserved space. */
+html[data-btx-proto-ph='loading'] #btx-root .btx-proto-slot::before {
+  content: 'Loading excerpt…';
+  position: absolute;
+  top: 9px; left: 0;
+  font-style: italic;
+  color: color-mix(in srgb, var(--btx-fg) 40%, transparent);
 }
-#btx-root .btx-proto-skeleton {
-  background:
-    linear-gradient(color-mix(in srgb, var(--btx-fg) 10%, transparent) 0 0) 0 9px / 92% 0.7em no-repeat,
-    linear-gradient(color-mix(in srgb, var(--btx-fg) 10%, transparent) 0 0) 0 calc(9px + 1.6em) / 85% 0.7em no-repeat,
-    linear-gradient(color-mix(in srgb, var(--btx-fg) 10%, transparent) 0 0) 0 calc(9px + 3.2em) / 55% 0.7em no-repeat;
-  font-size: calc(13px * var(--btx-size-scale));
-  animation: btx-proto-pulse 1.2s ease-in-out infinite;
+
+/* Skeleton: the filler itself painted as bars, one per line, each as long
+   as that line of the excerpt will be. */
+html[data-btx-proto-ph='skeleton'] #btx-root .btx-proto-filler {
+  background: color-mix(in srgb, var(--btx-fg) 9%, transparent);
+  border-radius: 3px;
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+  animation: btx-proto-pulse 1.6s ease-in-out infinite;
 }
-@keyframes btx-proto-pulse { 50% { opacity: 0.45; } }
-#btx-root .btx-proto-fade { animation: btx-proto-fadein 180ms ease-out; }
+@keyframes btx-proto-pulse { 50% { opacity: 0.5; } }
+
+/* "None": no reserve; the row grows when the text lands. */
+html[data-btx-proto-ph='pop'] #btx-root .btx-proto-slot { display: none; }
+
+/* Arrival fades in (not in "none" mode); a miss eases its reserve away. */
+html:not([data-btx-proto-ph='pop']) #btx-root .btx-proto-fade { animation: btx-proto-fadein 240ms ease-out; }
 @keyframes btx-proto-fadein { from { opacity: 0; } }
+#btx-root .btx-proto-slot.btx-proto-collapse {
+  height: 0 !important; margin-top: 0; padding-top: 0; border-top-width: 0;
+  opacity: 0;
+  transition: height 160ms ease-out, margin 160ms ease-out, padding 160ms ease-out, opacity 120ms;
+}
+#btx-root .btx-proto-slot.btx-proto-collapse::before { content: none; }
 
 .btx-proto-strip {
   position: fixed; left: 8px; bottom: 8px; z-index: 2147483647;
