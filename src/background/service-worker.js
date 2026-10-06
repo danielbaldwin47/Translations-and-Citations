@@ -6,7 +6,11 @@
  *   GET_ENABLED_TRANSLATIONS -> what the panel may offer (translations, Church
  *                               languages, default, hasKey, …)
  *   GET_CHAPTER              -> one chapter as IR, cache first, rate-limited;
- *                               a rejected key also drops the cached version list
+ *                               a rejected key also drops the cached version list.
+ *                               Every api.bible display, a cache hit too, sends
+ *                               a FUMS usage report (fums.js) with the token
+ *                               cached beside the chapter; the reply carries
+ *                               neither the token nor any script.
  *   LIST_BIBLES { key?, refresh? }
  *                            -> the versions on a key (default: the stored one).
  *                               Served from the cache when it holds that key's
@@ -15,6 +19,9 @@
  *                               (a copyright lookup failed) is passed on but
  *                               never cached. One refresh costs 1 + one call
  *                               per version (~39) against a monthly quota.
+ *                               A list for a named `key` is the options page's
+ *                               Connect: once it succeeds, the FUMS device id
+ *                               exists (the click was the consent).
  *   OPEN_OPTIONS { section? } -> opens (or focuses) the options page; a section
  *                               from C.OPTIONS_SECTIONS is parked in
  *                               chrome.storage.session for the page to scroll to.
@@ -35,7 +42,8 @@ importScripts(
   '../shared/books.js',
   './cache.js',
   './ratelimit.js',
-  './api.js'
+  './api.js',
+  './fums.js'
 );
 
 const C = self.__BTX.const;
@@ -43,6 +51,7 @@ const SETTINGS = self.__BTX.settings;
 const API = self.__BTX.api;
 const CACHE = self.__BTX.cache;
 const RATE = self.__BTX.rate;
+const FUMS = self.__BTX.fums;
 
 // Settings (schema, normalization, caching, invalidation) are owned by
 // __BTX.settings — this worker is just one of its adapters.
@@ -67,10 +76,14 @@ async function handleListBibles(msg) {
   const key = msg.key || s.apiKey;
   if (!msg.refresh) {
     const cached = await CACHE.getBibles(key);
-    if (cached) return { bibles: cached };
+    if (cached) {
+      if (msg.key) await FUMS.connected();
+      return { bibles: cached };
+    }
   }
   const result = await API.listBibles(key);
   if (!result.error && result.bibles && !result.partial) await CACHE.setBibles(result.bibles, key);
+  if (!result.error && msg.key) await FUMS.connected();
   return result;
 }
 
@@ -78,9 +91,10 @@ async function handleGetChapter(msg) {
   const { provider, bibleId, chapterId, ldsBook, chapter } = msg;
   if (!provider || !bibleId || !chapterId) return { error: { code: C.ERR.UNKNOWN, message: 'Bad request' } };
 
-  // Cache first (does not count against rate limits).
+  // Cache first (does not count against rate limits). An api.bible chapter
+  // is cached with its FUMS token, reported on every display.
   const cached = await CACHE.getChapter(provider, bibleId, chapterId);
-  if (cached) return cached;
+  if (cached) return displayed(cached);
 
   const s = await SETTINGS.get();
 
@@ -101,9 +115,17 @@ async function handleGetChapter(msg) {
   }
 
   if (result.error) return result;
-  await CACHE.setChapter(provider, bibleId, chapterId, result.payload);
-  // Forward FUMS only on a fresh fetch (cache hits return above without it).
-  return Object.assign({}, result.payload, { fums: result.fums || null });
+  const entry = result.fumsToken ? Object.assign({}, result.payload, { fumsToken: result.fumsToken }) : result.payload;
+  await CACHE.setChapter(provider, bibleId, chapterId, entry);
+  return displayed(entry);
+}
+
+// A chapter on its way to the page: report its token, then hand back the
+// chapter without it.
+async function displayed(entry) {
+  const { fumsToken, ...payload } = entry;
+  if (fumsToken) await FUMS.report(fumsToken);
+  return payload;
 }
 
 // openOptionsPage reuses an open options tab, which then learns the section

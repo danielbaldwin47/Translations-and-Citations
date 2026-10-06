@@ -643,8 +643,10 @@ console.log('setupCopy:');
 {
   const bible = P.setupCopy({ chapter: 'John 3', bible: 'nokey' });
   eq(bible.heading, 'Read John 3 in another translation or language', 'a Bible chapter offers translations and languages');
-  eq(bible.bible, { text: 'Bible translations such as NIV and NKJV need a free api.bible key.', button: 'Set up Bible translations' },
-    'no key yet: the api.bible block says what is needed and sets it up');
+  eq(bible.bible, {
+    text: 'Bible translations such as NIV and NKJV need a free api.bible key.', button: 'Set up Bible translations',
+    disclosure: 'Connecting sends the chapters you open, your key, and an anonymous usage report to API.Bible.',
+  }, 'no key yet: the api.bible block says what is needed, sets it up, and what connecting sends');
   eq(P.setupCopy({ chapter: 'John 3', bible: 'noversions' }).bible.button, 'Choose Bible translations',
     'a key but nothing turned on: the button goes to choosing');
   const bofm = P.setupCopy({ chapter: 'Alma 5', bible: null });

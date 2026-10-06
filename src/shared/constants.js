@@ -15,6 +15,8 @@
     // --- API endpoints ---
     API_BIBLE_BASE: 'https://api.scripture.api.bible/v1',
     BIBLE_API_BASE: 'https://bible-api.com',
+    // api.bible usage reports (background/fums.js); a host permission.
+    FUMS_BASE: 'https://fums.api.bible',
 
     // --- Providers ---
     PROVIDER_APIBIBLE: 'api.bible',
@@ -43,6 +45,17 @@
     // --- chrome.storage.sync keys (settings) ---
     SETTINGS_KEY: 'btxSettings',
 
+    // --- In-product disclosures (Chrome Web Store user-data policy) ---
+    // Shown beside the action they describe, whose click is the consent:
+    // `apiBible` beside Connect on the options page and on the panel setup
+    // card's api.bible path; `churchLanguage` beside adding a Church language
+    // in both places. options.html carries the same words (checked by
+    // tools/validate-options-form.js).
+    DISCLOSURE: {
+      apiBible: 'Connecting sends the chapters you open, your key, and an anonymous usage report to API.Bible.',
+      churchLanguage: 'Fetches that language’s chapter from churchofjesuschrist.org.',
+    },
+
     // --- Options deep links ---
     // OPEN_OPTIONS may carry `section`, one of OPTIONS_SECTIONS (the options
     // page's card ids). The worker parks it in chrome.storage.session under
@@ -57,6 +70,9 @@
     BIBLES_CACHE_KEY: 'btxBiblesCache',
     RATE_RECENT_KEY: 'btxRateRecent',
     RATE_DAILY_PREFIX: 'btxRateDaily::',
+    // The FUMS device id: created on the first successful Connect, this
+    // device only (background/fums.js).
+    FUMS_DEVICE_KEY: 'btxFumsDeviceId',
 
     // --- Cache TTLs (ms) ---
     CHAPTER_TTL_MS: 30 * 24 * 60 * 60 * 1000, // 30 days (chapters are static)
