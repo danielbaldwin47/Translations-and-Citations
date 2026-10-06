@@ -310,3 +310,31 @@ context resolves the same stored bytes to the same value.
 A settings change made by the context now being notified of it. Chrome echoes
 a write back to its own author, so `subscribe` flags it (`own: true`) and a
 caller that already applied the change locally can skip re-applying it.
+
+## Release
+
+**Public release**:
+The flavor of the extension distributed through the Chrome Web Store, in which
+every shipped element carries rights evidence. Contrast personal build.
+_Avoid_: Store version, free version
+
+**Personal build**:
+The load-unpacked flavor for the developer's own use, which may carry BYU- and
+Church-derived data that the public release may not ship.
+_Avoid_: dev build, private version
+
+**Rights evidence**:
+The license, public-domain finding, terms reading, or written permission that
+clears one shipped element (a data file, a fetched text, a link) for the
+public release. One element, one piece of evidence.
+_Avoid_: clearance, legal basis
+
+**Reading destination**:
+The external URL a citation row opens when the talk is not read inline — the
+Church page, BYU's viewer, or a scan.
+_Avoid_: link-out target, external link
+
+**References-only index**:
+A citation index holding only facts per cite — talk, verses, speaker, date,
+title, URL — with no snippets and no talk prose.
+_Avoid_: metadata index, stripped index
