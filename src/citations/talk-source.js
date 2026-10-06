@@ -16,16 +16,19 @@
  * no per-corpus table. A corpus the descriptor lacks has no plan, so load()
  * hands back no HTML, no URL and no target for it.
  *
- * Every corpus shares one last resort: when the plan's target is missing (most
- * General Conference cites from 2020 on carry no paragraph anchor, and live
- * HTML has no citation spans), the target is the first paragraph whose text
- * holds the cite's snippet (snippetKey / snippetMatches).
+ * Target order. A fetched modern talk (plan target 'anchor'): the cite's
+ * paragraph anchor (pN), else the footnote locator (locateParagraph: the
+ * paragraph the talk's own scripture links name, read from the fetched HTML
+ * because the sanitizer unwraps links), else the snippet's paragraph for
+ * corpora that still bundle a snippet. Every other plan, and a modern talk
+ * read from the bundle: the citation span (STPJS: its body passage), else the
+ * snippet's paragraph (snippetKey / snippetMatches).
  *
  * A live fetch gives up after LIVE_TIMEOUT_MS, so a hung request ends in the
  * reader's error state rather than an endless spinner.
  *
- * The DOM-free half (corpusPlan, the pre-2013 URL repair, snippetKey,
- * snippetMatches) is exported for Node: `node --test tools/test-talk-source.js`.
+ * The DOM-free half (corpusPlan, the pre-2013 URL repair, locateParagraph,
+ * snippetKey, snippetMatches) is exported for Node: `node --test tools/test-talk-source.js`.
  *
  * IIFE -> __BTX.talkSource (+ module.exports for the Node tests).
  */
@@ -166,6 +169,163 @@
     return { html, url: res2.url };
   }
 
+  /* --------------------------------------------------------- footnote locator */
+
+  // Where an unanchored modern cite sits, read from the talk's own scripture
+  // links (research: docs/research/issue-66-footnote-locator.md on
+  // research/footnote-locator, 90.8% / 100% / 97.3% hits by era).
+  //
+  //   locateParagraph(html, { book, chapter, verses, rank }) -> paragraph id | null
+  //
+  // `html` is the fetched talk page as a string; `book` is the URL slug
+  // ('alma', '1-ne', 'dc'), `verses` the cite's `v` ('1-3,14'), `rank` the
+  // cite's 1-based rank by cite id among the talk's cites of the same book,
+  // chapter and verses (citData.chapterData's refRank).
+  //
+  // Candidates are every a.scripture-ref in reading order: a link inside a
+  // footnote li[id^="note"] sits at the body paragraph holding that note's
+  // first a.note-ref marker, a link inside a body paragraph sits there. A
+  // candidate matches when it links the cite's book and chapter with a verse
+  // set equal to the cite's, or, for a whole-chapter cite (v '1-N'), when it
+  // links the chapter with no verses (its label may name a chapter span,
+  // "2 Nephi 31–32"). Joseph Smith Translation links never match. The rank-th
+  // match wins, or the last when there are fewer.
+  //
+  // It reads the HTML before sanitizing because talk-view unwraps every link;
+  // the paragraph ids it returns survive sanitizing. No DOM: a small tag
+  // scanner, so it runs in Node too.
+
+  const VOID_TAGS = new Set(['area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 'link',
+    'meta', 'source', 'track', 'wbr']);
+  // Content that is not markup the reader sees: the page's JSON state carries
+  // escaped copies of the talk.
+  const RAW_TEXT = /<(script|style|template|noscript|textarea|title)\b[^>]*>[\s\S]*?<\/\1\s*>|<!--[\s\S]*?-->/gi;
+  const TAG = /<(\/?)([a-zA-Z][\w:-]*)((?:[^>"']|"[^"]*"|'[^']*')*)>/g;
+  const ATTR = /([^\s"'>\/=]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'>]+)))?/g;
+  const BODY_PARAGRAPH = /^(?:p|h[1-6])$/;
+
+  const ENTITIES = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ', ndash: '–', mdash: '—' };
+  function decodeEntities(s) {
+    return String(s).replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (m, e) => {
+      if (e[0] === '#') {
+        const n = e[1] === 'x' || e[1] === 'X' ? parseInt(e.slice(2), 16) : parseInt(e.slice(1), 10);
+        return Number.isFinite(n) ? String.fromCodePoint(n) : m;
+      }
+      return ENTITIES[e.toLowerCase()] || m;
+    });
+  }
+
+  function attrsOf(s) {
+    const out = {};
+    ATTR.lastIndex = 0;
+    for (let m; (m = ATTR.exec(s));) {
+      out[m[1].toLowerCase()] = decodeEntities(m[2] != null ? m[2] : m[3] != null ? m[3] : m[4] || '');
+    }
+    return out;
+  }
+  const hasClass = (attrs, name) => String(attrs.class || '').split(/\s+/).includes(name);
+
+  // '1-3,14' or 'p1-p3,p14' -> sorted verse numbers; [] when nothing parses.
+  function verseList(s) {
+    const out = new Set();
+    for (const part of String(s == null ? '' : s).split(',')) {
+      const m = /^\s*p?(\d+)(?:\s*[-–]\s*p?(\d+))?\s*$/.exec(part);
+      if (!m) continue;
+      const from = Number(m[1]);
+      const to = m[2] ? Number(m[2]) : from;
+      for (let n = from; n <= to && n - from < 500; n++) out.add(n);
+    }
+    return [...out].sort((a, b) => a - b);
+  }
+
+  // Every scripture link with the paragraph it sits at, in reading order.
+  function scriptureLinks(html) {
+    const text = String(html || '').replace(RAW_TEXT, '');
+    const stack = [];           // open elements: { tag, para?, note? }
+    const markerAt = {};        // note id -> { para, pos } of its first body marker
+    const links = [];           // { pos, href, label, para?, note? }
+    let link = null;            // the scripture link being read
+    let last = 0;
+    const innermost = (key) => {
+      for (let i = stack.length - 1; i >= 0; i--) if (stack[i][key]) return stack[i][key];
+      return null;
+    };
+    TAG.lastIndex = 0;
+    for (let m; (m = TAG.exec(text));) {
+      if (link) link.label += text.slice(last, m.index);
+      last = TAG.lastIndex;
+      const tag = m[2].toLowerCase();
+      if (m[1]) { // closing tag: pop to the matching element, if it is open
+        if (tag === 'a' && link) { links.push(link); link = null; }
+        for (let i = stack.length - 1; i >= 0; i--) {
+          if (stack[i].tag === tag) { stack.length = i; break; }
+        }
+        continue;
+      }
+      const attrs = attrsOf(m[3]);
+      const id = attrs.id || '';
+      const frame = { tag };
+      if (BODY_PARAGRAPH.test(tag) && 'data-aid' in attrs && id && !id.startsWith('note')) frame.para = id;
+      if (tag === 'li' && id.startsWith('note')) frame.note = id;
+      if (tag === 'a' && hasClass(attrs, 'note-ref')) {
+        const noteId = attrs['data-scroll-id'] || (/#(note[^#]*)$/.exec(attrs.href || '') || [])[1];
+        const para = innermost('para');
+        if (noteId && para && !innermost('note') && !markerAt[noteId]) markerAt[noteId] = { para, pos: m.index };
+      }
+      if (tag === 'a' && hasClass(attrs, 'scripture-ref')) {
+        if (link) links.push(link);
+        link = { pos: m.index, href: attrs.href || '', label: '', note: innermost('note'), para: innermost('para') };
+      }
+      if (!VOID_TAGS.has(tag) && !/\/\s*$/.test(m[3])) stack.push(frame);
+    }
+    if (link) links.push(link);
+
+    const placed = [];
+    for (const l of links) {
+      const at = l.note ? markerAt[l.note] : l.para ? { para: l.para, pos: l.pos } : null;
+      if (at) placed.push({ para: at.para, key: at.pos, pos: l.pos, href: l.href, label: decodeEntities(l.label) });
+    }
+    return placed.sort((a, b) => a.key - b.key || a.pos - b.pos);
+  }
+
+  // A scripture link's target: { book, chapter, verses:[...] | null (whole
+  // chapter), chapters:[from, to] } or null (not a chapter link, or the JST).
+  function parseScriptureLink(href, label) {
+    let u;
+    try { u = new URL(href, 'https://www.churchofjesuschrist.org'); } catch (e) { return null; }
+    const m = /^\/study\/scriptures\/([^/]+)\/([^/]+)\/(\d+)\/?$/.exec(u.pathname);
+    if (!m || m[1] === 'jst' || /^jst-/.test(m[2])) return null;
+    const chapter = Number(m[3]);
+    const id = u.searchParams.get('id');
+    if (id) return { book: m[2], chapter, verses: verseList(id), chapters: [chapter, chapter] };
+    // A chapter link whose label ends in a chapter span ("2 Nephi 31–32",
+    // a bare "6–9") covers every chapter of the span.
+    const span = /(?:^|[^:\d])(\d+)\s*[–—-]\s*(\d+)\s*$/.exec(String(label || '').trim());
+    const chapters = span && Number(span[1]) <= chapter && chapter <= Number(span[2])
+      ? [Number(span[1]), Number(span[2])] : [chapter, chapter];
+    return { book: m[2], chapter, verses: null, chapters };
+  }
+
+  function locateParagraph(html, cite) {
+    const c = cite || {};
+    const want = verseList(c.verses);
+    if (!c.book || !c.chapter || !want.length) return null;
+    const chapter = Number(c.chapter);
+    const wholeChapter = /^\s*1\s*[-–]\s*\d+\s*$/.test(String(c.verses));
+    const wanted = want.join(',');
+    const matches = [];
+    for (const l of scriptureLinks(html)) {
+      const t = parseScriptureLink(l.href, l.label);
+      if (!t || t.book !== c.book) continue;
+      const exact = t.verses && t.chapter === chapter && t.verses.join(',') === wanted;
+      const whole = wholeChapter && !t.verses && t.chapters[0] <= chapter && chapter <= t.chapters[1];
+      if (exact || whole) matches.push(l.para);
+    }
+    if (!matches.length) return null;
+    const k = Math.max(1, Number(c.rank) || 1);
+    return matches[Math.min(k, matches.length) - 1];
+  }
+
   /* ------------------------------------------------------------ scroll target */
 
   function cssId(s) { return String(s).replace(/["\\]/g, '\\$&'); }
@@ -227,10 +387,15 @@
   // Render contract with talk-view: source ids survive, source classes come back
   // namespaced (`footnote` -> `btxk-footnote`), and each footnote carries its
   // number on `data-btx-footnum`. Change one side, change this.
-  // Falls back to the snippet's paragraph when the plan's target is missing.
-  function findTarget(container, { plan, entry, live }) {
-    if (plan.target === 'anchor' && live && entry.anchor) {
-      const hit = byId(container, entry.anchor);
+  // Target order: the header's.
+  function findTarget(container, { plan, entry, live, html }) {
+    if (plan.target === 'anchor' && live) {
+      const anchored = entry.anchor && byId(container, entry.anchor);
+      if (anchored) return anchored;
+      const located = locateParagraph(html, {
+        book: entry.book, chapter: entry.chapter, verses: entry.verses, rank: entry.refRank,
+      });
+      const hit = located && byId(container, located);
       if (hit) return hit;
     }
     // <span class="citation" id="{citId}">
@@ -269,13 +434,13 @@
     return {
       html,
       url,
-      findTarget: (container) => findTarget(container, { plan, entry, live }),
+      findTarget: (container) => findTarget(container, { plan, entry, live, html }),
     };
   }
 
   const API = {
     load, corpusPlan, fullTalkUrl, pickSessionUrl, bouncedToConference, lastSlug,
-    snippetKey, snippetMatches,
+    snippetKey, snippetMatches, locateParagraph,
   };
 
   if (typeof module !== 'undefined' && module.exports) module.exports = API;

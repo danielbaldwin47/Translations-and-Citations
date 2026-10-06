@@ -92,11 +92,11 @@ src/
     panel.css
     content.js             orchestrator: detect → worker/citations → panel content only (no panel state, no theme policy)
   citations/
-    cit-data.js            __BTX.citData   probes the pack once per session (personal dir, then public; pure pickPack) → loadPack() {dir,descriptor}; shards/sources/gunzip talks; chapterData(slug,chap) carries the descriptor as `pack` and clips each cite's verses to its own `v` (pure citedVerses/chapterIndex)
+    cit-data.js            __BTX.citData   probes the pack once per session (personal dir, then public; pure pickPack) → loadPack() {dir,descriptor}; shards/sources/gunzip talks; chapterData(slug,chap) carries the descriptor as `pack`, clips each cite's verses to its own `v` and ranks same-reference cites for the locator (pure citedVerses/chapterIndex/refRanks)
     cit-view-model.js      __BTX.citVM     PURE: chapter cites → descriptor tree; source types from the pack descriptor; every ordering/grouping/counting/label rule; vintage footer; toolbar state machine
     cit-panel.js           __BTX.citPanel  DOM adapter over citVM: render(host, opts) / refocus() / markVerse(v) / revealVerse(v); reads verse excerpts from the page (read-only)
     highlights.js          __BTX.highlights local select-to-highlight in the reader
-    talk-source.js         __BTX.talkSource load({entry,source}) → {html,url,findTarget}; pure corpusPlan(descriptor, corpus, {hasUrl}) + snippet fallback (snippetKey); pre-2013 GC URL repair; 15s live timeout
+    talk-source.js         __BTX.talkSource load({entry,source}) → {html,url,findTarget}; pure corpusPlan(descriptor, corpus, {hasUrl}); footnote locator (locateParagraph, pure on fetched HTML) + snippet fallback (snippetKey); pre-2013 GC URL repair; 15s live timeout
     talk-view.js           __BTX.talkView  inline reader: sanitizer, render, highlights, sticky header; one Esc listener on #btx-root (highlight menu first, then Back)
     citations.css
     data/                  GENERATED, committed, shipped: the public pack (~62 MB, ADR-0008): index.json (its `pack` is the pack descriptor), sources.json, citations/{slug}.json, talks/{talkId}.html.gz
@@ -292,9 +292,13 @@ validators — go there before changing behaviour.
   `btxk-`-prefixed, footnotes carry `data-btx-footnum`, and the article's
   `textContent` stays exactly the source text (display additions are CSS
   generated content or wrapper spans; the byline and highlight hint sit
-  outside the article). Every corpus falls back to the paragraph holding the
-  cite's snippet when its plan's target is missing. The STPJS body-passage
-  rule is stated twice (build vs reader) on purpose — ADR-0006.
+  outside the article). A live GC cite with no paragraph anchor goes to the
+  paragraph `locateParagraph` names: it reads the fetched HTML string, since
+  the sanitizer unwraps the links it needs, and returns an id. Every corpus
+  then falls back to the paragraph holding the cite's snippet, if it bundles
+  one. The target order is stated once, in `talk-source.js`'s header. The
+  STPJS body-passage rule is stated twice (build vs reader) on purpose —
+  ADR-0006.
 
 ## Gotchas
 

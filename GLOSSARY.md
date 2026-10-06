@@ -85,15 +85,24 @@ way to locate that cite's **scroll target** in the rendered result. It owns the
 **corpus plan** — for one corpus, where the HTML comes from (live vs bundled)
 and what the scroll target is (paragraph anchor / citation span / body
 passage), read from the pack descriptor by the pure `corpusPlan`, with the
-paragraph holding the cite's snippet as every corpus's fallback. A corpus the
-descriptor lacks has no plan.
+footnote locator and then the paragraph holding the cite's snippet as
+fallbacks. A corpus the descriptor lacks has no plan.
 _Avoid_: source (bare — that still means a source type or the BYU DBs); always say talk source
 
 **Scroll target**:
 The element in a rendered talk the reader scrolls to and marks for a cite:
 the paragraph anchor (live GC), the citation span (bundled E/J), or the body
-passage (STPJS) — else the paragraph that contains the cite's snippet (most
-2020s GC cites carry no paragraph anchor).
+passage (STPJS). A live GC cite with no anchor (most from 2020 on) goes to the
+paragraph the **footnote locator** names; else, for a corpus that still
+bundles a snippet, the paragraph that contains it.
+
+**Footnote locator**:
+The rule (`talkSource.locateParagraph`) that places an unanchored modern cite
+from the talk's own scripture links, read in the fetched HTML: a footnote's
+link sits at the paragraph holding that note's first marker, a body link at
+its own paragraph; the cite takes the k-th link with its exact book, chapter
+and verses (k = its **refRank**, by cite id among the talk's cites of that
+reference). Joseph Smith Translation links never match.
 
 **Snippet**:
 The excerpt a bundled corpus cuts at build time, shown under a citation row.
