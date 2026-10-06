@@ -48,14 +48,19 @@ one talk.
 _Avoid_: source, sermon
 
 **Corpus**:
-Single-letter provenance tag on a talk: `G` modern General Conference
-(1971–present, fetched live), `E` early GC (1942–70), `J` Journal of
-Discourses, `T` Teachings of the Prophet Joseph Smith (E/J/T are bundled).
+Single-letter provenance tag on a talk (`sources.json` `c`): `G` modern
+General Conference (1971–present), `E` early GC (1942–70), `J` Journal of
+Discourses, `T` Teachings of the Prophet Joseph Smith. The pack descriptor
+lists the corpora a pack holds and states each one's source type, text
+source, scroll-target rule, excerpt kind and inclusion rule; a corpus it does
+not list does not exist in the panel (the public pack lists no `T`).
 
 **Source type**:
-The panel's grouping of corpora: "General Conference" (G+E), "Journal of
-Discourses" (J), "Teachings of the Prophet Joseph Smith" (T). A
-**source-type group** is the collapsible panel section for one of these.
+The panel's grouping of corpora, named by each corpus's `sourceType` in the
+pack descriptor and ordered as the descriptor first names them: "General
+Conference" (G+E), "Journal of Discourses" (J), "Teachings of the Prophet
+Joseph Smith" (T, personal pack only). A **source-type group** is the
+collapsible panel section for one of these.
 _Avoid_: source (bare — say source type, talk, or BYU DBs depending on which you mean)
 
 **BYU DBs**:
@@ -68,17 +73,20 @@ One generated per-book JSON file, `src/citations/data/citations/{slug}.json`,
 holding that book's cites and a chapter→verse→citId index.
 
 **Bundled talk / live talk**:
-A bundled talk ships offline as `talks/{talkId}.html.gz` (corpora E/J/T); a
-live talk (corpus G) is fetched from the Church site when opened.
+Which one a talk is follows its corpus's `text` in the pack descriptor. A
+bundled talk (`text: 'bundled'`) ships offline in the pack as
+`talks/{talkId}.html.gz`; a live talk is fetched when the reader acts, from
+the Church site (`live-church`) or from BYU (`live-byu`).
 
 **Talk source**:
 The seam (`__BTX.talkSource`, `src/citations/talk-source.js`) that answers one
 question for the reader: given a cite, hand back displayable talk HTML plus a
 way to locate that cite's **scroll target** in the rendered result. It owns the
-**corpus plan** — the per-corpus table of where the HTML comes from (live vs
-bundled) and what the scroll target is (paragraph anchor / citation span / body
-passage), with the paragraph holding the cite's snippet as every corpus's
-fallback.
+**corpus plan** — for one corpus, where the HTML comes from (live vs bundled)
+and what the scroll target is (paragraph anchor / citation span / body
+passage), read from the pack descriptor by the pure `corpusPlan`, with the
+paragraph holding the cite's snippet as every corpus's fallback. A corpus the
+descriptor lacks has no plan.
 _Avoid_: source (bare — that still means a source type or the BYU DBs); always say talk source
 
 **Scroll target**:
@@ -352,7 +360,10 @@ _Avoid_: personal-only feature, restricted content
 
 **Pack descriptor**:
 A data pack's statement of what it holds — which corpora it indexes, which it
-bundles, which carry snippets — that the reader's corpus plan follows.
+bundles, which carry snippets — that the reader's corpus plan follows. The
+`pack` field of the pack's `index.json`, written by the build per pack mode:
+flavor, pack vintage, base stamp, derived conferences, and per corpus its
+`sourceType`, `text`, `target`, `excerpt` and `inclusion`.
 _Avoid_: pack manifest (manifest means the extension's), flavor flag
 
 **Rights evidence**:

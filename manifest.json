@@ -39,7 +39,7 @@
   ],
   "web_accessible_resources": [
     {
-      "resources": ["src/citations/data/*", "src/content/page-hook.js"],
+      "resources": ["src/citations/data/*", "src/citations/data-personal/*", "src/content/page-hook.js"],
       "matches": ["https://www.churchofjesuschrist.org/*"]
     }
   ],

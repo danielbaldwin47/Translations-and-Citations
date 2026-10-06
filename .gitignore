@@ -8,6 +8,11 @@
 /core.53.db
 /content.53.db
 
+# The personal pack (ADR-0008): the personal build's data pack, holding the
+# gated element. Never committed; build it with
+#   node --experimental-sqlite tools/build-citation-data.js --pack personal
+/src/citations/data-personal/
+
 # macOS Finder droppings, and the scratch worktrees agents work in.
 .DS_Store
 /.claude/worktrees/

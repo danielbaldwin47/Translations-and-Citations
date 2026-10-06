@@ -1,6 +1,7 @@
 /*
  * Unit tests for the pure (DOM-free) halves of the talk reader:
- *   src/citations/talk-source.js — the corpus plan table, the pre-2013 General
+ *   src/citations/talk-source.js — the corpus plan over a pack descriptor (both
+ *     flavors, and a corpus the descriptor lacks), the pre-2013 General
  *     Conference URL repair, and the snippet fallback for finding a cite;
  *   src/citations/talk-view.js   — the punctuation of BYU's inserted references.
  *
@@ -17,31 +18,61 @@ const talkView = require('../src/citations/talk-view.js');
 
 const ORIGIN = 'https://www.churchofjesuschrist.org';
 
-test('corpusPlan: modern General Conference is fetched live', () => {
-  const plan = talkSource.corpusPlan('G');
-  assert.strictEqual(plan.fetch, 'live');
-  assert.strictEqual(plan.target, 'anchor');
-});
+// Pack descriptors as each pack mode writes them (spec #69, "Flavors and the
+// pack descriptor"). The public pack lists no T corpus; the personal pack does.
+const CORPORA = {
+  G: { sourceType: 'General Conference', text: 'live-church', target: 'anchor', excerpt: 'bundled', inclusion: 'all' },
+  E: { sourceType: 'General Conference', text: 'bundled', target: 'citationSpan', excerpt: 'bundled', inclusion: 'all' },
+  J: { sourceType: 'Journal of Discourses', text: 'bundled', target: 'citationSpan', excerpt: 'bundled', inclusion: 'all' },
+};
+const PACK_BASE = { vintage: '2026-04', base: { db: 'core.53.db', updated: '2026-05-18' }, derived: [] };
+const PUBLIC = { ...PACK_BASE, flavor: 'public', corpora: CORPORA };
+const PERSONAL = {
+  ...PACK_BASE,
+  flavor: 'personal',
+  corpora: {
+    ...CORPORA,
+    T: { sourceType: 'Teachings of the Prophet Joseph Smith', text: 'bundled', target: 'bodyPassage', excerpt: 'bundled', inclusion: 'all' },
+  },
+};
 
-test('corpusPlan: early GC and Journal of Discourses read the bundled talk', () => {
-  for (const corpus of ['E', 'J']) {
-    const plan = talkSource.corpusPlan(corpus);
-    assert.strictEqual(plan.fetch, 'bundled', corpus);
-    assert.strictEqual(plan.target, 'citationSpan', corpus);
+test('corpusPlan: modern General Conference is fetched from the Church site', () => {
+  for (const pack of [PUBLIC, PERSONAL]) {
+    assert.deepStrictEqual(talkSource.corpusPlan(pack, 'G'), { text: 'live-church', target: 'anchor' }, pack.flavor);
   }
 });
 
-test('corpusPlan: STPJS scrolls to the body passage, not the footnote list', () => {
-  const plan = talkSource.corpusPlan('T');
-  assert.strictEqual(plan.fetch, 'bundled');
-  assert.strictEqual(plan.target, 'bodyPassage');
+test('corpusPlan: early GC and Journal of Discourses follow the descriptor', () => {
+  for (const pack of [PUBLIC, PERSONAL]) {
+    for (const corpus of ['E', 'J']) {
+      assert.deepStrictEqual(talkSource.corpusPlan(pack, corpus), { text: 'bundled', target: 'citationSpan' },
+        `${pack.flavor} ${corpus}`);
+    }
+  }
 });
 
-test('corpusPlan: an unknown corpus falls back on whether a live URL exists', () => {
-  assert.strictEqual(talkSource.corpusPlan('', { hasUrl: true }).fetch, 'live');
-  assert.strictEqual(talkSource.corpusPlan(undefined, { hasUrl: false }).fetch, 'bundled');
-  // A corpus that claims "live" but ships no URL still has to read the bundle.
-  assert.strictEqual(talkSource.corpusPlan('G', { hasUrl: false }).fetch, 'bundled');
+test('corpusPlan: a corpus fetched from BYU keeps its text source', () => {
+  const pack = { ...PUBLIC, corpora: { ...CORPORA, E: { ...CORPORA.E, text: 'live-byu' } } };
+  assert.deepStrictEqual(talkSource.corpusPlan(pack, 'E'), { text: 'live-byu', target: 'citationSpan' });
+});
+
+test('corpusPlan: the personal pack plans STPJS to the body passage', () => {
+  assert.deepStrictEqual(talkSource.corpusPlan(PERSONAL, 'T'), { text: 'bundled', target: 'bodyPassage' });
+});
+
+test('corpusPlan: a corpus the descriptor lacks has no plan', () => {
+  assert.strictEqual(talkSource.corpusPlan(PUBLIC, 'T'), null, 'the public pack has no STPJS');
+  assert.strictEqual(talkSource.corpusPlan(PUBLIC, 'T', { hasUrl: true }), null, 'not even with a URL');
+  assert.strictEqual(talkSource.corpusPlan(PERSONAL, 'X'), null, 'an unknown corpus');
+  assert.strictEqual(talkSource.corpusPlan(PERSONAL, undefined), null, 'no corpus at all');
+  assert.strictEqual(talkSource.corpusPlan(null, 'G'), null, 'no descriptor at all');
+});
+
+test('corpusPlan: a live talk that ships no URL reads the bundle', () => {
+  assert.deepStrictEqual(talkSource.corpusPlan(PUBLIC, 'G', { hasUrl: false }), { text: 'bundled', target: 'anchor' });
+  assert.deepStrictEqual(talkSource.corpusPlan(PUBLIC, 'G', { hasUrl: true }), { text: 'live-church', target: 'anchor' });
+  // A bundled corpus is bundled with or without a URL.
+  assert.deepStrictEqual(talkSource.corpusPlan(PUBLIC, 'J', { hasUrl: true }), { text: 'bundled', target: 'citationSpan' });
 });
 
 test('lastSlug: trailing slashes do not shift the slug', () => {

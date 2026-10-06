@@ -11,15 +11,23 @@
  * commit that added them.
  *
  * Run (Node 22+, built-in SQLite + zlib — no npm install):
- *   node --experimental-sqlite tools/build-citation-data.js
- *   (defaults: --core ./source-data/core.53.db --content ./source-data/content.53.db --out ./src/citations/data)
+ *   node --experimental-sqlite tools/build-citation-data.js [--pack public|personal]
+ *   (defaults: --pack public --core ./source-data/core.53.db --content ./source-data/content.53.db
+ *    --out ./src/citations/data for public, ./src/citations/data-personal for personal)
+ *
+ * Pack mode (ADR-0008): `public` builds the committed public pack, `personal`
+ * the personal pack in its own directory (never committed). The mode decides
+ * the pack descriptor written into index.json (packDescriptor below): the
+ * public descriptor lists no T corpus, the personal one does. The pack's other
+ * contents do not differ by mode yet.
  *
  * Inspect the raw DBs first (recommended before a full build) to confirm the
  * real talk.URL formats and talk HTML markup:
  *   node --experimental-sqlite tools/build-citation-data.js --inspect
  *
  * Output layout:
- *   data/index.json            { builtAt, dbUpdated, books:[{slug,fullName,bookId,citations}], counts }
+ *   data/index.json            { builtAt, dbUpdated, pack, books:[{slug,fullName,bookId,citations}], counts }
+ *                              pack = the pack descriptor (packDescriptor)
  *   data/sources.json          { [talkId]: { c, sp, ti, d, lbl, url? } }   // one entry per cited talk
  *   data/citations/{slug}.json { cites:{ [citId]:{t,v,sn} }, index:{ [chap]:{ [verse]:[citId,...] } } }
  *   data/talks/{talkId}.html.gz  gzipped cleaned HTML for corpus E/J/T only (G is fetched live)
@@ -29,7 +37,6 @@
 const fs = require('fs');
 const path = require('path');
 const zlib = require('node:zlib');
-const { DatabaseSync } = require('node:sqlite');
 const BOOKS = require('../src/shared/books.js'); // { LDS_TO_USFM, LDS_TO_BIBLEAPI, ... }
 
 // ---- args ----
@@ -37,10 +44,53 @@ function arg(name, def) {
   const i = process.argv.indexOf(name);
   return i >= 0 && process.argv[i + 1] ? process.argv[i + 1] : def;
 }
+const PACK_OUT = {
+  public: path.resolve(__dirname, '..', 'src', 'citations', 'data'),
+  personal: path.resolve(__dirname, '..', 'src', 'citations', 'data-personal'),
+};
+const PACK = arg('--pack', 'public');
 const CORE = arg('--core', path.resolve(__dirname, '..', 'source-data', 'core.53.db'));
 const CONTENT = arg('--content', path.resolve(__dirname, '..', 'source-data', 'content.53.db'));
-const OUT = arg('--out', path.resolve(__dirname, '..', 'src', 'citations', 'data'));
+const OUT = arg('--out', PACK_OUT[PACK]);
 const INSPECT = process.argv.includes('--inspect');
+
+// ---- pack descriptor ----
+// What each corpus is to the reader (GLOSSARY.md "Pack descriptor"); the
+// reader learns every per-corpus fact from here and nowhere else:
+//   sourceType  the panel's source-type group the corpus files under
+//   text        where talk HTML comes from: 'bundled' (talks/{id}.html.gz),
+//               'live-church' (the Church site), 'live-byu' (scriptures.byu.edu)
+//   target      the corpus plan's scroll-target rule: 'anchor' | 'citationSpan' | 'bodyPassage'
+//   excerpt     'bundled' (a snippet cut at build time) | 'fetched' (on visibility)
+//   inclusion   the build's inclusion rule: 'all' | 'verbatim'
+// Key order is display order of source types (the reader groups in first-seen order).
+const CORPORA = {
+  G: { sourceType: 'General Conference', text: 'live-church', target: 'anchor', excerpt: 'bundled', inclusion: 'all' },
+  E: { sourceType: 'General Conference', text: 'bundled', target: 'citationSpan', excerpt: 'bundled', inclusion: 'all' },
+  J: { sourceType: 'Journal of Discourses', text: 'bundled', target: 'citationSpan', excerpt: 'bundled', inclusion: 'all' },
+  // The gated element (ADR-0008): personal pack only.
+  T: { sourceType: 'Teachings of the Prophet Joseph Smith', text: 'bundled', target: 'bodyPassage', excerpt: 'bundled', inclusion: 'all' },
+};
+const PACK_CORPORA = { public: ['G', 'E', 'J'], personal: ['G', 'E', 'J', 'T'] };
+
+// The descriptor a pack mode writes, or null for an unknown mode.
+//   facts: { vintage:'YYYY-MM', base:{ db, updated:'YYYY-MM-DD' }, derived:['YYYY-MM', …] }
+function packDescriptor(mode, facts) {
+  const list = PACK_CORPORA[mode];
+  if (!list) return null;
+  const corpora = {};
+  for (const c of list) corpora[c] = Object.assign({}, CORPORA[c]);
+  return { flavor: mode, vintage: facts.vintage, base: facts.base, derived: facts.derived, corpora };
+}
+
+// The conference a session dated 'YYYY-MM' belongs to: months 1–6 are the
+// April conference, 7–12 the October one (a session opening on 30 September,
+// the women's session the week before). 'YYYY-04' | 'YYYY-10'.
+function conferenceOf(d) {
+  const m = /^(\d{4})-(\d{2})/.exec(String(d || ''));
+  if (!m) return '';
+  return `${m[1]}-${Number(m[2]) <= 6 ? '04' : '10'}`;
+}
 
 // Volumes: 1=OT, 2=NT, 3=Book of Mormon, 4=D&C, 5=Pearl of Great Price.
 const ALL_VOLUMES = new Set([1, 2, 3, 4, 5]);
@@ -75,6 +125,7 @@ function openDb(file) {
     console.error('Deliver core_53.db / content_53.db to this session, then pass --core/--content.');
     process.exit(2);
   }
+  const { DatabaseSync } = require('node:sqlite'); // here, so validators can require this file without the flag
   return new DatabaseSync(file, { readOnly: true });
 }
 
@@ -340,22 +391,41 @@ function build(core, content) {
   writeJSON(path.join(OUT, 'sources.json'), sources);
   let dbUpdated = '';
   try { dbUpdated = String(core.prepare('SELECT * FROM updated LIMIT 1').get() && Object.values(core.prepare('SELECT * FROM updated LIMIT 1').get())[0] || ''); } catch (e) {}
+  let vintage = '';
+  for (const s of Object.values(sources)) {
+    if (CORPORA[s.c] && CORPORA[s.c].sourceType === 'General Conference') {
+      const conf = conferenceOf(s.d);
+      if (conf > vintage) vintage = conf;
+    }
+  }
+  const pack = packDescriptor(PACK, {
+    vintage,
+    base: { db: path.basename(CORE), updated: dbUpdated.slice(0, 10) },
+    derived: [],
+  });
   writeJSON(path.join(OUT, 'index.json'), {
     builtAt: new Date().toISOString(),
     dbUpdated,
+    pack,
     books: bookCounts,
     counts: { books: slugs.length, citations: totalCitations, sources: Object.keys(sources).length, bundledTalks: bundledTalks.size },
   });
 
   console.log(`\nDone. ${totalCitations} citations across ${slugs.length} books; ${Object.keys(sources).length} sources; ${bundledTalks.size} bundled talks.`);
+  console.log(`Pack: ${PACK} (vintage ${pack.vintage}; corpora ${Object.keys(pack.corpora).join(', ')})`);
   console.log(`Output: ${OUT}`);
 }
 
-// Reused by tools/rederive-js-snippets.js (which has no DBs but the shipped talk HTML).
-module.exports = { extractCitation, stpjsBodyPassage, decompressTalk, stripTags, toChurchUrl };
+// Reused by tools/rederive-js-snippets.js (which has no DBs but the shipped talk
+// HTML); packDescriptor and conferenceOf by tools/validate-citations.js.
+module.exports = { extractCitation, stpjsBodyPassage, decompressTalk, stripTags, toChurchUrl, packDescriptor, conferenceOf };
 
 // ---- main ----
 if (require.main === module) {
+  if (!PACK_OUT[PACK]) {
+    console.error(`ERROR: --pack must be one of ${Object.keys(PACK_OUT).join(', ')} (got ${PACK})`);
+    process.exit(2);
+  }
   const core = openDb(CORE);
   const content = openDb(CONTENT);
   if (INSPECT) inspect(core, content);

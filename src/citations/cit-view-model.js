@@ -4,7 +4,10 @@
  *   citData.chapterData(slug, chapter)  ->  buildView(data, opts)  ->  cit-panel
  *
  * Owns every rule about what the list says and how it is arranged: which cites
- * anchor at which verse, one row per talk, the corpus -> source-type bucketing,
+ * anchor at which verse, one row per talk, the corpus -> source-type bucketing
+ * (read from the pack descriptor in data.pack: its corpora's `sourceType`
+ * values, in its order; a corpus it lacks has no group, row or count), the
+ * footer line from the pack vintage,
  * both citation-layout orderings, which groups start open, snippet cleaning and
  * quoting, every label (summary, counts, verse, range, screen-reader), and the
  * filter / collapse-all state transitions. It also owns the talk reader's
@@ -23,7 +26,7 @@
  * can map element <-> descriptor and the toolbar can key its state off them):
  *
  *   viewModel { layout, empty, emptyText, summary, talks, showTools, groups,
- *               focusUid }
+ *               focusUid, footer }   footer: "Citations through April 2026", or null
  *   group { uid, kind:'verse'|'sourceType', key, verse, label, a11yLabel,
  *           count, countClass, open, focus, children:[group], rows:[row] }
  *   row   { uid, citId, talkId, speaker, rangeLabel, sub, snippet, a11yLabel,
@@ -39,13 +42,41 @@
 (function (root) {
   'use strict';
 
-  // Source-type buckets, in display order. E and G both count as General
-  // Conference.
-  const SOURCE_TYPES = [
-    { key: 'gc', label: 'General Conference', corpora: ['G', 'E'] },
-    { key: 'jod', label: 'Journal of Discourses', corpora: ['J'] },
-    { key: 'tpjs', label: 'Teachings of the Prophet Joseph Smith', corpora: ['T'] },
-  ];
+  // Source-type buckets come from the pack descriptor (data.pack): one per
+  // distinct `sourceType` among its corpora, in the order the descriptor first
+  // names each (E and G both say "General Conference"). A corpus the
+  // descriptor lacks is in no bucket, so its cites never reach the list.
+  // `key` names the bucket's chip hue (btx-grp-{key} in citations.css): the
+  // hues already designed keep their short keys, any other source type gets
+  // its label as a slug.
+  const HUE_KEYS = {
+    'General Conference': 'gc',
+    'Journal of Discourses': 'jod',
+    'Teachings of the Prophet Joseph Smith': 'tpjs',
+  };
+  const slugOf = (s) => String(s).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+
+  function sourceTypesOf(pack) {
+    const types = [];
+    const corpora = (pack && pack.corpora) || {};
+    for (const [corpus, entry] of Object.entries(corpora)) {
+      const label = entry && entry.sourceType;
+      if (!label) continue;
+      let t = types.find((x) => x.label === label);
+      if (!t) types.push(t = { key: HUE_KEYS[label] || slugOf(label), label, corpora: [] });
+      t.corpora.push(corpus);
+    }
+    return types;
+  }
+
+  // The vintage as the reader reads it: '2026-04' -> "Citations through April 2026".
+  const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July',
+    'August', 'September', 'October', 'November', 'December'];
+  function vintageLine(pack) {
+    const m = /^(\d{4})-(\d{2})$/.exec(String((pack && pack.vintage) || ''));
+    const month = m && MONTHS[Number(m[2]) - 1];
+    return month ? `Citations through ${month} ${m[1]}` : null;
+  }
 
   // Up to this many talks on a chapter, every group starts open: the whole
   // list fits on a screen or two, so making the reader click is pure cost.
@@ -294,8 +325,25 @@
     return byDateDesc(a, b);
   }
 
-  const sourceTypeOf = (entry) =>
-    SOURCE_TYPES.find((g) => g.corpora.includes((entry.source || {}).c));
+  const corpusOf = (entry) => (entry.source || {}).c;
+
+  // The chapter data with every cite of a corpus outside `types` removed, and
+  // any verse left with no cite gone.
+  function restrictTo(data, types) {
+    const known = new Set(types.flatMap((t) => t.corpora));
+    const entries = {};
+    for (const [id, e] of Object.entries(data.entries)) if (known.has(corpusOf(e))) entries[id] = e;
+    const byVerse = {};
+    for (const v of data.verseOrder) {
+      const ids = (data.byVerse[v] || []).filter((id) => id in entries);
+      if (ids.length) byVerse[v] = ids;
+    }
+    return Object.assign({}, data, {
+      entries, byVerse,
+      verseOrder: data.verseOrder.filter((v) => byVerse[v]),
+      uniqueTotal: Object.keys(entries).length,
+    });
+  }
 
   const talkIdOf = (entry) => entry.talkId || entry.citId;
 
@@ -364,7 +412,7 @@
   // cite is listed at each of its anchor verses, badged with its full coverage
   // (e.g. "vv. 3–6, 10–11"). Source-type groups start open, so one click on a
   // verse shows its talks; they stay collapsible for skipping past a long one.
-  function verseGroups(data, focusVerse) {
+  function verseGroups(data, types, focusVerse) {
     const groups = [];
     for (const v of data.verseOrder) {
       const entries = (data.byVerse[v] || [])
@@ -376,8 +424,8 @@
       const focus = focusVerse != null && String(v) === String(focusVerse);
       const children = [];
       let count = 0;
-      for (const t of SOURCE_TYPES) {
-        const talks = newestFirst(byTalk(entries.filter((e) => sourceTypeOf(e) === t)));
+      for (const t of types) {
+        const talks = newestFirst(byTalk(entries.filter((e) => t.corpora.includes(corpusOf(e)))));
         if (!talks.length) continue;
         count += talks.length;
         const childUid = `${uid}/${t.key}`;
@@ -403,11 +451,11 @@
 
   // Layout 'source': one row per talk, grouped by source type, newest first,
   // each badged with every verse of the chapter it cites.
-  function sourceGroups(data) {
+  function sourceGroups(data, types) {
     const all = Object.values(data.entries);
     const groups = [];
-    for (const t of SOURCE_TYPES) {
-      const talks = newestFirst(byTalk(all.filter((e) => sourceTypeOf(e) === t)));
+    for (const t of types) {
+      const talks = newestFirst(byTalk(all.filter((e) => t.corpora.includes(corpusOf(e)))));
       if (!talks.length) continue;
       const uid = `s:${t.key}`;
       groups.push(groupDesc({
@@ -439,23 +487,29 @@
   }
 
   // opts: { view: 'verse'|'source', fullName, chapter, focusVerse }
-  // data: citData.chapterData(...) — null when the book has no shard.
+  // data: citData.chapterData(...) — null when the book has no shard; its
+  //   `pack` (the pack descriptor) decides which source types exist and the
+  //   footer line. Cites of a corpus the descriptor lacks are dropped first,
+  //   so they count nowhere and no group, row or verse exists for them.
   function buildView(data, opts) {
     opts = opts || {};
     // Callers pass the layout through from the settings; the fallback matches
     // that schema's default ('source') rather than inventing a second one.
     const layout = opts.view === 'verse' ? 'verse' : 'source';
+    const footer = data ? vintageLine(data.pack) : null;
+    const types = sourceTypesOf(data && data.pack);
+    if (data) data = restrictTo(data, types);
 
     if (!data || !data.verseOrder.length || data.uniqueTotal === 0) {
       return {
         layout, empty: true,
         emptyText: emptyText(data, opts),
-        summary: null, talks: 0, showTools: false, groups: [], focusUid: null,
+        summary: null, talks: 0, showTools: false, groups: [], focusUid: null, footer,
       };
     }
 
     const talks = new Set(Object.values(data.entries).map(talkIdOf)).size;
-    const groups = layout === 'source' ? sourceGroups(data) : verseGroups(data, opts.focusVerse);
+    const groups = layout === 'source' ? sourceGroups(data, types) : verseGroups(data, types, opts.focusVerse);
     if (talks <= OPEN_ALL_MAX_TALKS) eachGroup(groups, (g) => { g.open = true; });
     const focused = groups.find((g) => g.focus);
 
@@ -468,6 +522,7 @@
       showTools: talks >= TOOLS_MIN_TALKS,
       groups,
       focusUid: focused ? focused.uid : null,
+      footer,
     };
   }
 
