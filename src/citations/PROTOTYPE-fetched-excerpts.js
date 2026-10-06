@@ -78,12 +78,23 @@
   function start(job) {
     job.started = true;
     stats.inFlight++;
-    job.run().finally(() => { stats.inFlight--; pump(); });
+    job.run().finally(() => { job.done = true; stats.inFlight--; pump(); });
+  }
+
+  // Fetches holding a slot: in flight with a row still in view. One whose
+  // rows were all scrolled away finishes in the background (for the cache)
+  // without blocking the rows now on screen.
+  function holding() {
+    let n = 0;
+    for (const job of jobs.values()) {
+      if (job.started && !job.done && [...job.nodes].some((x) => visible.has(x) && x.isConnected)) n++;
+    }
+    return n;
   }
 
   function pump() {
     let job;
-    while (stats.inFlight < MAX_IN_FLIGHT && (job = nextJob())) start(job);
+    while (holding() < MAX_IN_FLIGHT && (job = nextJob())) start(job);
     count();
     draw();
   }

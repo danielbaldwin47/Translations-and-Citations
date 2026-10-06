@@ -4,8 +4,7 @@
    holding invisible filler text of the excerpt's bundled length, so it takes
    the height the excerpt will take. Mode is data-btx-proto-ph on <html>,
    set by the strip. */
-#btx-root .btx-proto-slot { position: relative; }
-#btx-root .btx-proto-filler { color: transparent; user-select: none; }
+#btx-root .btx-proto-slot { position: relative; color: transparent; user-select: none; } /* hides the clamp's "…" too */
 
 /* "Loading…": a quiet label over the reserved space. */
 html[data-btx-proto-ph='loading'] #btx-root .btx-proto-slot::before {
