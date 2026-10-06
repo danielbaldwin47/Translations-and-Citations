@@ -391,8 +391,11 @@ public release. One element, one piece of evidence.
 _Avoid_: clearance, legal basis
 
 **Reading destination**:
-The external URL a citation row opens when the talk is not read inline — the
-Church page, BYU's viewer, or a scan.
+Where a cite's talk is read on the web, per corpus plan: the Church page at
+the paragraph (live-church), BYU's viewer at the citation span (live-byu), or
+the source's own URL (a bundled corpus that has one: the Journal of
+Discourses' Wikisource permalink). The reader header's external link and the
+talk error state open it (`talkSource.readingDestination`).
 _Avoid_: link-out target, external link
 
 **References-only**:

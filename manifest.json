@@ -6,7 +6,8 @@
   "permissions": ["storage"],
   "host_permissions": [
     "https://api.scripture.api.bible/*",
-    "https://fums.api.bible/*"
+    "https://fums.api.bible/*",
+    "https://scriptures.byu.edu/*"
   ],
   "background": {
     "service_worker": "src/background/service-worker.js"
