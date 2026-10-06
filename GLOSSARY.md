@@ -313,15 +313,39 @@ caller that already applied the change locally can skip re-applying it.
 
 ## Release
 
+**Flavor**:
+The extension loaded with one data pack: the public release or the personal
+build. Code, manifest and Store listing are the same in both; only the pack
+differs.
+_Avoid_: variant, edition, build (bare)
+
 **Public release**:
-The flavor of the extension distributed through the Chrome Web Store, in which
-every shipped element carries rights evidence. Contrast personal build.
+The flavor distributed through the Chrome Web Store, running the public pack,
+in which every shipped element carries rights evidence. The main flavor.
+Contrast personal build.
 _Avoid_: Store version, free version
 
 **Personal build**:
-The load-unpacked flavor for the developer's own use, which may carry BYU- and
-Church-derived data that the public release may not ship.
+The load-unpacked flavor for the developer's own use, running the personal
+pack. A reserve: it carries the gated elements and behaves like the public
+release everywhere else.
 _Avoid_: dev build, private version
+
+**Data pack**:
+The generated citation data a flavor loads (index, sources, shards, bundled
+talks); the unit a flavor swaps. The **public pack** is committed in the repo
+and shipped on the Store; the **personal pack** is held privately.
+_Avoid_: dataset, the data
+
+**Gated element**:
+A shipped element present only in the personal pack, because it has no rights
+evidence for the public release.
+_Avoid_: personal-only feature, restricted content
+
+**Pack descriptor**:
+A data pack's statement of what it holds — which corpora it indexes, which it
+bundles, which carry snippets — that the reader's corpus plan follows.
+_Avoid_: pack manifest (manifest means the extension's), flavor flag
 
 **Rights evidence**:
 The license, public-domain finding, terms reading, or written permission that
@@ -334,7 +358,8 @@ The external URL a citation row opens when the talk is not read inline — the
 Church page, BYU's viewer, or a scan.
 _Avoid_: link-out target, external link
 
-**References-only index**:
-A citation index holding only facts per cite — talk, verses, speaker, date,
-title, URL — with no snippets and no talk prose.
-_Avoid_: metadata index, stripped index
+**References-only**:
+A corpus indexed with only facts per cite — talk, verses, speaker, date,
+title, URL — and no snippets or bundled talk prose. A property of one corpus
+within a pack: a pack may bundle one corpus and index another references-only.
+_Avoid_: metadata index, stripped index, references-only index (the pack as a whole is mixed)
