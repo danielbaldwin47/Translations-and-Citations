@@ -14,8 +14,8 @@
  *     a row scrolled past before its turn waits off screen and costs nothing
  *     unless it comes back into view.
  *   - G: live same-origin page; located by paragraph anchor (pN), else the
- *     footnote locator (the footnote linking the cited verse -> paragraph
- *     holding its marker). E: BYU talks_ajax, located by citation span id.
+ *     link locator (an inline scripture link -> its paragraph, or a footnote
+ *     link -> the paragraph holding its marker). E: BYU talks_ajax, located by citation span id.
  *   - Miss or failure: the row keeps its reference line only.
  *   - Opening a talk whose page was already fetched reuses that HTML.
  *
@@ -33,7 +33,7 @@
 
   const knobs = { placeholder: 'loading', lookAhead: 1, delayMs: 0 };
   const stats = { talks: 0, bytes: 0, wireBytes: 0, ms: [], inFlight: 0, queued: 0, waiting: 0,
-    anchor: 0, footnote: 0, span: 0, miss: 0, failed: 0, landed: 0, jumped: 0 };
+    anchor: 0, footnote: 0, inline: 0, span: 0, miss: 0, failed: 0, landed: 0, jumped: 0 };
 
   // fetch key -> { promise, run, nodes:Set<row node>, started }
   const jobs = new Map();
@@ -178,25 +178,34 @@
     return m ? m[0].replace(/\/+$/, '') : null;
   }
 
-  function footnoteParagraph(doc, entry) {
+  // The paragraph whose scripture link best matches the cite: a footnote
+  // link counts for the paragraph holding that footnote's marker; an inline
+  // link (recent talks cite in the text, "(Alma 5:12)", with no footnotes)
+  // counts for its own paragraph. Ties go to the first in the talk.
+  function linkParagraph(doc, entry) {
     const want = chapterPath();
-    if (!want) return null;
+    if (!want) return { node: null };
     const verses = new Set(entry.versesInChapter || []);
     let best = null, bestScore = 0;
-    for (const li of doc.querySelectorAll('li[id^="note"]')) {
-      for (const a of li.querySelectorAll('a[href*="/study/scriptures/"]')) {
-        let u;
-        try { u = new URL(a.getAttribute('href'), location.origin); } catch (_) { continue; }
-        if (u.pathname.replace(/\/+$/, '') !== want) continue;
-        const vs = versesOfId(u.searchParams.get('id'));
-        let score = 1; // chapter-only match
-        for (const v of vs) if (verses.has(v)) score++;
-        if (score > bestScore) { best = li.id; bestScore = score; }
+    for (const a of doc.querySelectorAll('a[href*="/study/scriptures/"]')) {
+      let u;
+      try { u = new URL(a.getAttribute('href'), location.origin); } catch (_) { continue; }
+      if (u.pathname.replace(/\/+$/, '') !== want) continue;
+      let score = 1; // chapter-only match
+      for (const v of versesOfId(u.searchParams.get('id'))) if (verses.has(v)) score++;
+      if (score <= bestScore) continue;
+      const li = a.closest('li[id^="note"]');
+      let node, how = 'inline';
+      if (li) {
+        const ref = doc.querySelector(`a.note-ref[data-scroll-id="${li.id}"], a.note-ref[href$="#${li.id}"]`);
+        node = ref && ref.closest('p, li, blockquote');
+        how = 'footnote';
+      } else {
+        node = a.closest('p, li, blockquote');
       }
+      if (node) { best = { node, how }; bestScore = score; }
     }
-    if (!best) return null;
-    const ref = doc.querySelector(`a.note-ref[data-scroll-id="${best}"], a.note-ref[href$="#${best}"]`);
-    return ref ? ref.closest('p, li, blockquote') : null;
+    return best || { node: null };
   }
 
   function excerptFrom(html, entry) {
@@ -204,7 +213,7 @@
     let node = null, how = 'miss';
     if (corpusOf(entry) === 'G') {
       if (entry.anchor) { node = doc.getElementById(entry.anchor); if (node) how = 'anchor'; }
-      if (!node) { node = footnoteParagraph(doc, entry); if (node) how = 'footnote'; }
+      if (!node) { const m = linkParagraph(doc, entry); if (m.node) { node = m.node; how = m.how; } }
     } else {
       const span = doc.getElementById(String(entry.citId));
       if (span) { node = span.closest('p, div') || span; how = 'span'; }
@@ -263,9 +272,14 @@
     draw();
     if (!slot) return;
     if (!res.text) { collapse(slot); return; }
+    // Landed while the list was off the page (a talk open): no fade to replay.
+    if (!node.isConnected) { slot.textContent = `“${res.text}”`; slot.className = 'btx-cit-snippet'; return; }
     const before = slot.offsetHeight;
     slot.textContent = `“${res.text}”`;
     slot.className = 'btx-cit-snippet btx-proto-fade';
+    // Fade once: Back re-inserts the cached list, which would replay it.
+    // A timer, not animationend: a talk opened mid-fade cancels the animation.
+    setTimeout(() => slot.classList.remove('btx-proto-fade'), 300);
     if (knobs.placeholder !== 'pop' && node.isConnected && before) {
       stats.landed++;
       if (Math.abs(slot.offsetHeight - before) > 2) stats.jumped++;
@@ -323,7 +337,7 @@
       ` · waiting off screen ${stats.waiting}` +
       ` · median ${med == null ? '–' : med + ' ms'} · max ${max == null ? '–' : max + ' ms'}` +
       ` · ${kb(stats.wireBytes)} wire / ${kb(stats.bytes)} raw` +
-      ` · located: anchor ${stats.anchor}, footnote ${stats.footnote}, span ${stats.span}` +
+      ` · located: anchor ${stats.anchor}, footnote ${stats.footnote}, inline ${stats.inline}, span ${stats.span}` +
       ` · missed ${stats.miss} · failed ${stats.failed}` +
       ` · rows that moved on arrival ${stats.jumped} of ${stats.landed}`;
   }
@@ -350,7 +364,7 @@
     strip.querySelector('.dl').addEventListener('change', (e) => { knobs.delayMs = +e.target.value; });
     strip.querySelector('.rs').addEventListener('click', () => {
       for (const [k, job] of jobs) if (job.started) jobs.delete(k);
-      Object.assign(stats, { talks: 0, bytes: 0, wireBytes: 0, ms: [], anchor: 0, footnote: 0, span: 0, miss: 0, failed: 0, landed: 0, jumped: 0 });
+      Object.assign(stats, { talks: 0, bytes: 0, wireBytes: 0, ms: [], anchor: 0, footnote: 0, inline: 0, span: 0, miss: 0, failed: 0, landed: 0, jumped: 0 });
       draw();
     });
     strip.querySelector('.hd').addEventListener('click', () => { strip.style.display = 'none'; });
