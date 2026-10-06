@@ -358,6 +358,7 @@
       if (noRes) wrap.appendChild(noRes);
       keepClosedHeaderInView(wrap);
     }
+    if (viewModel.footer) wrap.appendChild(el('p', 'btx-cit-footer', viewModel.footer));
 
     host.textContent = '';
     host.appendChild(wrap);

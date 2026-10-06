@@ -3,7 +3,7 @@
  * No-build sanity checks. Run: node tools/validate-books.js
  *
  *  1. The book map covers exactly the 39 OT + 27 NT books, with valid, unique
- *     USFM codes and matching entries in the bible-api name map; non-Bible
+ *     USFM codes and matching entries in the Bible name map; non-Bible
  *     names read the way the site titles them.
  *  2. Every file referenced by manifest.json actually exists on disk, and the
  *     manifest's reach and wording hold (content script on every /study page,
@@ -40,7 +40,7 @@ const mappedUsfm = allSlugs.map((s) => books.ldsToUsfm(s));
 check(new Set(mappedUsfm).size === 66, 'USFM codes are unique');
 for (const u of mappedUsfm) check(USFM.includes(u), `USFM "${u}" is not a recognized code`);
 
-for (const slug of allSlugs) check(books.ldsToBibleApi(slug), `LDS_TO_BIBLEAPI missing slug "${slug}"`);
+for (const slug of allSlugs) check(books.BIBLE_NAMES[slug] && books.bookFullName(slug) === books.BIBLE_NAMES[slug], `BIBLE_NAMES missing slug "${slug}"`);
 
 const spot = { gen: 'GEN', ps: 'PSA', song: 'SNG', '1-jn': '1JN', philem: 'PHM', matt: 'MAT', rev: 'REV', ezek: 'EZK' };
 for (const [slug, code] of Object.entries(spot)) {

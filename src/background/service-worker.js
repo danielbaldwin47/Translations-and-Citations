@@ -5,8 +5,15 @@
  * Messages (C.MSG):
  *   GET_ENABLED_TRANSLATIONS -> what the panel may offer (translations, Church
  *                               languages, default, hasKey, …)
- *   GET_CHAPTER              -> one chapter as IR, cache first, rate-limited;
- *                               a rejected key also drops the cached version list
+ *   GET_CHAPTER              -> one chapter as IR. api.bible: cache first,
+ *                               rate-limited; a rejected key also drops the
+ *                               cached version list. Every api.bible display,
+ *                               a cache hit too, sends a FUMS usage report
+ *                               (fums.js) with the token cached beside the
+ *                               chapter; the reply carries neither the token
+ *                               nor any script. `bundled` (the World English
+ *                               Bible): read from the packaged files, no key,
+ *                               limiter, cache or usage report
  *   LIST_BIBLES { key?, refresh? }
  *                            -> the versions on a key (default: the stored one).
  *                               Served from the cache when it holds that key's
@@ -15,6 +22,9 @@
  *                               (a copyright lookup failed) is passed on but
  *                               never cached. One refresh costs 1 + one call
  *                               per version (~39) against a monthly quota.
+ *                               A list for a named `key` is the options page's
+ *                               Connect: once it succeeds, the FUMS device id
+ *                               exists (the click was the consent).
  *   OPEN_OPTIONS { section? } -> opens (or focuses) the options page; a section
  *                               from C.OPTIONS_SECTIONS is parked in
  *                               chrome.storage.session for the page to scroll to.
@@ -35,7 +45,8 @@ importScripts(
   '../shared/books.js',
   './cache.js',
   './ratelimit.js',
-  './api.js'
+  './api.js',
+  './fums.js'
 );
 
 const C = self.__BTX.const;
@@ -43,6 +54,7 @@ const SETTINGS = self.__BTX.settings;
 const API = self.__BTX.api;
 const CACHE = self.__BTX.cache;
 const RATE = self.__BTX.rate;
+const FUMS = self.__BTX.fums;
 
 // Settings (schema, normalization, caching, invalidation) are owned by
 // __BTX.settings — this worker is just one of its adapters.
@@ -67,43 +79,57 @@ async function handleListBibles(msg) {
   const key = msg.key || s.apiKey;
   if (!msg.refresh) {
     const cached = await CACHE.getBibles(key);
-    if (cached) return { bibles: cached };
+    if (cached) {
+      if (msg.key) await FUMS.connected();
+      return { bibles: cached };
+    }
   }
   const result = await API.listBibles(key);
   if (!result.error && result.bibles && !result.partial) await CACHE.setBibles(result.bibles, key);
+  if (!result.error && msg.key) await FUMS.connected();
   return result;
 }
 
 async function handleGetChapter(msg) {
-  const { provider, bibleId, chapterId, ldsBook, chapter } = msg;
+  const { provider, bibleId, chapterId } = msg;
   if (!provider || !bibleId || !chapterId) return { error: { code: C.ERR.UNKNOWN, message: 'Bad request' } };
 
-  // Cache first (does not count against rate limits).
-  const cached = await CACHE.getChapter(provider, bibleId, chapterId);
-  if (cached) return cached;
-
-  const s = await SETTINGS.get();
-
-  let result;
-  if (provider === C.PROVIDER_BIBLEAPI) {
-    result = await API.fetchBibleApiChapter(bibleId, ldsBook, chapter);
-  } else {
-    if (!s.apiKey) return { error: { code: C.ERR.NO_KEY, message: 'No API key set' } };
-    const gate = await RATE.check();
-    if (!gate.ok) {
-      return { error: { code: C.ERR.RATE_LIMITED, message: gate.reason, retryAfterMs: gate.retryAfterMs } };
-    }
-    result = await API.fetchApiBibleChapter(s.apiKey, bibleId, chapterId);
-    await RATE.consume();
-    // The stored key stopped working: its cached version list would still tell
-    // the options page "Connected", so the page fetches afresh and says why.
-    if (result.error && result.error.code === C.ERR.INVALID_KEY) await CACHE.dropBibles();
+  // The bundled Bible is read from the extension's own files: no key, no
+  // rate limiter, no usage report, and nothing worth caching.
+  if (provider === C.PROVIDER_BUNDLED) {
+    const bundled = await API.fetchBundledChapter(bibleId, chapterId);
+    return bundled.error ? bundled : bundled.payload;
   }
 
+  // Cache first (does not count against rate limits). An api.bible chapter
+  // is cached with its FUMS token, reported on every display.
+  const cached = await CACHE.getChapter(provider, bibleId, chapterId);
+  if (cached) return displayed(cached);
+
+  const s = await SETTINGS.get();
+  if (!s.apiKey) return { error: { code: C.ERR.NO_KEY, message: 'No API key set' } };
+  const gate = await RATE.check();
+  if (!gate.ok) {
+    return { error: { code: C.ERR.RATE_LIMITED, message: gate.reason, retryAfterMs: gate.retryAfterMs } };
+  }
+  const result = await API.fetchApiBibleChapter(s.apiKey, bibleId, chapterId);
+  await RATE.consume();
+  // The stored key stopped working: its cached version list would still tell
+  // the options page "Connected", so the page fetches afresh and says why.
+  if (result.error && result.error.code === C.ERR.INVALID_KEY) await CACHE.dropBibles();
+
   if (result.error) return result;
-  await CACHE.setChapter(provider, bibleId, chapterId, result.payload);
-  // Forward FUMS only on a fresh fetch (cache hits return above without it).
-  return Object.assign({}, result.payload, { fums: result.fums || null });
+  const entry = result.fumsToken ? Object.assign({}, result.payload, { fumsToken: result.fumsToken }) : result.payload;
+  await CACHE.setChapter(provider, bibleId, chapterId, entry);
+  return displayed(entry);
+}
+
+// A chapter on its way to the page: report its token, then hand back the
+// chapter without it.
+async function displayed(entry) {
+  const { fumsToken, ...payload } = entry;
+  if (fumsToken) await FUMS.report(fumsToken);
+  return payload;
 }
 
 // openOptionsPage reuses an open options tab, which then learns the section

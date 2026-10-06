@@ -6,7 +6,7 @@
   "permissions": ["storage"],
   "host_permissions": [
     "https://api.scripture.api.bible/*",
-    "https://bible-api.com/*"
+    "https://fums.api.bible/*"
   ],
   "background": {
     "service_worker": "src/background/service-worker.js"
@@ -38,7 +38,7 @@
   ],
   "web_accessible_resources": [
     {
-      "resources": ["src/citations/data/*", "src/content/page-hook.js"],
+      "resources": ["src/citations/data/*", "src/citations/data-personal/*", "src/content/page-hook.js"],
       "matches": ["https://www.churchofjesuschrist.org/*"]
     }
   ],

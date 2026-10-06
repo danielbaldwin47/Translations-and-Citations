@@ -6,8 +6,10 @@
  *   - the schema        (SCHEMA / KEYS / defaults)
  *   - normalization     (exactly one normalizer per setting — no per-caller
  *                        `x === 'verse' ? … : …` coercions scattered around;
- *                        enabledTranslations comes back slim and deduped, and
- *                        a default naming a dropped twin follows it)
+ *                        enabledTranslations comes back slim and deduped,
+ *                        a default naming a dropped twin follows it, and the
+ *                        bundled World English Bible row is always there —
+ *                        the default while no api.bible version is on)
  *   - reads and writes  (get / patch / replace, with an in-context cache)
  *   - change notification (subscribe, which reports *which* keys changed and
  *                        whether this context is the one that wrote them)
@@ -150,7 +152,28 @@
   // Loaded after constants.js in every context (manifest content_scripts,
   // importScripts, options.html), so a missing `C` is a load-order bug.
   const APIBIBLE = C.PROVIDER_APIBIBLE;
-  const BIBLEAPI = C.PROVIDER_BIBLEAPI;
+  const BUNDLED = C.PROVIDER_BUNDLED;
+
+  // The World English Bible ships inside the extension (C.BUNDLED_BIBLE), so
+  // Bible chapters always have a text beside them. Its row is guaranteed:
+  // always present, always the shipped fields, after the api.bible versions.
+  // A row naming any other provider — the retired public-domain service
+  // older versions offered — has no path that serves it and is dropped (a
+  // row with no provider is an api.bible row, as the worker reads it).
+  const WEB_ROW = slimRow(C.BUNDLED_BIBLE);
+  function servedRows(list) {
+    return list.filter((t) => t.provider === undefined || t.provider === APIBIBLE);
+  }
+  function withBundled(list) {
+    return servedRows(list).concat([Object.assign({}, WEB_ROW)]);
+  }
+
+  // The default translation: the World English Bible while no api.bible
+  // version is on, else whatever was chosen (the panel resolves a default
+  // naming no enabled row by falling back to the first).
+  function defaultFor(id, list) {
+    return list.some((t) => t.provider !== BUNDLED) ? id : WEB_ROW.id;
+  }
 
   // Church languages are codes from C.CHURCH_LANGUAGES, kept in that table's
   // order (which is the order the panel's dropdown lists them) with duplicates
@@ -169,8 +192,10 @@
   // absent: an old stored value is an unknown key, carried through writes.
   const SCHEMA = {
     apiKey: { def: '', norm: str('') },
-    provider: { def: APIBIBLE, norm: oneOf([APIBIBLE, BIBLEAPI], APIBIBLE) },
-    enabledTranslations: { def: [], norm: translationList },
+    // api.bible is the one keyed provider; any other stored value (the
+    // retired public-domain service) reads as api.bible.
+    provider: { def: APIBIBLE, norm: oneOf([APIBIBLE], APIBIBLE) },
+    enabledTranslations: { def: [], norm: (v) => withBundled(translationList(v)) },
     defaultTranslationId: { def: '', norm: str('') },
     // Church languages to offer beside the page (e.g. ['spa', 'jpn']): the same
     // chapter from the Church's own site, on every standard work, no key. They
@@ -209,22 +234,24 @@
 
   const KEYS = Object.keys(SCHEMA);
 
+  // Every setting at its default, cross-setting rules included (the default
+  // translation is the World English Bible).
   function defaults() {
-    const out = {};
-    for (const k of KEYS) out[k] = SCHEMA[k].norm(SCHEMA[k].def);
-    return out;
+    return normalize({});
   }
 
   // Full, valid settings object from anything at all. Unknown keys are dropped.
-  // One rule spans two settings: a default naming a translation twin that
-  // translationList dropped follows it to the kept row.
+  // Two rules span two settings: a default naming a translation twin that
+  // translationList dropped follows it to the kept row, and with no api.bible
+  // version on the default is the World English Bible (defaultFor).
   function normalize(raw) {
     const src = (raw && typeof raw === 'object') ? raw : {};
     const out = {};
     for (const k of KEYS) {
       out[k] = SCHEMA[k].norm(Object.prototype.hasOwnProperty.call(src, k) ? src[k] : SCHEMA[k].def);
     }
-    out.defaultTranslationId = twinOf(out.defaultTranslationId, src.enabledTranslations, out.enabledTranslations);
+    const twin = twinOf(out.defaultTranslationId, src.enabledTranslations, out.enabledTranslations);
+    out.defaultTranslationId = defaultFor(twin, out.enabledTranslations);
     return out;
   }
 

@@ -11,6 +11,10 @@
  * repaint, when Connect rests, the language search, and the status copy.
  * Those are the rules the stale-list and wrong-default bugs lived in.
  *
+ * It also checks where the in-product disclosures (C.DISCLOSURE) sit: beside
+ * Connect and beside adding a Church language, on this page and on the
+ * panel's setup card (src/content/panel.js setupCopy / renderSetup).
+ *
  * It also covers the worker's side of what the page is told
  * (src/background/api.js, loaded in Node against a stubbed fetch): a
  * `partial` version list, and a 429's `remote` flag and Retry-After wait.
@@ -116,6 +120,8 @@ console.log('withStored:');
 eq(ids(F.withStored([NIV, NKJV], [NIV, { id: 'nasb', abbr: 'NASB', name: 'NASB' }])), ['niv', 'nkjv', 'nasb'],
   'a stored version missing from the (possibly day-old) list rides along at the end');
 eq(ids(F.withStored([NIV], undefined)), ['niv'], 'no stored list adds nothing');
+eq(ids(F.withStored([NIV], [NIV, { id: 'engwebp', abbr: 'WEB', name: 'World English Bible', provider: 'bundled' }])), ['niv'],
+  'the bundled World English Bible is not an api.bible version: it never joins the checklist');
 
 // ---- initialChecks: which versions start checked when a key connects ----
 console.log('initialChecks:');
@@ -504,6 +510,37 @@ check(/chrome\.storage\.session\.get\(C\.OPTIONS_FOCUS_KEY\)/.test(bodyOf('takeF
   'a deep link is read and cleared from session storage');
 check(/area === 'session' && changes\[C\.OPTIONS_FOCUS_KEY\]/.test(shell),
   'an already-open page follows a new deep link');
+
+// ---- Disclosures (spec #69, A29): the click beside each sentence is the consent ----
+// Four places: beside Connect and beside adding a language, on this page and
+// on the panel's setup card. One wording, C.DISCLOSURE.
+console.log('Disclosures:');
+eq(C.DISCLOSURE.apiBible, 'Connecting sends the chapters you open, your key, and an anonymous usage report to API.Bible.',
+  'the api.bible sentence is the spec\'s wording');
+eq(C.DISCLOSURE.churchLanguage, 'Fetches that language’s chapter from churchofjesuschrist.org.',
+  'the Church-language sentence is the spec\'s wording (curly apostrophe)');
+const textOf = (id) => ((html.match(new RegExp(`<p[^>]*\\bid="${id}"[^>]*>([\\s\\S]*?)</p>`)) || [])[1] || '').replace(/\s+/g, ' ').trim();
+const cardOf = (id) => (html.match(new RegExp(`<section class="card" id="${id}"[\\s\\S]*?</section>`)) || [''])[0];
+eq(textOf('keyDisclosure'), C.DISCLOSURE.apiBible, 'settings: the api.bible sentence is on the page');
+check(/id="connectKey"[^>]*>Connect<\/button>\s*<\/div>\s*(<!--[\s\S]*?-->\s*)?<p[^>]*\bid="keyDisclosure"/.test(cardOf('bible')),
+  'settings: the api.bible sentence sits directly under the row holding Connect');
+check(/id="connectKey"[^>]*aria-describedby="keyDisclosure"/.test(html), 'settings: Connect is described by the sentence');
+eq(textOf('languagesDisclosure'), C.DISCLOSURE.churchLanguage, 'settings: the Church-language sentence is on the page');
+check(/id="languagesDisclosure"[\s\S]*id="churchLanguages"/.test(cardOf('languages')),
+  'settings: the Church-language sentence sits in the Church languages card, above the checklist that adds one');
+const P = require(path.join(ROOT, 'src/content/panel.js'));
+for (const bible of ['nokey', 'noversions']) {
+  eq(P.setupCopy({ chapter: 'John 3', bible }).bible.disclosure, C.DISCLOSURE.apiBible,
+    `setup card: the api.bible path (${bible}) carries the api.bible sentence`);
+}
+eq(P.setupCopy({ chapter: 'Alma 5', bible: null }).languagesDisclosure, C.DISCLOSURE.churchLanguage,
+  'setup card: the language picker carries the Church-language sentence');
+const panelSrc = fs.readFileSync(path.join(ROOT, 'src/content/panel.js'), 'utf8').replace(/\r\n/g, '\n');
+const renderSetupSrc = (panelSrc.match(/function renderSetup\([^)]*\) \{[\s\S]*?\n {2}\}\n/) || [''])[0];
+check(/languagePicker\(copy, langs\)\);\s*block\.appendChild\(el\('p', '[^']+', copy\.languagesDisclosure\)\)/.test(renderSetupSrc),
+  'setup card: the Church-language sentence renders right under the picker with Add');
+check(/copy\.bible\.button[^\n]*\n\s*block\.appendChild\(el\('p', '[^']+', copy\.bible\.disclosure\)\)/.test(renderSetupSrc),
+  'setup card: the api.bible sentence renders right under its button');
 
 // The language search must not live inside the churchLanguages FIELDS node, or
 // typing in it would mark the setting dirty.

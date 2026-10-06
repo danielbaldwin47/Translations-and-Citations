@@ -123,6 +123,9 @@
 (function (root) {
   'use strict';
 
+  const C = (root.__BTX && root.__BTX.const)
+    || (typeof require === 'function' ? require('../shared/constants.js') : null);
+
   // ---- Pure state core (Node-testable) -----------------------------------
   // The panel's state machine, free of DOM: which mode is effective and what
   // each user action means. Values arrive already normalized by
@@ -227,7 +230,8 @@
 
   // The setup card, for a chapter no enabled text offers. `bible` is null off
   // the Bible, else what the api.bible path is missing: 'nokey' (no key yet)
-  // or 'noversions' (none turned on).
+  // or 'noversions' (none turned on). The World English Bible ships with the
+  // extension, so on the Bible api.bible offers *more* translations.
   function setupCopy(o) {
     const chapter = (o && o.chapter) || 'this chapter';
     const bible = o && o.bible;
@@ -236,9 +240,12 @@
       languages: 'Choose a Church language…',
       add: 'Add',
       languagesHint: 'Published by the Church. No key needed.',
-      bible: !bible ? null : bible === 'noversions'
-        ? { text: 'No Bible translations are turned on yet.', button: 'Choose Bible translations' }
-        : { text: 'Bible translations such as NIV and NKJV need a free api.bible key.', button: 'Set up Bible translations' },
+      // The in-product disclosures (C.DISCLOSURE), beside the action they consent to.
+      languagesDisclosure: C.DISCLOSURE.churchLanguage,
+      bible: !bible ? null : Object.assign(bible === 'noversions'
+        ? { text: 'Turn on more Bible translations from your api.bible key.', button: 'Choose Bible translations' }
+        : { text: 'More Bible translations, such as NIV and NKJV, need a free api.bible key.', button: 'Set up more translations' },
+      { disclosure: C.DISCLOSURE.apiBible }),
       talks: `See the talks that cite ${chapter}`,
     };
   }
@@ -1574,6 +1581,7 @@
     if (langs.length) {
       const block = el('div', 'btx-card-block');
       block.appendChild(languagePicker(copy, langs));
+      block.appendChild(el('p', 'btx-card-hint', copy.languagesDisclosure));
       block.appendChild(el('p', 'btx-card-hint', copy.languagesHint));
       card.appendChild(block);
     }
@@ -1581,6 +1589,7 @@
       const block = el('div', 'btx-card-block');
       block.appendChild(el('p', 'btx-card-text', copy.bible.text));
       block.appendChild(button('btx-btn-outline', copy.bible.button, () => cbs.onGear && cbs.onGear('bible')));
+      block.appendChild(el('p', 'btx-card-hint', copy.bible.disclosure));
       card.appendChild(block);
     }
     // The card goes with the mode; focus lands on the mode it switched to.

@@ -7,8 +7,14 @@
  * "give me displayable HTML for this cite, plus how to find its target once
  * that HTML is rendered". Corpus differences (live fetch vs bundled gzip,
  * paragraph anchor vs citation span vs STPJS body passage) are decided by the
- * CORPUS_PLANS table below; talk-view renders and scrolls, and decides nothing
- * per corpus.
+ * corpus plan; talk-view renders and scrolls, and decides nothing per corpus.
+ *
+ * Descriptor contract: the corpus plan is a pure function of the pack
+ * descriptor (citData.loadPack().descriptor, written by
+ * tools/build-citation-data.js) — corpusPlan(descriptor, corpus, { hasUrl })
+ * reads the corpus's `text` and `target` and nothing else; this module holds
+ * no per-corpus table. A corpus the descriptor lacks has no plan, so load()
+ * hands back no HTML, no URL and no target for it.
  *
  * Target order. A fetched modern talk (plan target 'anchor'): the cite's
  * paragraph anchor (pN), else the footnote locator (locateParagraph: the
@@ -31,32 +37,27 @@
 
   const citData = () => root.__BTX && root.__BTX.citData;
 
-  // Per-corpus policy (GLOSSARY.md "Corpus"):
-  //   fetch  'live'    — same-origin fetch from churchofjesuschrist.org
-  //          'bundled' — the shipped talks/{talkId}.html.gz
+  // The corpus plan, read from the pack descriptor's entry for the corpus
+  // (GLOSSARY.md "Pack descriptor", "Corpus"):
+  //   text   'live-church' — same-origin fetch from churchofjesuschrist.org
+  //          'live-byu'     — fetched from scriptures.byu.edu (not wired yet:
+  //                           reads the bundle until the BYU fetch lands)
+  //          'bundled'      — the pack's talks/{talkId}.html.gz
   //   target 'anchor'       — the talk's paragraph anchor (pN), citation span as fallback
-  //          'citationSpan' — <span class="citation" id="{citId}"> in the bundled markup
+  //          'citationSpan' — <span class="citation" id="{citId}"> in the talk markup
   //          'bodyPassage'  — STPJS: the body text the footnote annotates, not the
   //                           footnote-list line the citation span actually lives in
-  const CORPUS_PLANS = {
-    G: { fetch: 'live', target: 'anchor' },          // modern General Conference, 1971–
-    E: { fetch: 'bundled', target: 'citationSpan' }, // early General Conference, 1942–70
-    J: { fetch: 'bundled', target: 'citationSpan' }, // Journal of Discourses
-    T: { fetch: 'bundled', target: 'bodyPassage' },  // Teachings of the Prophet Joseph Smith
-  };
-
-  const BUNDLED = { fetch: 'bundled', target: 'citationSpan' };
-  const LIVE = { fetch: 'live', target: 'anchor' };
-
-  // Resolve the plan for a talk. `hasUrl` is the escape hatch for data that
-  // doesn't match the table: an unknown corpus is treated as live iff it ships a
-  // URL, and a nominally live talk without one has to read the bundle (fetching
-  // an undefined URL would otherwise blow up the reader).
-  function corpusPlan(corpus, opts) {
+  // A corpus the descriptor lacks has no plan (null): the reader shows no
+  // talk and no reading destination for it. `hasUrl` is the escape hatch for
+  // data the descriptor doesn't foresee: a nominally live talk that ships no
+  // URL reads the bundle (fetching an undefined URL would blow up the reader).
+  function corpusPlan(descriptor, corpus, opts) {
+    const corpora = (descriptor && descriptor.corpora) || {};
+    const entry = Object.prototype.hasOwnProperty.call(corpora, corpus) ? corpora[corpus] : null;
+    if (!entry) return null;
     const hasUrl = opts && 'hasUrl' in opts ? !!opts.hasUrl : true;
-    const plan = CORPUS_PLANS[corpus] || (hasUrl ? LIVE : BUNDLED);
-    if (plan.fetch === 'live' && !hasUrl) return { ...BUNDLED };
-    return { fetch: plan.fetch, target: plan.target };
+    const text = entry.text === 'live-church' && !hasUrl ? 'bundled' : entry.text;
+    return { text, target: entry.target };
   }
 
   /* ---------------------------------------------------------------- fetching */
@@ -412,17 +413,20 @@
   // could not be loaded (caller shows the "open on the site" fallback).
   async function load({ entry, source }) {
     const src = source || {};
-    const plan = corpusPlan(src.c, { hasUrl: !!src.url });
+    let pack = null;
+    try { pack = await citData().loadPack(); } catch (e) { pack = null; }
+    const plan = corpusPlan(pack && pack.descriptor, src.c, { hasUrl: !!src.url });
+    if (!plan) return { html: null, url: null, findTarget: () => null };
     let html = null;
     let url = src.url || null;
     let live = false;
 
-    if (plan.fetch === 'live') {
+    if (plan.text === 'live-church') {
       const r = await fetchLiveTalk(src.url);
       if (r.html != null) { html = r.html; live = true; }
       url = r.url || src.url;
     }
-    if (html == null) { // bundled talk (E/J/T), or a live one whose fetch failed
+    if (html == null) { // a bundled talk, or a live one whose fetch failed
       try { html = await citData().loadTalkHtml(entry.talkId); }
       catch (e) { html = null; }
     }
