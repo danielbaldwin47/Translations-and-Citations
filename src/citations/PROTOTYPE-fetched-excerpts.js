@@ -31,7 +31,7 @@
   const MAX_IN_FLIGHT = 6;
   const BYU_AJAX = 'https://scriptures.byu.edu/content/talks_ajax/';
 
-  const knobs = { placeholder: 'loading', lookAhead: 1, delayMs: 0 };
+  const knobs = { placeholder: 'skeleton', lookAhead: 0.5, delayMs: 0 };
   const stats = { talks: 0, bytes: 0, wireBytes: 0, ms: [], inFlight: 0, queued: 0, waiting: 0,
     anchor: 0, footnote: 0, inline: 0, span: 0, miss: 0, failed: 0, landed: 0, jumped: 0 };
 
@@ -347,8 +347,8 @@
     strip.innerHTML =
       '<b>PROTOTYPE excerpts</b> <span class="s"></span><br>' +
       'placeholder <select class="ph"><option value="loading">exact size, “Loading…”</option>' +
-      '<option value="skeleton">exact size, skeleton lines</option><option value="pop">none (pop in)</option></select> ' +
-      'look-ahead <select class="la"><option value="1">1 screen</option><option value="0.5">½ screen</option>' +
+      '<option value="skeleton" selected>exact size, skeleton lines</option><option value="pop">none (pop in)</option></select> ' +
+      'look-ahead <select class="la"><option value="1">1 screen</option><option value="0.5" selected>½ screen</option>' +
       '<option value="0">none</option></select> ' +
       'extra delay <select class="dl"><option value="0">0</option><option value="1000">+1 s</option>' +
       '<option value="3000">+3 s</option></select> ' +
