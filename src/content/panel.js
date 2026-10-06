@@ -123,6 +123,9 @@
 (function (root) {
   'use strict';
 
+  const C = (root.__BTX && root.__BTX.const)
+    || (typeof require === 'function' ? require('../shared/constants.js') : null);
+
   // ---- Pure state core (Node-testable) -----------------------------------
   // The panel's state machine, free of DOM: which mode is effective and what
   // each user action means. Values arrive already normalized by
@@ -237,9 +240,12 @@
       languages: 'Choose a Church language…',
       add: 'Add',
       languagesHint: 'Published by the Church. No key needed.',
-      bible: !bible ? null : bible === 'noversions'
+      // The in-product disclosures (C.DISCLOSURE), beside the action they consent to.
+      languagesDisclosure: C.DISCLOSURE.churchLanguage,
+      bible: !bible ? null : Object.assign(bible === 'noversions'
         ? { text: 'Turn on more Bible translations from your api.bible key.', button: 'Choose Bible translations' }
         : { text: 'More Bible translations, such as NIV and NKJV, need a free api.bible key.', button: 'Set up more translations' },
+      { disclosure: C.DISCLOSURE.apiBible }),
       talks: `See the talks that cite ${chapter}`,
     };
   }
@@ -1575,6 +1581,7 @@
     if (langs.length) {
       const block = el('div', 'btx-card-block');
       block.appendChild(languagePicker(copy, langs));
+      block.appendChild(el('p', 'btx-card-hint', copy.languagesDisclosure));
       block.appendChild(el('p', 'btx-card-hint', copy.languagesHint));
       card.appendChild(block);
     }
@@ -1582,6 +1589,7 @@
       const block = el('div', 'btx-card-block');
       block.appendChild(el('p', 'btx-card-text', copy.bible.text));
       block.appendChild(button('btx-btn-outline', copy.bible.button, () => cbs.onGear && cbs.onGear('bible')));
+      block.appendChild(el('p', 'btx-card-hint', copy.bible.disclosure));
       card.appendChild(block);
     }
     // The card goes with the mode; focus lands on the mode it switched to.

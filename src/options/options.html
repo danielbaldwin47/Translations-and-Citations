@@ -39,8 +39,10 @@
                  spellcheck="false" autocapitalize="off" autocorrect="off" aria-describedby="keyStatus" />
           <button id="toggleKey" type="button" class="reveal" aria-controls="apiKey" aria-pressed="false">Show</button>
         </div>
-        <button id="connectKey" type="button" class="primary">Connect</button>
+        <button id="connectKey" type="button" class="primary" aria-describedby="keyDisclosure">Connect</button>
       </div>
+      <!-- In-product disclosure: Connect is the consent. Same words as C.DISCLOSURE.apiBible. -->
+      <p class="hint disclosure" id="keyDisclosure">Connecting sends the chapters you open, your key, and an anonymous usage report to API.Bible.</p>
       <div class="status-row">
         <p id="keyStatus" class="status" role="status" aria-live="polite"></p>
         <button id="recheckKey" type="button" class="text-button" hidden>Check for new translations</button>
@@ -68,6 +70,8 @@
     <section class="card" id="languages" aria-labelledby="languagesHead">
       <h2 id="languagesHead">Church languages</h2>
       <p class="hint">Read the chapter in another language the Church publishes. No key needed.</p>
+      <!-- In-product disclosure: checking a language is the consent. Same words as C.DISCLOSURE.churchLanguage. -->
+      <p class="hint disclosure" id="languagesDisclosure">Fetches that language’s chapter from churchofjesuschrist.org.</p>
       <p id="languageSummary" class="summary"></p>
 
       <input type="search" id="langFilter" class="search" placeholder="Find a language"

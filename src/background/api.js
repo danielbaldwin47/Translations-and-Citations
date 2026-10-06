@@ -3,7 +3,7 @@
  * host_permissions let us call the APIs without content-script CORS problems.
  *
  *   listBibles(key)                      -> { bibles: [{ id, name, abbr, description, copyright, provider }], partial? } | { error }
- *   fetchApiBibleChapter(key, id, chap)  -> { payload: { blocks, copyright, reference }, fums } | { error }
+ *   fetchApiBibleChapter(key, id, chap)  -> { payload: { blocks, copyright, reference }, fumsToken } | { error }
  *   fetchBundledChapter(id, chapterId)   -> { payload: { blocks, copyright, reference } } | { error }
  *                                           the World English Bible, read from the packaged
  *                                           files (C.BUNDLED_BIBLE): no key, no limiter, no FUMS
@@ -156,6 +156,9 @@
       'include-titles': 'true',
       'include-chapter-numbers': 'false',
       'include-verse-spans': 'false',
+      // FUMS v3: the response's meta carries a token for the manual usage
+      // report (background/fums.js) instead of script text.
+      'fums-version': '3',
     });
     const url = `${C.API_BIBLE_BASE}/bibles/${encodeURIComponent(bibleId)}/chapters/${encodeURIComponent(chapterId)}?${params}`;
     let res;
@@ -174,11 +177,9 @@
         copyright: data.copyright || '',
         reference: data.reference || '',
       },
-      // FUMS usage tracking — only forwarded on fresh fetches (not cache hits),
-      // so it reports an actual API access. The content script fires it.
-      fums: meta.fumsJsInclude || meta.fumsJs
-        ? { include: meta.fumsJsInclude || '', js: meta.fumsJs || '' }
-        : null,
+      // The usage-report token; the worker stores it with the cached chapter
+      // and reports it on every display.
+      fumsToken: meta.fumsToken || '',
     };
   }
 

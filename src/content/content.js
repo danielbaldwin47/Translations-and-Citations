@@ -546,12 +546,12 @@
       blocks: res.blocks,
       copyright: res.copyright || tr.copyright || '',
     });
-    if (res.fums) fireFums(res.fums);
   }
 
   // A Church-language chapter comes straight from the site (same origin), so
-  // it skips the worker, the key, the rate limiter and FUMS. Split into the
-  // page (syncSplit), the panel only says so — or why it couldn't.
+  // it skips the worker, the key, the rate limiter and api.bible's usage
+  // report. Split into the page (syncSplit), the panel only says so — or why
+  // it couldn't.
   async function loadChurchChapter(parsed, tr, myToken) {
     const res = await churchText.load(parsed, tr.lang);
     if (myToken !== reqToken) return; // user navigated/switched in the meantime
@@ -635,25 +635,6 @@
     } else {
       renderTranslation();
     }
-  }
-
-  // Best-effort FUMS usage tracking (api.bible terms). Injected into the page
-  // world; silently degrades if the site CSP blocks it.
-  function fireFums(fums) {
-    try {
-      if (fums.include) {
-        const s = document.createElement('script');
-        s.src = fums.include;
-        s.async = true;
-        (document.head || document.documentElement).appendChild(s);
-      }
-      if (fums.js) {
-        const s2 = document.createElement('script');
-        s2.textContent = fums.js;
-        (document.head || document.documentElement).appendChild(s2);
-        s2.remove();
-      }
-    } catch (e) { /* ignore */ }
   }
 
   // No chapter on this page: nothing to show or hide. A chapter the language
