@@ -37,7 +37,7 @@
 const fs = require('fs');
 const path = require('path');
 const zlib = require('node:zlib');
-const BOOKS = require('../src/shared/books.js'); // { LDS_TO_USFM, LDS_TO_BIBLEAPI, ... }
+const BOOKS = require('../src/shared/books.js'); // { LDS_TO_USFM, BIBLE_NAMES, ... }
 
 // ---- args ----
 function arg(name, def) {
@@ -143,7 +143,7 @@ function buildBookMap(core) {
     ...Object.keys(BOOKS.NON_BIBLE_NAMES),
   ]);
   const nameToSlug = {};
-  for (const [slug, full] of Object.entries(BOOKS.LDS_TO_BIBLEAPI)) nameToSlug[full.toLowerCase()] = slug;
+  for (const [slug, full] of Object.entries(BOOKS.BIBLE_NAMES)) nameToSlug[full.toLowerCase()] = slug;
 
   const rows = core.prepare('SELECT ID, Abbr, FullName, ParentBookID FROM book').all();
   const map = {}; // slug -> { bookId, fullName }

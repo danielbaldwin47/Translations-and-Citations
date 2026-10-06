@@ -78,9 +78,6 @@
     return month ? `Citations through ${month} ${m[1]}` : null;
   }
 
-  // Up to this many talks on a chapter, every group starts open: the whole
-  // list fits on a screen or two, so making the reader click is pure cost.
-  const OPEN_ALL_MAX_TALKS = 12;
   // Below this many talks the filter box and Collapse all are noise.
   const TOOLS_MIN_TALKS = 4;
 
@@ -509,8 +506,12 @@
     }
 
     const talks = new Set(Object.values(data.entries).map(talkIdOf)).size;
+    // Groups start collapsed, whatever the chapter's size: opening a group is
+    // the reader's act, and it is what starts a fetched excerpt (spec #69).
+    // Only three things open on their own: the focus verse's group here, the
+    // source-type groups inside a verse group (verseGroups), and the groups a
+    // typed filter matches (filterPlan).
     const groups = layout === 'source' ? sourceGroups(data, types) : verseGroups(data, types, opts.focusVerse);
-    if (talks <= OPEN_ALL_MAX_TALKS) eachGroup(groups, (g) => { g.open = true; });
     const focused = groups.find((g) => g.focus);
 
     return {

@@ -4,7 +4,7 @@
 # databases"); retrieve with, e.g.:
 #   git checkout <that-commit> -- core.53.db content.53.db && mkdir -p source-data && mv core.53.db content.53.db source-data/
 # or place your own copies in source-data/ to rebuild.
-/source-data/
+/source-data
 /core.53.db
 /content.53.db
 

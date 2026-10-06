@@ -5,12 +5,15 @@
  * Messages (C.MSG):
  *   GET_ENABLED_TRANSLATIONS -> what the panel may offer (translations, Church
  *                               languages, default, hasKey, …)
- *   GET_CHAPTER              -> one chapter as IR, cache first, rate-limited;
- *                               a rejected key also drops the cached version list.
- *                               Every api.bible display, a cache hit too, sends
- *                               a FUMS usage report (fums.js) with the token
- *                               cached beside the chapter; the reply carries
- *                               neither the token nor any script.
+ *   GET_CHAPTER              -> one chapter as IR. api.bible: cache first,
+ *                               rate-limited; a rejected key also drops the
+ *                               cached version list. Every api.bible display,
+ *                               a cache hit too, sends a FUMS usage report
+ *                               (fums.js) with the token cached beside the
+ *                               chapter; the reply carries neither the token
+ *                               nor any script. `bundled` (the World English
+ *                               Bible): read from the packaged files, no key,
+ *                               limiter, cache or usage report
  *   LIST_BIBLES { key?, refresh? }
  *                            -> the versions on a key (default: the stored one).
  *                               Served from the cache when it holds that key's
@@ -88,8 +91,15 @@ async function handleListBibles(msg) {
 }
 
 async function handleGetChapter(msg) {
-  const { provider, bibleId, chapterId, ldsBook, chapter } = msg;
+  const { provider, bibleId, chapterId } = msg;
   if (!provider || !bibleId || !chapterId) return { error: { code: C.ERR.UNKNOWN, message: 'Bad request' } };
+
+  // The bundled Bible is read from the extension's own files: no key, no
+  // rate limiter, no usage report, and nothing worth caching.
+  if (provider === C.PROVIDER_BUNDLED) {
+    const bundled = await API.fetchBundledChapter(bibleId, chapterId);
+    return bundled.error ? bundled : bundled.payload;
+  }
 
   // Cache first (does not count against rate limits). An api.bible chapter
   // is cached with its FUMS token, reported on every display.
@@ -97,22 +107,16 @@ async function handleGetChapter(msg) {
   if (cached) return displayed(cached);
 
   const s = await SETTINGS.get();
-
-  let result;
-  if (provider === C.PROVIDER_BIBLEAPI) {
-    result = await API.fetchBibleApiChapter(bibleId, ldsBook, chapter);
-  } else {
-    if (!s.apiKey) return { error: { code: C.ERR.NO_KEY, message: 'No API key set' } };
-    const gate = await RATE.check();
-    if (!gate.ok) {
-      return { error: { code: C.ERR.RATE_LIMITED, message: gate.reason, retryAfterMs: gate.retryAfterMs } };
-    }
-    result = await API.fetchApiBibleChapter(s.apiKey, bibleId, chapterId);
-    await RATE.consume();
-    // The stored key stopped working: its cached version list would still tell
-    // the options page "Connected", so the page fetches afresh and says why.
-    if (result.error && result.error.code === C.ERR.INVALID_KEY) await CACHE.dropBibles();
+  if (!s.apiKey) return { error: { code: C.ERR.NO_KEY, message: 'No API key set' } };
+  const gate = await RATE.check();
+  if (!gate.ok) {
+    return { error: { code: C.ERR.RATE_LIMITED, message: gate.reason, retryAfterMs: gate.retryAfterMs } };
   }
+  const result = await API.fetchApiBibleChapter(s.apiKey, bibleId, chapterId);
+  await RATE.consume();
+  // The stored key stopped working: its cached version list would still tell
+  // the options page "Connected", so the page fetches afresh and says why.
+  if (result.error && result.error.code === C.ERR.INVALID_KEY) await CACHE.dropBibles();
 
   if (result.error) return result;
   const entry = result.fumsToken ? Object.assign({}, result.payload, { fumsToken: result.fumsToken }) : result.payload;
