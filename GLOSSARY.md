@@ -88,8 +88,16 @@ passage (STPJS) — else the paragraph that contains the cite's snippet (most
 2020s GC cites carry no paragraph anchor).
 
 **Snippet**:
-The short excerpt shown under a citation row. Normally the text around the
-citation span; for STPJS (`T`) it is the body passage instead.
+The excerpt a bundled corpus cuts at build time, shown under a citation row.
+Normally the text around the citation span; for STPJS (`T`) it is the body
+passage instead. A references-only corpus has none; see excerpt.
+
+**Excerpt**:
+The text shown under a citation row: a bundled corpus's snippet, or, for a
+references-only corpus, the cite's target paragraph fetched when the row comes
+on screen inside a source-type group the reader opened. While the fetch is
+pending the row reserves the excerpt's size from a per-cite character count.
+_Avoid_: preview, teaser
 
 **Body passage**:
 In STPJS talks, the sentence(s) the footnote annotates — the text around the
@@ -379,6 +387,25 @@ Which source a cite's facts came from: the BYU database the pack was first
 built from, or the Church's own talk page (its footnotes and scripture links).
 A property of one cite within a pack.
 _Avoid_: origin, source (which names the talk)
+
+**Inclusion rule**:
+Which of a corpus's BYU cites a data pack keeps: `all` (every cite, the
+comprehensive-factual-index reading) or `verbatim` (only cites re-derived by
+quotation matching against public-domain scripture, BYU's data not an input).
+A build input per corpus, recorded in the pack descriptor.
+_Avoid_: filter, cite policy
+
+**Derivation run**:
+The pack refresh step for one conference: the conference's talk pages (fetched
+from the Church content endpoint, or saved by the owner from a browser) yield
+explicit verse references, written as derived cites. One run per conference,
+idempotent.
+_Avoid_: bridge run, scrape
+
+**Store zip**:
+The upload package for the Chrome Web Store, made from the committed tree
+alone, so nothing gitignored can ship.
+_Avoid_: bundle, release build
 
 **Derived cite**:
 A cite whose provenance is the Church's talk page. Every conference newer than
