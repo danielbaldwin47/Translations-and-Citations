@@ -55,6 +55,22 @@ console.log('chapterIndex (fixtures):');
   check(!(42 in r.byVerse), 'a verse past the chapter\'s end is gone');
 }
 
+// The footnote locator takes the k-th matching link, where k is the cite's
+// rank by cite id among the talk's cites of the same reference in the chapter.
+console.log('refRanks (fixtures):');
+{
+  const deep = (a, b, msg) => check(JSON.stringify(a) === JSON.stringify(b), `${msg} (got ${JSON.stringify(a)}, want ${JSON.stringify(b)})`);
+  const cites = {
+    900: { t: 1, v: '33' }, 120: { t: 1, v: '33' }, 45: { t: 1, v: '33' },
+    46: { t: 1, v: '1-3,14' }, 47: { t: 1, v: '14,1-3' },
+    48: { t: 2, v: '33' }, 49: { t: 1, v: '34', a: 'p4' },
+  };
+  deep(citData.refRanks(['900', '120', '45', '46', '47', '48', '49'], cites),
+    { 45: 1, 46: 1, 47: 2, 48: 1, 49: 1, 120: 2, 900: 3 },
+    'ranked by numeric cite id within one talk and one verse set; other talks rank apart');
+  deep(citData.refRanks(['45', 'gone'], cites), { 45: 1 }, 'an id with no cite record gets no rank');
+}
+
 const index = readJSON('index.json');
 const sources = readJSON('sources.json');
 

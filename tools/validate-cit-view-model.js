@@ -56,8 +56,8 @@ const gc = (sp, ti, d) => ({ c: 'G', sp, ti, d, lbl: `${d} General Conference` }
 const jod = (sp, ti, d, lbl) => ({ c: 'J', sp, ti, d, lbl: lbl || 'Journal of Discourses 4:12' });
 const tpjs = (sp, ti, d) => ({ c: 'T', sp, ti, d, lbl: 'Teachings of the Prophet Joseph Smith, p. 2' });
 
-// Ten one-cite talks far from the verses under test, so a fixture passes the
-// open-everything threshold (12 talks) and its groups start collapsed.
+// Ten one-cite talks far from the verses under test, so a fixture has the
+// talk counts of a busy chapter (summary, toolbar, by-source chip).
 const FILLER = Array.from({ length: 10 }, (_, i) =>
   ({ citId: 'f' + i, verses: [40 + i], source: gc('Filler', 'Pad', '1990-04'), snippet: 'padding' }));
 
@@ -223,7 +223,7 @@ console.log('By-verse layout:');
 
   eq(allGroups(view).filter((g) => g.kind === 'sourceType').every((g) => g.open), true,
     'source-type groups start open, so opening a verse shows its talks');
-  eq(v3.open, false, 'verse groups start collapsed on a chapter with many talks');
+  eq(v3.open, false, 'verse groups start collapsed');
 
   // Range badge only on spanning cites.
   eq(v3.children[0].rows[0].rangeLabel, 'vv. 3–5', 'spanning cite carries its range label');
@@ -370,7 +370,7 @@ console.log('By-source layout:');
   eq(view.groups[0].rows[0].rangeLabel, 'v. 16', 'single-verse row is labelled too');
   eq(view.groups[0].count, 13, 'source-type chip counts its talks');
   eq(view.groups[0].a11yLabel, 'General Conference, 13 talks', 'source-type screen-reader label');
-  eq(view.groups[0].open, false, 'by-source groups start collapsed on a chapter with many talks');
+  eq(view.groups[0].open, false, 'by-source groups start collapsed');
 }
 
 {
@@ -395,7 +395,7 @@ console.log('By-source layout:');
   eq(view.summary, '3 talks cite this chapter', 'summary counts talks, not cites');
 }
 
-// --- summary line + open rules + toolbar gate ----------------------------
+// --- summary line + toolbar gate -----------------------------------------
 console.log('Summary line:');
 {
   const one = makeData([{ citId: 'a', verses: [16], source: gc('A', 'T', '2020-04') }]);
@@ -410,22 +410,41 @@ console.log('Summary line:');
   eq(VM.buildView(three, OPTS).summary, '3 talks cite this chapter', 'plural, by verse');
   eq(VM.buildView(three, SRC).summary, '3 talks cite this chapter', 'plural, by source');
   eq(VM.buildView(three, OPTS).showTools, false, 'toolbar hidden below 4 talks');
-  eq(allGroups(VM.buildView(three, OPTS)).every((g) => g.open), true, 'a small chapter opens everything, by verse');
-  eq(VM.buildView(three, SRC).groups.every((g) => g.open), true, 'a small chapter opens everything, by source');
-
   const four = makeData([3, 4, 5, 6].map((v) => ({ citId: 'c' + v, verses: [v], source: gc('S', 'T', '2020-04') })));
   eq(VM.buildView(four, OPTS).showTools, true, 'toolbar shown from 4 talks');
+}
 
-  const twelve = makeData(Array.from({ length: 12 }, (_, i) => ({ citId: 'c' + i, verses: [i + 1], source: gc('S', 'T', '2020-04') })));
-  eq(VM.buildView(twelve, OPTS).groups.every((g) => g.open), true, '12 talks still open everything');
-  const thirteen = makeData(Array.from({ length: 13 }, (_, i) => ({ citId: 'c' + i, verses: [i + 1], source: gc('S', 'T', '2020-04') })));
-  eq(VM.buildView(thirteen, OPTS).groups.some((g) => g.open), false, '13 talks start collapsed');
+// Groups start collapsed (spec #69 A19): opening a group is the reader's act,
+// and it is what starts a fetched excerpt. Three things still open on their
+// own: the focus verse's group on first build, groups a typed filter matches
+// (Toolbar state below), and the source-type groups inside a verse group, so
+// the click on the verse is the trigger.
+console.log('Open rules:');
+{
+  const three = makeData([
+    { citId: 'a', verses: [3], source: gc('A', 'T', '2020-04') },
+    { citId: 'b', verses: [4], source: jod('B', 'T', '1857-07') },
+    { citId: 'c', verses: [5], source: gc('C', 'T', '2020-04') },
+  ]);
+  const byVerse = VM.buildView(three, OPTS);
+  eq(byVerse.groups.some((g) => g.open), false, 'a small chapter starts collapsed, by verse');
+  eq(allGroups(byVerse).filter((g) => g.kind === 'sourceType').every((g) => g.open), true,
+    'source-type groups inside a verse start open, so the verse click shows its talks');
+  eq(VM.buildView(three, SRC).groups.some((g) => g.open), false, 'a small chapter starts collapsed, by source');
+  eq(byVerse.focusUid, null, 'no focus verse, no focus group');
 
-  // The same talk citing twice counts once toward the threshold.
-  const repeat = makeData(Array.from({ length: 13 }, (_, i) =>
-    ({ citId: 'c' + i, talkId: i < 2 ? 'same' : undefined, verses: [i + 1], source: gc('S', 'T', '2020-04') })));
-  eq(VM.buildView(repeat, OPTS).talks, 12, 'talks are counted once each');
-  eq(VM.buildView(repeat, OPTS).groups.every((g) => g.open), true, 'the open-everything threshold counts talks');
+  const one = makeData([{ citId: 'a', verses: [16], source: gc('A', 'T', '2020-04') }]);
+  eq(VM.buildView(one, SRC).groups[0].open, false, 'even a one-talk chapter starts collapsed');
+
+  const focused = VM.buildView(three, Object.assign({}, OPTS, { focusVerse: 4 }));
+  deep(focused.groups.filter((g) => g.open).map((g) => g.verse), [4], 'only the focus verse opens on a small chapter');
+  eq(VM.buildView(three, Object.assign({}, SRC, { focusVerse: 4 })).groups.some((g) => g.open), false,
+    'by source there is no verse group, so a focus verse opens nothing');
+
+  // Filtering opens what matches, on a small chapter too.
+  const plan = VM.filterPlan(byVerse, 'journal', VM.initialState(byVerse));
+  eq(plan.open[byVerse.groups[1].uid], true, 'a filter match opens its verse group');
+  eq(plan.open[byVerse.groups[0].uid], false, 'a group with no match stays closed');
 }
 
 console.log('Empty states:');
