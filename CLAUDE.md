@@ -50,8 +50,10 @@ content are not redistributable, so **never** the Chrome Web Store (ADR-0003).
   account or sync storage (ADR-0004).
 - **Settings go through `__BTX.settings`** — never `chrome.storage.sync`
   directly (`validate-settings.js` enforces this).
-- **Docs are written for agents.** Before creating or editing `CLAUDE.md`,
-  `GLOSSARY.md`, anything under `docs/`, or a module header comment, load
+- **Docs are written for agents.** Before creating or editing anything an
+  agent will read as instructions — `CLAUDE.md`, `GLOSSARY.md`, anything under
+  `docs/`, a module header comment, or an issue an agent works from (a spec, a
+  wayfinder ticket, a `ready-for-agent` issue) — load
   `/mattpocock-skills:writing-for-agents` and apply it.
 
 ## Layout
