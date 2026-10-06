@@ -66,7 +66,7 @@ const INSPECT = process.argv.includes('--inspect');
 // Key order is display order of source types (the reader groups in first-seen order).
 const CORPORA = {
   G: { sourceType: 'General Conference', text: 'live-church', target: 'anchor', excerpt: 'bundled', inclusion: 'all' },
-  E: { sourceType: 'General Conference', text: 'bundled', target: 'citationSpan', excerpt: 'bundled', inclusion: 'all' },
+  E: { sourceType: 'General Conference', text: 'live-byu', target: 'citationSpan', excerpt: 'bundled', inclusion: 'all' },
   J: { sourceType: 'Journal of Discourses', text: 'bundled', target: 'citationSpan', excerpt: 'bundled', inclusion: 'all' },
   // The gated element (ADR-0008): personal pack only.
   T: { sourceType: 'Teachings of the Prophet Joseph Smith', text: 'bundled', target: 'bodyPassage', excerpt: 'bundled', inclusion: 'all' },

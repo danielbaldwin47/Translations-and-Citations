@@ -7,6 +7,7 @@
   "host_permissions": [
     "https://api.scripture.api.bible/*",
     "https://fums.api.bible/*",
+    "https://scriptures.byu.edu/*",
     "https://bible-api.com/*"
   ],
   "background": {

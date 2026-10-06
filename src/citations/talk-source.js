@@ -2,30 +2,38 @@
  * Talk source: the one place that knows how a talk is obtained and where its
  * cite sits inside it. Answers a single question for the reader —
  *
- *     load({ entry, source }) -> { html, url, findTarget(container) }
+ *     load({ entry, source }) -> { html, url, destination, credit, findTarget(container) }
+ *     destination({ entry, source }) -> { href, label } | null
  *
  * "give me displayable HTML for this cite, plus how to find its target once
- * that HTML is rendered". Corpus differences (live fetch vs bundled gzip,
- * paragraph anchor vs citation span vs STPJS body passage) are decided by the
- * corpus plan; talk-view renders and scrolls, and decides nothing per corpus.
+ * that HTML is rendered, where to read it on the web, and whose text it is".
+ * Corpus differences (Church fetch vs BYU fetch vs bundled gzip, paragraph
+ * anchor vs citation span vs STPJS body passage, Church page vs BYU viewer)
+ * are decided by the corpus plan; talk-view renders and scrolls, and decides
+ * nothing per corpus.
+ *
+ * Fetch policy (FETCH_POLICY, this module's alone): per-host request slots
+ * (6 to the Church site, 2 to BYU), one session-only talk cache shared by
+ * every view of a talk (bounded LRU, in memory, never persisted), and the
+ * 15-second timeout. No prefetch. Row excerpts (#76) are to share the cache
+ * and the slots through cachedTalk and request.
  *
  * Descriptor contract: the corpus plan is a pure function of the pack
  * descriptor (citData.loadPack().descriptor, written by
  * tools/build-citation-data.js) — corpusPlan(descriptor, corpus, { hasUrl })
  * reads the corpus's `text` and `target` and nothing else; this module holds
  * no per-corpus table. A corpus the descriptor lacks has no plan, so load()
- * hands back no HTML, no URL and no target for it.
+ * hands back no HTML, no URL, no destination and no target for it.
  *
  * Every corpus shares one last resort: when the plan's target is missing (most
- * General Conference cites from 2020 on carry no paragraph anchor, and live
+ * General Conference cites from 2020 on carry no paragraph anchor, and Church
  * HTML has no citation spans), the target is the first paragraph whose text
  * holds the cite's snippet (snippetKey / snippetMatches).
  *
- * A live fetch gives up after LIVE_TIMEOUT_MS, so a hung request ends in the
- * reader's error state rather than an endless spinner.
- *
- * The DOM-free half (corpusPlan, the pre-2013 URL repair, snippetKey,
- * snippetMatches) is exported for Node: `node --test tools/test-talk-source.js`.
+ * The DOM-free half (corpusPlan, readingDestination, the BYU URL builders,
+ * the pre-2013 URL repair, snippetKey, snippetMatches) is exported for Node,
+ * and load() runs there over a stubbed fetch and citData:
+ * `node --test tools/test-talk-source.js`.
  *
  * IIFE -> __BTX.talkSource (+ module.exports for the Node tests).
  */
@@ -37,8 +45,7 @@
   // The corpus plan, read from the pack descriptor's entry for the corpus
   // (GLOSSARY.md "Pack descriptor", "Corpus"):
   //   text   'live-church' — same-origin fetch from churchofjesuschrist.org
-  //          'live-byu'     — fetched from scriptures.byu.edu (not wired yet:
-  //                           reads the bundle until the BYU fetch lands)
+  //          'live-byu'     — BYU's talk fragment from scriptures.byu.edu (byuTalkUrl)
   //          'bundled'      — the pack's talks/{talkId}.html.gz
   //   target 'anchor'       — the talk's paragraph anchor (pN), citation span as fallback
   //          'citationSpan' — <span class="citation" id="{citId}"> in the talk markup
@@ -57,6 +64,31 @@
     return { text, target: entry.target };
   }
 
+  /* --------------------------------------------------------------------- BYU */
+
+  const BYU_ORIGIN = 'https://scriptures.byu.edu';
+  // A BYU talk id is its decimal TalkID; a derived talk's id (a Church path)
+  // is not one, and has no BYU fragment or viewer.
+  const byuTalkNumber = (talkId) => (/^\d+$/.test(String(talkId == null ? '' : talkId)) ? Number(talkId) : null);
+
+  // BYU's talk fragment: the talk's markup, served to any origin with a
+  // wildcard CORS header, so the content script fetches it with credentials
+  // omitted. Its citation-span ids are the index's citIds.
+  function byuTalkUrl(talkId) {
+    const n = byuTalkNumber(talkId);
+    return n == null ? null : `${BYU_ORIGIN}/content/talks_ajax/${n}`;
+  }
+
+  // BYU's viewer at one talk: `#:t{talk id in hex}${citation-span id}`. The
+  // `$` segment is the span's decimal id, which the viewer highlights and
+  // scrolls to (verified in a browser, October 5, 2026: #:t379$22657).
+  function byuViewerUrl(talkId, citId) {
+    const n = byuTalkNumber(talkId);
+    if (n == null) return null;
+    const cite = citId == null || citId === '' ? '' : `$${citId}`;
+    return `${BYU_ORIGIN}/#:t${n.toString(16)}${cite}`;
+  }
+
   /* ---------------------------------------------------------------- fetching */
 
   // Pre-Oct-2013 GC talks were stored without their session segment, e.g.
@@ -66,7 +98,19 @@
   // qualified URL per original so we only resolve once per session.
   const resolvedUrlCache = new Map();
 
-  const LIVE_TIMEOUT_MS = 15000;
+  // Fetch policy (spec #69 "Reader"): the talk source is its one home.
+  //   slots      requests in flight at once, per host; a request holds its
+  //              slot until its body has arrived or failed
+  //   talkCache  talks the session cache holds (see cachedTalk)
+  //   timeoutMs  a request gives up after this, so a hung one ends in the
+  //              reader's error state rather than an endless spinner
+  // No prefetch: a talk is fetched only when a view asks for it.
+  const FETCH_POLICY = Object.freeze({
+    slots: Object.freeze({ 'www.churchofjesuschrist.org': 6, 'scriptures.byu.edu': 2 }),
+    talkCache: 60,
+    timeoutMs: 15000,
+  });
+  const LIVE_TIMEOUT_MS = FETCH_POLICY.timeoutMs;
   const liveFetch = (url) => fetch(url, { credentials: 'omit', signal: AbortSignal.timeout(LIVE_TIMEOUT_MS) });
 
   function lastSlug(pathname) {
@@ -114,6 +158,28 @@
     return `${base}${sep}id=${anchor}#${anchor}`;
   }
 
+  // The reading destination: the page the reader header's external link and
+  // the error state open, per corpus plan. Pure.
+  //   live-church  the Church page at the paragraph anchor; `url` (the
+  //                effective URL after a repaired redirect) beats source.url
+  //   live-byu     BYU's viewer at the citation span
+  //   bundled      the source's own URL when it has one (the Journal of
+  //                Discourses' Wikisource permalink), else none
+  // -> { href, label } | null. The label names the destination's host.
+  function readingDestination(plan, { entry, source, url } = {}) {
+    if (!plan) return null;
+    const e = entry || {};
+    const page = url || (source && source.url) || null;
+    let href = null;
+    if (plan.text === 'live-byu') href = byuViewerUrl(e.talkId, e.citId);
+    else if (plan.text === 'live-church') href = page && fullTalkUrl(page, e.anchor);
+    else href = page;
+    if (!href) return null;
+    let host;
+    try { host = new URL(href).hostname.replace(/^www\./, ''); } catch (err) { return null; }
+    return { href, label: `Open on ${host}` };
+  }
+
   // Absolute hrefs of every link in `html`. A single unparseable href must not
   // abort the repair, so each one is resolved defensively.
   function hrefsIn(html, baseUrl) {
@@ -125,9 +191,33 @@
     return out;
   }
 
-  // The body can still fail (or time out) after the headers arrived.
-  async function bodyText(res) {
-    try { return await res.text(); } catch (e) { return null; }
+  // Per-host request slots (FETCH_POLICY.slots; a host not listed gets one).
+  // A request waits its turn in arrival order; a finished one hands its slot
+  // straight to the next waiter.
+  const slotState = new Map(); // host -> { busy, waiting: [wake] }
+  async function withSlot(host, task) {
+    let s = slotState.get(host);
+    if (!s) slotState.set(host, (s = { busy: 0, waiting: [] }));
+    if (s.busy >= (FETCH_POLICY.slots[host] || 1)) await new Promise((wake) => s.waiting.push(wake));
+    else s.busy++;
+    try { return await task(); }
+    finally {
+      const next = s.waiting.shift();
+      if (next) next(); else s.busy--;
+    }
+  }
+
+  // One GET under its host's slot, held until the body has arrived (the body
+  // can still fail or time out after the headers). Never throws:
+  // -> { ok, url, html }; ok false and url null when the request itself failed.
+  function request(url) {
+    return withSlot(new URL(url).hostname, async () => {
+      let res;
+      try { res = await liveFetch(url); } catch (e) { return { ok: false, url: null, html: null }; }
+      let html = null;
+      if (res.ok) { try { html = await res.text(); } catch (e) { html = null; } }
+      return { ok: res.ok, url: res.url || url, html };
+    });
   }
 
   // Fetch a live church talk, recovering from the pre-2013 session-less redirect.
@@ -135,14 +225,12 @@
   // url is the effective talk URL (resolved when a redirect was repaired). Never throws.
   async function fetchLiveTalk(originalUrl) {
     const target = resolvedUrlCache.get(originalUrl) || originalUrl;
-    let res;
-    try { res = await liveFetch(target); }
-    catch (e) { return { html: null, url: originalUrl }; }
-    if (!res.ok) return { html: null, url: res.url };
+    const r = await request(target);
+    if (!r.ok) return { html: null, url: r.url || originalUrl };
 
     // Common case (post-2013, or an already-resolved cache hit): not bounced.
-    if (resolvedUrlCache.has(originalUrl) || !bouncedToConference(originalUrl, res.url)) {
-      return { html: await bodyText(res), url: res.url };
+    if (resolvedUrlCache.has(originalUrl) || !bouncedToConference(originalUrl, r.url)) {
+      return { html: r.html, url: r.url };
     }
 
     // Bounced to the conference landing page: recover from its table of contents.
@@ -150,20 +238,72 @@
     try {
       realUrl = pickSessionUrl({
         originalUrl,
-        landedUrl: res.url,
-        hrefs: hrefsIn((await bodyText(res)) || '', res.url),
+        landedUrl: r.url,
+        hrefs: hrefsIn(r.html || '', r.url),
         origin: location.origin,
       });
     } catch (e) { /* fall through */ }
-    if (!realUrl) return { html: null, url: res.url }; // couldn't resolve -> bundled/CTA fallback
+    if (!realUrl) return { html: null, url: r.url }; // couldn't resolve -> error state
 
-    let res2;
-    try { res2 = await liveFetch(realUrl); }
-    catch (e) { return { html: null, url: realUrl }; }
-    if (!res2.ok) return { html: null, url: res2.url };
-    const html = await bodyText(res2);
-    if (html != null) resolvedUrlCache.set(originalUrl, realUrl);
-    return { html, url: res2.url };
+    const r2 = await request(realUrl);
+    if (!r2.ok) return { html: null, url: r2.url || realUrl };
+    if (r2.html != null) resolvedUrlCache.set(originalUrl, realUrl);
+    return { html: r2.html, url: r2.url };
+  }
+
+  /* ------------------------------------------------------------ fetch policy */
+
+  // The session talk cache: one fetch per talk per session, shared by every
+  // view of the talk (the reader now, row excerpts later). It holds the
+  // promise, so views that ask at once share one request; it keeps only
+  // successes (a failure is dropped, so Try again asks the network again);
+  // it is bounded, evicting the least recently used talk; and it lives in
+  // this module's memory only, never in storage, so a reload empties it.
+  const TALK_CACHE_MAX = FETCH_POLICY.talkCache;
+
+  function lruCache(max) {
+    const map = new Map();
+    return {
+      get(key) {
+        if (!map.has(key)) return undefined;
+        const v = map.get(key);
+        map.delete(key);
+        map.set(key, v);
+        return v;
+      },
+      set(key, v) {
+        map.delete(key);
+        map.set(key, v);
+        while (map.size > max) map.delete(map.keys().next().value);
+      },
+      peek(key) { return map.get(key); },
+      delete(key) { map.delete(key); },
+    };
+  }
+
+  const talkCache = lruCache(TALK_CACHE_MAX);
+
+  // `fetcher()` -> Promise<{ html, url }> (never rejects), once per talk.
+  function cachedTalk(talkId, fetcher) {
+    const key = String(talkId);
+    let p = talkCache.get(key);
+    if (!p) {
+      p = fetcher();
+      talkCache.set(key, p);
+      p.then((r) => { if ((!r || r.html == null) && talkCache.peek(key) === p) talkCache.delete(key); });
+    }
+    return p;
+  }
+
+  // The byline line of a talk whose text came from BYU (spec #69 disclosure).
+  const BYU_CREDIT = 'Text fetched from scriptures.byu.edu';
+
+  // Fetch an early-conference talk's fragment from BYU -> its HTML, or null.
+  // Never throws. The fragment wraps the talk's div.gcera in viewer chrome;
+  // talk-view renders only the content root, so the chrome never shows.
+  async function fetchByuTalk(talkId) {
+    const url = byuTalkUrl(talkId);
+    return url ? (await request(url)).html : null;
   }
 
   /* ------------------------------------------------------------ scroll target */
@@ -243,39 +383,59 @@
 
   /* -------------------------------------------------------------------- load */
 
-  // Public: obtain displayable HTML for `entry` plus how to find its target.
-  // Returns { html, url, findTarget(container) }; html is null when the talk
-  // could not be loaded (caller shows the "open on the site" fallback).
-  async function load({ entry, source }) {
-    const src = source || {};
+  async function planFor(src) {
     let pack = null;
     try { pack = await citData().loadPack(); } catch (e) { pack = null; }
-    const plan = corpusPlan(pack && pack.descriptor, src.c, { hasUrl: !!src.url });
-    if (!plan) return { html: null, url: null, findTarget: () => null };
+    return corpusPlan(pack && pack.descriptor, src.c, { hasUrl: !!src.url });
+  }
+
+  // Public: the cite's reading destination before its talk loads (the header
+  // link shows at once) -> Promise<{ href, label } | null>. load() returns the
+  // same, with the effective URL of a repaired redirect.
+  async function destination({ entry, source }) {
+    const src = source || {};
+    return readingDestination(await planFor(src), { entry, source: src });
+  }
+
+  // Public: obtain displayable HTML for `entry` plus how to find its target.
+  // Returns { html, url, destination, credit, findTarget(container) }:
+  //   html         null when the talk could not be loaded (the caller shows
+  //                its error state, with the destination as the way out)
+  //   destination  readingDestination's { href, label } | null
+  //   credit       a byline line naming where fetched text came from, or null
+  // A live talk whose fetch failed has no html: it never falls back to the
+  // pack, whose talk files are only the bundled corpora's.
+  async function load({ entry, source }) {
+    const src = source || {};
+    const plan = await planFor(src);
+    if (!plan) return { html: null, url: null, destination: null, credit: null, findTarget: () => null };
     let html = null;
     let url = src.url || null;
-    let live = false;
 
     if (plan.text === 'live-church') {
-      const r = await fetchLiveTalk(src.url);
-      if (r.html != null) { html = r.html; live = true; }
+      const r = await cachedTalk(entry.talkId, () => fetchLiveTalk(src.url));
+      html = r.html;
       url = r.url || src.url;
-    }
-    if (html == null) { // a bundled talk, or a live one whose fetch failed
+    } else if (plan.text === 'live-byu') {
+      html = (await cachedTalk(entry.talkId, async () => ({ html: await fetchByuTalk(entry.talkId), url: null }))).html;
+    } else {
       try { html = await citData().loadTalkHtml(entry.talkId); }
       catch (e) { html = null; }
     }
+    const live = html != null && plan.text !== 'bundled';
 
     return {
       html,
       url,
+      destination: readingDestination(plan, { entry, source: src, url }),
+      credit: html != null && plan.text === 'live-byu' ? BYU_CREDIT : null,
       findTarget: (container) => findTarget(container, { plan, entry, live }),
     };
   }
 
   const API = {
-    load, corpusPlan, fullTalkUrl, pickSessionUrl, bouncedToConference, lastSlug,
-    snippetKey, snippetMatches,
+    load, destination, corpusPlan, fullTalkUrl, pickSessionUrl, bouncedToConference, lastSlug,
+    snippetKey, snippetMatches, byuTalkUrl, byuViewerUrl, readingDestination, FETCH_POLICY,
   };
 
   if (typeof module !== 'undefined' && module.exports) module.exports = API;

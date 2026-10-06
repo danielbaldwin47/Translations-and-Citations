@@ -36,7 +36,7 @@ const visibleRowIds = (view, plan) =>
 // (tools/build-citation-data.js packDescriptor): the public pack lists no T.
 const CORPORA = {
   G: { sourceType: 'General Conference', text: 'live-church', target: 'anchor', excerpt: 'bundled', inclusion: 'all' },
-  E: { sourceType: 'General Conference', text: 'bundled', target: 'citationSpan', excerpt: 'bundled', inclusion: 'all' },
+  E: { sourceType: 'General Conference', text: 'live-byu', target: 'citationSpan', excerpt: 'bundled', inclusion: 'all' },
   J: { sourceType: 'Journal of Discourses', text: 'bundled', target: 'citationSpan', excerpt: 'bundled', inclusion: 'all' },
 };
 const PACK_FACTS = { vintage: '2026-04', base: { db: 'core.53.db', updated: '2026-05-18' }, derived: [] };
