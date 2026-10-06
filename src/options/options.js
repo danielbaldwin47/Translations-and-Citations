@@ -124,9 +124,11 @@
 
   // A list from the worker's cache can predate a version the reader turned on
   // elsewhere; the stored rows ride along so the form still shows them on.
+  // The bundled World English Bible is not one of the key's versions (the
+  // settings module keeps its row on), so it never joins the checklist.
   function withStored(list, stored) {
     const ids = new Set((list || []).map((t) => t.id));
-    return (list || []).concat((stored || []).filter((t) => t && t.id && !ids.has(t.id)));
+    return (list || []).concat((stored || []).filter((t) => t && t.id && !ids.has(t.id) && t.provider !== C.PROVIDER_BUNDLED));
   }
 
   // Which versions start checked when a key connects. The stored selection

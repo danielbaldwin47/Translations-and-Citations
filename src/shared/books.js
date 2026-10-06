@@ -1,6 +1,6 @@
 /*
- * Book mapping: LDS scripture URL slug -> USFM code (api.bible) and full name
- * (bible-api.com). Slugs verified against the live churchofjesuschrist.org
+ * Book mapping: LDS scripture URL slug -> USFM code (api.bible, the bundled
+ * Bible) and full English name. Slugs verified against the live churchofjesuschrist.org
  * /study/scriptures/ot and /nt table of contents.
  *
  * Same IIFE/namespace pattern as constants.js so it loads in every context.
@@ -28,8 +28,8 @@
     jude: 'JUD', rev: 'REV',
   };
 
-  // LDS URL slug -> full English book name (used by bible-api.com queries).
-  const LDS_TO_BIBLEAPI = {
+  // LDS URL slug -> full English book name.
+  const BIBLE_NAMES = {
     gen: 'Genesis', ex: 'Exodus', lev: 'Leviticus', num: 'Numbers', deut: 'Deuteronomy',
     josh: 'Joshua', judg: 'Judges', ruth: 'Ruth', '1-sam': '1 Samuel', '2-sam': '2 Samuel',
     '1-kgs': '1 Kings', '2-kgs': '2 Kings', '1-chr': '1 Chronicles', '2-chr': '2 Chronicles', ezra: 'Ezra',
@@ -73,13 +73,9 @@
     return Object.prototype.hasOwnProperty.call(LDS_TO_USFM, slug) ? LDS_TO_USFM[slug] : null;
   }
 
-  function ldsToBibleApi(slug) {
-    return Object.prototype.hasOwnProperty.call(LDS_TO_BIBLEAPI, slug) ? LDS_TO_BIBLEAPI[slug] : null;
-  }
-
   // Display name for any standard-works book (Bible or otherwise).
   function bookFullName(slug) {
-    if (Object.prototype.hasOwnProperty.call(LDS_TO_BIBLEAPI, slug)) return LDS_TO_BIBLEAPI[slug];
+    if (Object.prototype.hasOwnProperty.call(BIBLE_NAMES, slug)) return BIBLE_NAMES[slug];
     if (Object.prototype.hasOwnProperty.call(NON_BIBLE_NAMES, slug)) return NON_BIBLE_NAMES[slug];
     return null;
   }
@@ -103,8 +99,8 @@
   }
 
   const BOOKS = {
-    LDS_TO_USFM, LDS_TO_BIBLEAPI, NON_BIBLE_NAMES, SLUG_TO_COLLECTION,
-    ldsToUsfm, ldsToBibleApi, bookFullName,
+    LDS_TO_USFM, BIBLE_NAMES, NON_BIBLE_NAMES, SLUG_TO_COLLECTION,
+    ldsToUsfm, bookFullName,
     isBibleCollection, isScriptureCollection, isKnownBook,
   };
 

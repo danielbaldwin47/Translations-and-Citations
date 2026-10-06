@@ -116,6 +116,8 @@ console.log('withStored:');
 eq(ids(F.withStored([NIV, NKJV], [NIV, { id: 'nasb', abbr: 'NASB', name: 'NASB' }])), ['niv', 'nkjv', 'nasb'],
   'a stored version missing from the (possibly day-old) list rides along at the end');
 eq(ids(F.withStored([NIV], undefined)), ['niv'], 'no stored list adds nothing');
+eq(ids(F.withStored([NIV], [NIV, { id: 'engwebp', abbr: 'WEB', name: 'World English Bible', provider: 'bundled' }])), ['niv'],
+  'the bundled World English Bible is not an api.bible version: it never joins the checklist');
 
 // ---- initialChecks: which versions start checked when a key connects ----
 console.log('initialChecks:');

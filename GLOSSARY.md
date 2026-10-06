@@ -124,8 +124,9 @@ The user's preferred panel feature: Translation or Citations. Stored as the
 `panelMode` setting, owned by the panel.
 
 **Translatable** (of a chapter):
-Some enabled text offers it: an enabled api.bible translation on a Bible
-chapter, or an enabled Church language that publishes its volume. `content.js`
+Some enabled text offers it: on a Bible chapter always (the bundled World
+English Bible is always enabled), elsewhere an enabled Church language that
+publishes its volume. `content.js`
 decides it from `churchText.textsFor`; the panel only reads the flag
 (`showChapter({ key, translatable })`).
 
@@ -141,7 +142,7 @@ override. The pure rule is `effectiveMode` / `selectMode` / `setChapter`;
 
 **Setup card**:
 Translation mode's body on an untranslatable chapter: add a Church language
-(select + Add), or set up api.bible translations (opens settings at the
+(select + Add), or, on the Bible, set up api.bible for more translations (opens settings at the
 `bible` card via `OPEN_OPTIONS {section}`), or go to the talks that cite the
 chapter.
 
@@ -149,6 +150,13 @@ chapter.
 Translation mode's body while the page split shows: where the text is (by the
 layout that actually fits), the split-layout control, and "Collapse panel for
 wider columns" when collapsing would make room (`pageSplit.collapseFits`).
+
+**Bundled Bible**:
+The World English Bible (ebible.org `engwebp`), shipped as IR files under
+`src/bible/engwebp/` and served by the worker as provider `bundled`: no key,
+rate limit or usage report. Its `enabledTranslations` row is guaranteed by the
+settings normalizer and is the default translation while no api.bible version
+is on. Its text is never edited (the condition of the name).
 
 **Church language**:
 A language the Church publishes the standard works in, offered beside the
@@ -162,7 +170,8 @@ retry. In the reader, *translation* code (the `translation` view,
 most-recently-used list of row ids, newest first) handles both kinds of row —
 tell them apart by `provider` (`'church'`). In settings,
 the options page and the worker, *translation* (`enabledTranslations`,
-`defaultTranslationId`) still means api.bible versions only.
+`defaultTranslationId`) means a Bible version: api.bible's, or the bundled
+World English Bible.
 
 **Page split**:
 A Church-language chapter set into the site's own reading column, each block

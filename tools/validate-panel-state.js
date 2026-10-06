@@ -643,10 +643,13 @@ console.log('setupCopy:');
 {
   const bible = P.setupCopy({ chapter: 'John 3', bible: 'nokey' });
   eq(bible.heading, 'Read John 3 in another translation or language', 'a Bible chapter offers translations and languages');
-  eq(bible.bible, { text: 'Bible translations such as NIV and NKJV need a free api.bible key.', button: 'Set up Bible translations' },
-    'no key yet: the api.bible block says what is needed and sets it up');
-  eq(P.setupCopy({ chapter: 'John 3', bible: 'noversions' }).bible.button, 'Choose Bible translations',
-    'a key but nothing turned on: the button goes to choosing');
+  // The World English Bible ships with the extension, so api.bible is the
+  // way to *more* translations, not the way to any.
+  eq(bible.bible, { text: 'More Bible translations, such as NIV and NKJV, need a free api.bible key.', button: 'Set up more translations' },
+    'no key yet: the api.bible block offers more translations and sets them up');
+  eq(P.setupCopy({ chapter: 'John 3', bible: 'noversions' }).bible,
+    { text: 'Turn on more Bible translations from your api.bible key.', button: 'Choose Bible translations' },
+    'a key but no version on: the button goes to choosing');
   const bofm = P.setupCopy({ chapter: 'Alma 5', bible: null });
   eq(bofm.heading, 'Read Alma 5 in another language', 'off the Bible only languages are offered');
   eq(bofm.bible, null, '...and there is no api.bible block');

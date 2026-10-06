@@ -4,7 +4,9 @@
  *
  *   listBibles(key)                      -> { bibles: [{ id, name, abbr, description, copyright, provider }], partial? } | { error }
  *   fetchApiBibleChapter(key, id, chap)  -> { payload: { blocks, copyright, reference }, fums } | { error }
- *   fetchBibleApiChapter(id, book, chap) -> { payload } | { error }
+ *   fetchBundledChapter(id, chapterId)   -> { payload: { blocks, copyright, reference } } | { error }
+ *                                           the World English Bible, read from the packaged
+ *                                           files (C.BUNDLED_BIBLE): no key, no limiter, no FUMS
  *
  * `partial: true` means a per-version copyright lookup failed, so some rows
  * carry no copyright and nobody can tell which versions the reader added to
@@ -19,7 +21,7 @@
  * response names a wait in Retry-After (seconds or an HTTP date); with no
  * Retry-After there is no `retryAfterMs` — nobody knows how long to wait.
  *
- * Both providers are normalized to one simple, safe intermediate representation
+ * Both providers come as one simple, safe intermediate representation
  * (IR) that the content script renders with text nodes only (no innerHTML):
  *
  *   blocks: [
@@ -29,7 +31,8 @@
  *
  * Loaded via importScripts -> self.__BTX.api. The same file loads in Node
  * (module.exports) so tools/validate-options-form.js can drive listBibles and
- * errorFor against a stubbed fetch, and check retryAfterMs.
+ * errorFor against a stubbed fetch, and check retryAfterMs, and
+ * tools/validate-bible-data.js can drive fetchBundledChapter.
  */
 (function (root) {
   'use strict';
@@ -235,39 +238,43 @@
     return out;
   }
 
-  // ---- bible-api.com chapter fetch + normalize (public domain, no key) ----
-  async function fetchBibleApiChapter(translationId, ldsBook, chapter) {
-    const usfm = BOOKS.ldsToUsfm(ldsBook);
-    if (!usfm) return err(ERR.NOT_FOUND, 'Unknown book');
-    const url = `${C.BIBLE_API_BASE}/data/${encodeURIComponent(translationId)}/${usfm}/${encodeURIComponent(chapter)}`;
-    let res;
-    try {
-      res = await fetch(url);
-    } catch (e) {
-      return err(ERR.NETWORK, String(e));
+  // ---- Bundled Bible chapter (no key, no rate limit, no reporting) ----
+  // The World English Bible ships as one IR file per USFM book under
+  // C.BUNDLED_BIBLE.dir (tools/build-bible-data.js). The worker reads its own
+  // packaged files by extension URL; the last book read is kept, so paging
+  // through a book reads its file once.
+  let bundledBook = null; // { url, data }
+
+  function packagedUrl(p) {
+    const rt = root.chrome && root.chrome.runtime;
+    return rt && typeof rt.getURL === 'function' ? rt.getURL(p) : p;
+  }
+
+  async function fetchBundledChapter(bibleId, chapterId) {
+    const B = C.BUNDLED_BIBLE;
+    const m = /^([0-9A-Z]{3})\.(\d+)$/.exec(String(chapterId || ''));
+    const slug = m && Object.keys(BOOKS.LDS_TO_USFM).find((k) => BOOKS.LDS_TO_USFM[k] === m[1]);
+    if (bibleId !== B.id || !slug) return err(ERR.NOT_FOUND, 'Not in the bundled Bible');
+    const url = packagedUrl(`${B.dir}/${m[1]}.json`);
+    if (!bundledBook || bundledBook.url !== url) {
+      let res;
+      try {
+        res = await fetch(url);
+      } catch (e) {
+        return err(ERR.UNKNOWN, String(e));
+      }
+      if (!res.ok) return err(statusToErr(res.status), `HTTP ${res.status}`);
+      bundledBook = { url, data: await res.json() };
     }
-    if (!res.ok) return err(statusToErr(res.status), `HTTP ${res.status}`);
-    const json = await res.json();
-    const verses = json.verses || [];
-    // bible-api gives no paragraph structure, so render as one continuous para.
-    const runs = [];
-    for (const v of verses) {
-      if (v.verse != null) runs.push({ t: 'v', n: String(v.verse) });
-      const text = (v.text || '').replace(/\s+/g, ' ').trim();
-      if (text) runs.push({ t: 'txt', s: text + ' ', wj: false });
-    }
-    const tr = json.translation || {};
-    const ref = (verses[0] ? `${BOOKS.ldsToBibleApi(ldsBook)} ${chapter}` : '');
+    const chapters = (bundledBook.data && bundledBook.data.chapters) || {};
+    const blocks = Object.prototype.hasOwnProperty.call(chapters, m[2]) ? chapters[m[2]] : null;
+    if (!blocks) return err(ERR.NOT_FOUND, 'No such chapter');
     return {
-      payload: {
-        blocks: runs.length ? [{ type: 'para', style: 'p', runs }] : [],
-        copyright: tr.license || tr.name || 'Public domain',
-        reference: ref,
-      },
+      payload: { blocks, copyright: B.copyright, reference: `${BOOKS.bookFullName(slug)} ${m[2]}` },
     };
   }
 
-  const API = { listBibles, fetchApiBibleChapter, fetchBibleApiChapter, errorFor, retryAfterMs };
+  const API = { listBibles, fetchApiBibleChapter, fetchBundledChapter, errorFor, retryAfterMs };
   if (typeof module !== 'undefined' && module.exports) module.exports = API;
   root.__BTX = Object.assign(root.__BTX || {}, { api: API });
 })(typeof globalThis !== 'undefined' ? globalThis : this);

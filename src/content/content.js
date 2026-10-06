@@ -324,7 +324,7 @@
       // Nothing offers the chapter, and the reader asked for Translation: the
       // setup card (never cached — the panel re-renders it every time).
       const bible = current.isBible === false ? null
-        : (e.hasKey || e.provider !== C.PROVIDER_APIBIBLE ? 'noversions' : 'nokey');
+        : (e.hasKey ? 'noversions' : 'nokey');
       return panel.showView({ name: 'translation', key: 'setup', render: () => {
         panel.showTranslation({
           kind: 'setup',

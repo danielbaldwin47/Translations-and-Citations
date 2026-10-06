@@ -14,11 +14,26 @@
   const CONST = {
     // --- API endpoints ---
     API_BIBLE_BASE: 'https://api.scripture.api.bible/v1',
-    BIBLE_API_BASE: 'https://bible-api.com',
 
     // --- Providers ---
     PROVIDER_APIBIBLE: 'api.bible',
-    PROVIDER_BIBLEAPI: 'bible-api.com',
+    PROVIDER_BUNDLED: 'bundled', // packaged with the extension: no key, no rate limit, no reporting
+
+    // --- The bundled Bible: the World English Bible (ebible.org `engwebp`) ---
+    // Its `enabledTranslations` row ({ id, abbr, name, provider }, guaranteed by
+    // __BTX.settings) and the copyright line shown under every chapter: the
+    // public-domain wording of ebible.org/engwebp/copr.htm. `dir` holds one
+    // IR file per USFM book plus index.json, written by
+    // tools/build-bible-data.js; the worker serves chapters from it.
+    BUNDLED_BIBLE: {
+      id: 'engwebp',
+      abbr: 'WEB',
+      name: 'World English Bible',
+      provider: 'bundled',
+      copyright: 'The World English Bible is in the Public Domain. That means that it is not copyrighted. '
+        + 'However, "World English Bible" is a Trademark of eBible.org.',
+      dir: 'src/bible/engwebp',
+    },
 
     // --- Message types (content <-> worker) ---
     MSG: {
@@ -78,19 +93,6 @@
     // versions it guesses a reader added to their key when the worker's list
     // is `partial` (copyrights unknown).
     DEFAULT_ABBRS: ['NIV', 'NKJV', 'NRSV', 'ESV', 'KJV'],
-
-    // --- Public-domain translations available on bible-api.com (no key) ---
-    BIBLE_API_TRANSLATIONS: [
-      { id: 'web', abbr: 'WEB', name: 'World English Bible' },
-      { id: 'kjv', abbr: 'KJV', name: 'King James Version' },
-      { id: 'asv', abbr: 'ASV', name: 'American Standard Version (1901)' },
-      { id: 'bbe', abbr: 'BBE', name: 'Bible in Basic English' },
-      { id: 'darby', abbr: 'DARBY', name: 'Darby Bible' },
-      { id: 'dra', abbr: 'DRA', name: 'Douay-Rheims 1899 American Edition' },
-      { id: 'ylt', abbr: 'YLT', name: "Young's Literal Translation (NT only)" },
-      { id: 'oeb-us', abbr: 'OEB-US', name: 'Open English Bible, US Edition' },
-      { id: 'webbe', abbr: 'WEBBE', name: 'World English Bible, British Edition' },
-    ],
 
     // --- Church languages offered beside the page (__BTX.churchText) ---
     // The site's own `lang=` codes. `tag` is the BCP 47 tag for marking up the
