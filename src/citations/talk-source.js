@@ -253,7 +253,10 @@
     let live = false;
 
     if (plan.fetch === 'live') {
-      const r = await fetchLiveTalk(src.url);
+      // PROTOTYPE (prototype/fetched-excerpts): reuse a page fetched for an excerpt.
+      const proto = root.__BTX && root.__BTX.protoExcerpts;
+      const cached = proto ? await proto.cachedLive(src.url) : null;
+      const r = cached != null ? { html: cached, url: src.url } : await fetchLiveTalk(src.url);
       if (r.html != null) { html = r.html; live = true; }
       url = r.url || src.url;
     }
@@ -272,6 +275,7 @@
   const API = {
     load, corpusPlan, fullTalkUrl, pickSessionUrl, bouncedToConference, lastSlug,
     snippetKey, snippetMatches,
+    fetchLiveTalk, // PROTOTYPE export
   };
 
   if (typeof module !== 'undefined' && module.exports) module.exports = API;

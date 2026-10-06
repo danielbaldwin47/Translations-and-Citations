@@ -100,7 +100,9 @@
     if (row.rangeLabel) head.appendChild(el('span', 'btx-cit-range', row.rangeLabel));
     node.appendChild(head);
     if (row.sub) node.appendChild(el('div', 'btx-cit-sub', row.sub));
-    if (row.snippet) {
+    const proto = root.__BTX.protoExcerpts; // PROTOTYPE (prototype/fetched-excerpts)
+    if (proto && proto.handles(row.entry)) proto.attach(node, row.entry);
+    else if (row.snippet) {
       const snippet = el('div', 'btx-cit-snippet', row.snippet);
       snippet.id = `btx-cit-snippet-${++describedIds}`;
       node.setAttribute('aria-describedby', snippet.id);

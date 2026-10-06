@@ -1,0 +1,28 @@
+/* PROTOTYPE — throwaway, branch prototype/fetched-excerpts only. Never merge. */
+
+/* Reserved skeleton: holds the excerpt's three lines before the text arrives. */
+#btx-root .btx-proto-reserve {
+  margin-top: 9px;
+  padding-top: 9px;
+  border-top: 1px solid color-mix(in srgb, var(--btx-border) 60%, transparent);
+  height: calc(13px * var(--btx-size-scale) * 1.6 * 3);
+  box-sizing: content-box;
+}
+#btx-root .btx-proto-skeleton {
+  background:
+    linear-gradient(color-mix(in srgb, var(--btx-fg) 10%, transparent) 0 0) 0 9px / 92% 0.7em no-repeat,
+    linear-gradient(color-mix(in srgb, var(--btx-fg) 10%, transparent) 0 0) 0 calc(9px + 1.6em) / 85% 0.7em no-repeat,
+    linear-gradient(color-mix(in srgb, var(--btx-fg) 10%, transparent) 0 0) 0 calc(9px + 3.2em) / 55% 0.7em no-repeat;
+  font-size: calc(13px * var(--btx-size-scale));
+  animation: btx-proto-pulse 1.2s ease-in-out infinite;
+}
+@keyframes btx-proto-pulse { 50% { opacity: 0.45; } }
+#btx-root .btx-proto-fade { animation: btx-proto-fadein 180ms ease-out; }
+@keyframes btx-proto-fadein { from { opacity: 0; } }
+
+.btx-proto-strip {
+  position: fixed; left: 8px; bottom: 8px; z-index: 2147483647;
+  max-width: 560px; padding: 6px 9px; border-radius: 6px;
+  font: 11px/1.5 system-ui, sans-serif; color: #fff; background: rgba(20, 20, 20, 0.88);
+}
+.btx-proto-strip select, .btx-proto-strip button { font: inherit; }

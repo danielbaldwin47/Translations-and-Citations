@@ -28,11 +28,12 @@
         "src/citations/cit-view-model.js",
         "src/citations/highlights.js",
         "src/citations/talk-source.js",
+        "src/citations/PROTOTYPE-fetched-excerpts.js",
         "src/citations/talk-view.js",
         "src/citations/cit-panel.js",
         "src/content/content.js"
       ],
-      "css": ["src/content/panel.css", "src/citations/citations.css", "src/content/page-split.css"],
+      "css": ["src/content/panel.css", "src/citations/citations.css", "src/content/page-split.css", "src/citations/PROTOTYPE-fetched-excerpts.css"],
       "run_at": "document_idle"
     }
   ],
