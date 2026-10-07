@@ -11,6 +11,7 @@
  * Run (Node 22+, built-in SQLite + zlib — no npm install):
  *   node --experimental-sqlite tools/build-citation-data.js [--pack public|personal] [--inclusion E=all,J=all]
  *   (defaults: --pack public --core ./source-data/core.53.db --content ./source-data/content.53.db
+ *    --scripture ./source-data/scripture
  *    --out ./src/citations/data for public, ./src/citations/data-personal for personal)
  *
  * Pack mode: `public` builds the committed public pack, `personal` the
@@ -22,8 +23,29 @@
  * bundled. G and E are references-only in both modes. The build rewrites the
  * pack's shards and talk files whole.
  *
- * --inclusion: the per-corpus inclusion rule, recorded in the descriptor.
- * Only `all` builds today; `verbatim` exits with an error until issue #72.
+ * --inclusion: the per-corpus inclusion rule (GLOSSARY.md "Inclusion rule"),
+ * a build input recorded in the descriptor: `all` keeps every BYU cite;
+ * `verbatim` keeps only the cites the quotation matcher (tools/verbatim-matcher.js,
+ * whose header states the rule) re-derives from the talk's text and
+ * public-domain scripture, BYU's cites not an input to the matching. Switching
+ * a corpus is this flag and a rebuild; the reader needs no change, since a
+ * kept cite's record is the same under both rules. A verbatim build prints its
+ * coverage per corpus: cites kept of the cites the `all` build holds.
+ *   node --experimental-sqlite tools/build-citation-data.js --inclusion E=verbatim,J=verbatim
+ * The committed public pack is built under `all`. To check a verbatim pack
+ * without touching it, build into a scratch directory and validate that:
+ *   node --experimental-sqlite tools/build-citation-data.js --inclusion E=verbatim,J=verbatim --out /tmp/pack-verbatim
+ *   node tools/validate-citations.js --dir /tmp/pack-verbatim
+ *
+ * The matcher's inputs (--scripture, default ./source-data/scripture/), read
+ * only under `verbatim`: four public-domain scripture texts, gitignored build
+ * inputs beside the databases, never shipped. Download once, from the repo root
+ * (SHA-256 of the copies the matcher's thresholds were measured on):
+ *   mkdir -p source-data/scripture && cd source-data/scripture
+ *   curl -L -o kjv.txt     https://www.gutenberg.org/cache/epub/10/pg10.txt   # KJV; 0204adaed1f25700aa854218cae63c7172228c41088f335e99167a071eed83c0
+ *   curl -L -o bom.txt     https://www.gutenberg.org/cache/epub/17/pg17.txt   # Book of Mormon; ac4bbea7d6f19905cf10d21465e0f491a41e2dd3cc2a64e9ee622b1f4a7a6882
+ *   curl -L -o dc1923.txt  https://archive.org/download/doctrinecovenant0000jose_n3n7/doctrinecovenant0000jose_n3n7_djvu.txt   # 1923 D&C; f08c5262a821e5bf00caa95303db962401bef771aac1f55e8fc4b18c7a0b383a
+ *   curl -L -o pgp1929.txt https://archive.org/download/pearlofgreatpric0000jose_d8d6/pearlofgreatpric0000jose_d8d6_djvu.txt   # 1929 PGP; ca4560fcba9a27f69098a700e8fcd5eada203a59bc7ea5ff4518bffc64063360
  *
  * Inspect the raw DBs first (recommended before a full build) to confirm the
  * real talk.URL formats and talk HTML markup:
@@ -57,6 +79,7 @@ const PACK = arg('--pack', 'public');
 const CORE = arg('--core', path.resolve(__dirname, '..', 'source-data', 'core.53.db'));
 const CONTENT = arg('--content', path.resolve(__dirname, '..', 'source-data', 'content.53.db'));
 const OUT = arg('--out', PACK_OUT[PACK]);
+const SCRIPTURE = arg('--scripture', path.resolve(__dirname, '..', 'source-data', 'scripture'));
 const INSPECT = process.argv.includes('--inspect');
 
 // ---- pack descriptor ----
@@ -397,21 +420,70 @@ function inspect(core, content) {
   }
 }
 
+// ---- inclusion rule verbatim ----
+// The ids of the cites the quotation matcher re-derives, over every talk of
+// the corpora listed (each under rule verbatim). A cite's verses are its
+// `Verses` field, or its citation_verse rows when that is empty, as its
+// shard record's `v` is.
+function verbatimCiteIds(core, content, bookMap, corpusList) {
+  const matcher = require('./verbatim-matcher.js');
+  const { citedVerses } = require('../src/citations/cit-data.js');
+  const started = Date.now();
+  const scripture = matcher.scriptureIndex(matcher.loadScripture(SCRIPTURE));
+  const slugOf = {};
+  for (const [slug, b] of Object.entries(bookMap)) slugOf[b.bookId] = slug;
+  const rows = core.prepare(`
+    SELECT c.ID AS citId, c.TalkID AS talkId, c.BookID AS bookId, c.Chapter AS chapter, c.Verses AS verses,
+           group_concat(cv.Verse) AS rowVerses
+    FROM citation c
+    JOIN talk t ON c.TalkID = t.ID
+    LEFT JOIN citation_verse cv ON cv.CitationID = c.ID
+    WHERE t.Corpus IN (${corpusList.map(() => '?').join(',')})
+    GROUP BY c.ID
+    ORDER BY c.TalkID
+  `).all(...corpusList);
+  const byTalk = new Map();
+  for (const r of rows) {
+    const slug = slugOf[r.bookId];
+    if (!slug) continue;
+    const verses = r.verses ? [...citedVerses(r.verses)] : String(r.rowVerses || '').split(',').filter(Boolean).map(Number);
+    if (!byTalk.has(r.talkId)) byTalk.set(r.talkId, []);
+    byTalk.get(r.talkId).push({ id: r.citId, slug, ch: r.chapter, verses });
+  }
+  const kept = new Set();
+  const body = content.prepare('SELECT Text FROM talkbody WHERE TalkID=?');
+  for (const [talkId, cites] of byTalk) {
+    const row = body.get(talkId);
+    let html = null;
+    if (row && row.Text) { try { html = decompressTalk(row.Text); } catch (e) { html = null; } }
+    if (!html) continue;
+    for (const id of matcher.verbatimCites(html, cites, scripture)) kept.add(id);
+  }
+  console.log(`Matched ${byTalk.size} talks of ${corpusList.join(', ')} against public-domain scripture in ${((Date.now() - started) / 1000).toFixed(1)}s.`);
+  return kept;
+}
+
 // ---- build ----
 function build(core, content, inclusion) {
-  // The pack is rewritten whole: shards and talk files from an earlier build
-  // (another mode, a corpus since dropped) must not survive into this one.
-  for (const sub of ['citations', 'talks']) fs.rmSync(path.join(OUT, sub), { recursive: true, force: true });
-  mkdirp(OUT);
-  mkdirp(path.join(OUT, 'citations'));
-  mkdirp(path.join(OUT, 'talks'));
-
   // What each corpus is in this pack; a corpus it lacks is not built at all.
   const corpora = packDescriptor(PACK, {}, inclusion).corpora;
 
   const bookMap = buildBookMap(core);
   const slugs = Object.keys(bookMap);
   console.log(`Mapped ${slugs.length} standard-works books.`);
+
+  // Inclusion rule verbatim: a corpus under it keeps only re-derived cites.
+  const verbatim = Object.keys(corpora).filter((c) => corpora[c].inclusion === 'verbatim');
+  const rederived = verbatim.length ? verbatimCiteIds(core, content, bookMap, verbatim) : null;
+  const coverage = {}; // corpus under verbatim -> { all: cite ids the `all` build holds, kept: those re-derived }
+
+  // The pack is rewritten whole: shards and talk files from an earlier build
+  // (another mode, a corpus since dropped) must not survive into this one.
+  // After the matcher, so a missing scripture input leaves the pack as it was.
+  for (const sub of ['citations', 'talks']) fs.rmSync(path.join(OUT, sub), { recursive: true, force: true });
+  mkdirp(OUT);
+  mkdirp(path.join(OUT, 'citations'));
+  mkdirp(path.join(OUT, 'talks'));
 
   const sources = {};        // talkId -> meta
   const talkHtmlCache = {};   // talkId -> decompressed html (for snippets/bundling)
@@ -453,6 +525,12 @@ function build(core, content, inclusion) {
     for (const r of rows) {
       const corpus = corpora[r.corpus];
       if (!corpus) { skipped++; continue; } // not in this pack (the public pack's T)
+      if (corpus.inclusion === 'verbatim') {
+        const cov = coverage[r.corpus] || (coverage[r.corpus] = { all: new Set(), kept: new Set() });
+        cov.all.add(r.citId);
+        if (!rederived.has(r.citId)) continue;
+        cov.kept.add(r.citId);
+      }
       const ch = String(r.chapter);
       const vs = String(r.verse);
       (index[ch] = index[ch] || {});
@@ -524,6 +602,10 @@ function build(core, content, inclusion) {
   console.log(`\nDone. ${totalCitations} citations across ${slugs.length} books; ${Object.keys(sources).length} sources; ${bundledTalks.size} bundled talks.`);
   console.log(`Pack: ${PACK} (vintage ${pack.vintage}; corpora ${Object.entries(pack.corpora).map(([c, e]) => `${c}:${e.inclusion}`).join(', ')})`);
   console.log(`Skipped ${skipped} citation rows of corpora this pack lacks; ${uncounted} fetched-excerpt cites have no count (span not in the talk HTML).`);
+  for (const [c, cov] of Object.entries(coverage)) {
+    const pct = cov.all.size ? (100 * cov.kept.size / cov.all.size).toFixed(1) : '0.0';
+    console.log(`Inclusion verbatim, ${c}: kept ${cov.kept.size} of the ${cov.all.size} cites the all build holds (${pct}%).`);
+  }
   console.log(`Output: ${OUT}`);
 }
 
@@ -545,16 +627,16 @@ if (require.main === module) {
     console.error(`ERROR: ${inclusion.error}`);
     process.exit(2);
   }
-  // The verbatim matcher is a later ticket (#72); until it lands only 'all' builds.
-  const unbuilt = Object.entries(inclusion.rules).filter(([, rule]) => rule !== 'all');
-  if (unbuilt.length) {
-    console.error(`ERROR: inclusion rule verbatim is not built yet (${unbuilt.map(([c]) => c).join(', ')}); see issue #72`);
-    process.exit(2);
-  }
   const core = openDb(CORE);
   const content = openDb(CONTENT);
   if (INSPECT) inspect(core, content);
-  else build(core, content, inclusion.rules);
+  else {
+    try { build(core, content, inclusion.rules); } catch (e) {
+      if (!/^scripture input/.test(e.message)) throw e;
+      console.error(`ERROR: ${e.message}`);
+      process.exit(2);
+    }
+  }
   core.close();
   content.close();
 }
