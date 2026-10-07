@@ -41,8 +41,9 @@ ships, the pack in this repo is BYU-derived and is not published anywhere.
   `<script src>` first.
 - **No secrets/CORS in content scripts.** All api.bible calls go through the
   **service worker**. The citation feature and Church-language text are
-  content-script-only (static web-accessible data + same-origin site fetches,
-  `credentials: 'omit'`).
+  content-script-only (static web-accessible data, same-origin site fetches,
+  and BYU's talk fragments, which BYU serves to any origin by CORS; every
+  fetch `credentials: 'omit'`).
 - **Packaged code only** (Web Store remote-code rule): every script that runs
   ships in the zip. api.bible usage reporting is the worker's HTTP GET
   (`fums.js`), never a script on the page (`validate-service-worker.js`).
@@ -96,7 +97,7 @@ src/
     cit-view-model.js      __BTX.citVM     PURE: chapter cites → descriptor tree; source types from the pack descriptor; every ordering/grouping/counting/label rule; vintage footer; toolbar state machine
     cit-panel.js           __BTX.citPanel  DOM adapter over citVM: render(host, opts) / refocus() / markVerse(v) / revealVerse(v); reads verse excerpts from the page (read-only)
     highlights.js          __BTX.highlights local select-to-highlight in the reader
-    talk-source.js         __BTX.talkSource load({entry,source}) → {html,url,findTarget}; pure corpusPlan(descriptor, corpus, {hasUrl}); footnote locator (locateParagraph, pure on fetched HTML) + snippet fallback (snippetKey); pre-2013 GC URL repair; 15s live timeout
+    talk-source.js         __BTX.talkSource load({entry,source}) → {html,url,destination,credit,findTarget}; pure corpusPlan(descriptor, corpus, {hasUrl}), readingDestination, BYU fragment/viewer URLs; footnote locator (locateParagraph, pure on fetched HTML) + snippet fallback (snippetKey); pre-2013 GC URL repair; FETCH_POLICY (per-host slots, session talk cache, 15s timeout)
     talk-view.js           __BTX.talkView  inline reader: sanitizer, render, highlights, sticky header; one Esc listener on #btx-root (highlight menu first, then Back)
     citations.css
     data/                  GENERATED, committed, shipped: the public pack (~34 MB, ADR-0008): index.json (its `pack` is the pack descriptor), sources.json, citations/{slug}.json (G/E cites: no snippet, an excerpt count `ec`), talks/{talkId}.html.gz (J only)

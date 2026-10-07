@@ -471,7 +471,8 @@
   color: var(--btx-fg);
   background: color-mix(in srgb, var(--btx-accent) 20%, var(--btx-border));
 }
-#btx-root .btx-talk-chip[hidden] { display: none; }
+#btx-root .btx-talk-chip[hidden],
+#btx-root .btx-talk-ext[hidden] { display: none; }
 #btx-root .btx-talk-title {
   margin: 0;
   font-family: inherit;
@@ -496,6 +497,8 @@
   overflow-wrap: anywhere;
 }
 #btx-root .btx-talk-speaker { color: var(--btx-fg); font-weight: 600; }
+/* Where fetched text came from ("Text fetched from scriptures.byu.edu"). */
+#btx-root .btx-talk-credit { margin-top: 2px; font-size: 12px; }
 #btx-root .btx-talk-hint {
   margin: 0 0 14px;
   padding: 6px 10px;
