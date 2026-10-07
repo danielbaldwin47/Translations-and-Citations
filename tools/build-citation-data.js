@@ -1,36 +1,41 @@
 #!/usr/bin/env node
 /*
- * Build the bundled Scripture Citation Index data for the extension.
- *
- * Reads the BYU "Scripture Citation Index" app SQLite databases and emits a
- * compact, web-fetchable dataset under src/citations/data/. Only Bible (OT/NT)
- * citations are emitted, since the extension activates on Bible chapters.
+ * Build a citation data pack (ADR-0008) from the BYU "Scripture Citation
+ * Index" app SQLite databases: a compact, web-fetchable dataset covering all
+ * five standard works.
  *
  * The two app DBs are not shipped; place them in ./source-data/ (gitignored) —
  * which is the default location below. They also live in git/LFS history at the
  * commit that added them.
  *
  * Run (Node 22+, built-in SQLite + zlib — no npm install):
- *   node --experimental-sqlite tools/build-citation-data.js [--pack public|personal]
+ *   node --experimental-sqlite tools/build-citation-data.js [--pack public|personal] [--inclusion E=all,J=all]
  *   (defaults: --pack public --core ./source-data/core.53.db --content ./source-data/content.53.db
  *    --out ./src/citations/data for public, ./src/citations/data-personal for personal)
  *
- * Pack mode (ADR-0008): `public` builds the committed public pack, `personal`
- * the personal pack in its own directory (never committed). The mode decides
- * the pack descriptor written into index.json (packDescriptor below): the
- * public descriptor lists no T corpus, the personal one does. The pack's other
- * contents do not differ by mode yet.
+ * Pack mode: `public` builds the committed public pack, `personal` the
+ * personal pack in its own directory (never committed). The mode picks the
+ * corpora (PACK_CORPORA: the public pack has no T, the gated element), and
+ * each corpus's descriptor entry (CORPORA) decides what the pack holds for it:
+ * a snippet per cite when its excerpt is bundled, an excerpt character count
+ * (excerptChars) when it is fetched, talk files only when its text is
+ * bundled. G and E are references-only in both modes. The build rewrites the
+ * pack's shards and talk files whole.
+ *
+ * --inclusion: the per-corpus inclusion rule, recorded in the descriptor.
+ * Only `all` builds today; `verbatim` exits with an error until issue #72.
  *
  * Inspect the raw DBs first (recommended before a full build) to confirm the
  * real talk.URL formats and talk HTML markup:
  *   node --experimental-sqlite tools/build-citation-data.js --inspect
  *
- * Output layout:
+ * Output layout (a talk id is BYU's numeric talk.ID; a derived talk's will be gc/YYYY/MM/{slug}):
  *   data/index.json            { builtAt, dbUpdated, pack, books:[{slug,fullName,bookId,citations}], counts }
  *                              pack = the pack descriptor (packDescriptor)
  *   data/sources.json          { [talkId]: { c, sp, ti, d, lbl, url? } }   // one entry per cited talk
- *   data/citations/{slug}.json { cites:{ [citId]:{t,v,sn} }, index:{ [chap]:{ [verse]:[citId,...] } } }
- *   data/talks/{talkId}.html.gz  gzipped cleaned HTML for corpus E/J/T only (G is fetched live)
+ *   data/citations/{slug}.json { cites:{ [citId]:{t,v,sn?,a?,ec?} }, index:{ [chap]:{ [verse]:[citId,...] } } }
+ *                              sn snippet (bundled excerpt), a paragraph anchor, ec excerpt character count (fetched excerpt)
+ *   data/talks/{talkId}.html.gz  gzipped talk HTML for corpora whose text is bundled (J; T in the personal pack)
  */
 'use strict';
 
@@ -64,23 +69,62 @@ const INSPECT = process.argv.includes('--inspect');
 //   excerpt     'bundled' (a snippet cut at build time) | 'fetched' (on visibility)
 //   inclusion   the build's inclusion rule: 'all' | 'verbatim'
 // Key order is display order of source types (the reader groups in first-seen order).
+// A corpus whose text is not bundled and whose excerpt is fetched is
+// references-only (GLOSSARY.md): the pack holds no snippet and no talk file
+// for it, only facts per cite — and, so a pending excerpt can reserve its
+// size, each cite's excerpt character count. Conference talk text is
+// copyrighted, so G and E are references-only in both packs.
 const CORPORA = {
-  G: { sourceType: 'General Conference', text: 'live-church', target: 'anchor', excerpt: 'bundled', inclusion: 'all' },
-  E: { sourceType: 'General Conference', text: 'live-byu', target: 'citationSpan', excerpt: 'bundled', inclusion: 'all' },
+  G: { sourceType: 'General Conference', text: 'live-church', target: 'anchor', excerpt: 'fetched', inclusion: 'all' },
+  E: { sourceType: 'General Conference', text: 'live-byu', target: 'citationSpan', excerpt: 'fetched', inclusion: 'all' },
   J: { sourceType: 'Journal of Discourses', text: 'bundled', target: 'citationSpan', excerpt: 'bundled', inclusion: 'all' },
   // The gated element (ADR-0008): personal pack only.
   T: { sourceType: 'Teachings of the Prophet Joseph Smith', text: 'bundled', target: 'bodyPassage', excerpt: 'bundled', inclusion: 'all' },
 };
 const PACK_CORPORA = { public: ['G', 'E', 'J'], personal: ['G', 'E', 'J', 'T'] };
+const INCLUSION_RULES = ['all', 'verbatim'];
 
 // The descriptor a pack mode writes, or null for an unknown mode.
 //   facts: { vintage:'YYYY-MM', base:{ db, updated:'YYYY-MM-DD' }, derived:['YYYY-MM', …] }
-function packDescriptor(mode, facts) {
+//   inclusion: { [corpus]: 'all'|'verbatim' } (parseInclusion's rules); a corpus not named stays 'all'
+function packDescriptor(mode, facts, inclusion) {
   const list = PACK_CORPORA[mode];
   if (!list) return null;
   const corpora = {};
-  for (const c of list) corpora[c] = Object.assign({}, CORPORA[c]);
+  for (const c of list) {
+    corpora[c] = Object.assign({}, CORPORA[c]);
+    if (inclusion && inclusion[c]) corpora[c].inclusion = inclusion[c];
+  }
   return { flavor: mode, vintage: facts.vintage, base: facts.base, derived: facts.derived, corpora };
+}
+
+// The --inclusion build input, 'E=verbatim,J=all' -> { rules: { E:'verbatim', J:'all' } },
+// or { error } naming the bad pair. Absent -> no rules (every corpus 'all').
+function parseInclusion(value) {
+  const rules = {};
+  if (value === undefined || value === '') return { rules };
+  for (const pair of String(value).split(',')) {
+    const [corpus, rule] = pair.split('=').map((s) => (s || '').trim());
+    if (!(corpus in CORPORA)) return { error: `unknown corpus "${corpus}" in --inclusion ${value}` };
+    if (!INCLUSION_RULES.includes(rule)) return { error: `--inclusion ${corpus} must be one of ${INCLUSION_RULES.join('|')} (got "${rule || ''}")` };
+    rules[corpus] = rule;
+  }
+  return { rules };
+}
+
+// Whether a corpus ships talks/{talkId}.html.gz files.
+function bundlesTalks(corpus) {
+  return corpus.text === 'bundled';
+}
+
+// One cite's shard record, shaped by its corpus's descriptor entry:
+//   facts { t, v, sn, a, ec } -> { t, v, sn? (bundled excerpt), a? (anchor), ec? (fetched excerpt's count) }
+function citeRecord(corpus, facts) {
+  const rec = { t: facts.t, v: facts.v };
+  if (corpus.excerpt === 'bundled') rec.sn = facts.sn;
+  if (facts.a) rec.a = facts.a; // paragraph anchor for a live deep-link
+  if (corpus.excerpt === 'fetched' && Number.isInteger(facts.ec)) rec.ec = facts.ec;
+  return rec;
 }
 
 // The conference a session dated 'YYYY-MM' belongs to: months 1–6 are the
@@ -169,15 +213,22 @@ function buildBookMap(core) {
 
 // Transform the stored talk.URL into a same-origin churchofjesuschrist.org study
 // URL. Modern GC already stores the full church URL; older GC stores lds.org
-// ensign paths. Returns null if not derivable (then the talk is bundled).
+// ensign paths. Returns null if not derivable (then the talk has no URL).
+// The 30 April 2019 talks are stored as lds.org/study/ensign/2019/05/{session}/{slug}:
+// their path already holds /study/ (so the plain transform doubled it, a 404),
+// and the session path redirects to the conference page, while the site serves
+// the talk at /study/ensign/2019/05/{slug} (all 30 checked October 6, 2026).
 function toChurchUrl(url) {
   if (!url) return null;
   let u = String(url).trim();
   if (/churchofjesuschrist\.org\/study\//i.test(u)) {
     return u.replace(/^http:/, 'https:');
   }
+  // http(s)://lds.org/study/ensign/{yyyy}/{mm}/{session}/{slug} -> …/study/ensign/{yyyy}/{mm}/{slug}
+  const s = /^https?:\/\/(?:www\.)?lds\.org\/study\/(ensign\/\d{4}\/\d{2})\/[^/?#]+-session\/(.+)$/i.exec(u);
+  if (s) return `https://www.churchofjesuschrist.org/study/${s[1]}/${s[2]}`;
   // http(s)://lds.org/{path}  ->  https://www.churchofjesuschrist.org/study/{path}
-  const m = /^https?:\/\/(?:www\.)?lds\.org\/(.+)$/i.exec(u);
+  const m = /^https?:\/\/(?:www\.)?lds\.org\/(?:study\/)?(.+)$/i.exec(u);
   if (m) return `https://www.churchofjesuschrist.org/study/${m[1]}`;
   return null;
 }
@@ -244,6 +295,56 @@ function extractCitation(html, citId) {
   return { snippet, anchor };
 }
 
+// BYU's insertions into a talk's prose: the reference label around each
+// citation span (`ccontainer`, the span itself) and, in modern talks, the
+// footnote BYU inlines at its marker (`sup.noteMarker`). The publishing site's
+// paragraph has none of them.
+const BYU_INSERTION = /^<(span|sup)\b[^>]*\bclass="(?:ccontainer\b[^"]*|citation|noteMarker)"/i;
+
+// `html` with every BYU insertion removed, nested tags included.
+function dropByuInsertions(html) {
+  let out = '';
+  let i = 0;
+  const tag = /<(\/?)(span|sup)\b[^>]*>/gi;
+  while (i < html.length) {
+    tag.lastIndex = i;
+    const m = tag.exec(html);
+    if (!m) { out += html.slice(i); break; }
+    out += html.slice(i, m.index);
+    i = m.index + m[0].length;
+    if (m[1] || !BYU_INSERTION.test(m[0])) { out += m[0]; continue; }
+    // Skip to this element's own closing tag.
+    const name = m[2].toLowerCase();
+    const same = new RegExp(`<(/?)${name}\\b[^>]*>`, 'gi');
+    same.lastIndex = i;
+    let depth = 1;
+    let n;
+    while (depth && (n = same.exec(html))) depth += n[1] ? -1 : 1;
+    i = n ? same.lastIndex : html.length;
+  }
+  return out;
+}
+
+// The excerpt character count of one cite (spec #69, "excerpt lengths"): the
+// length of the text of the paragraph holding its citation span — the last
+// <p or <div opening before the span to the first </p> or </div> after it,
+// the prototype's paragraph rule — with BYU's insertions dropped, entities
+// decoded and whitespace runs collapsed. A number only; no talk text ships.
+// null when the talk or the span is missing (the reader then reserves three lines).
+function excerptChars(html, citId) {
+  if (!html) return null;
+  const at = html.indexOf(`<span class="citation" id="${citId}"`);
+  if (at < 0) return null;
+  const open = Math.max(html.lastIndexOf('<p', at), html.lastIndexOf('<div', at));
+  const closes = ['</p>', '</div>'].map((t) => html.indexOf(t, at)).filter((k) => k >= 0);
+  if (open < 0 || !closes.length) return null;
+  const block = html.slice(open, Math.min(...closes));
+  // A paragraph that is nothing but a reference (a subtitle, a footnote) is
+  // the talk's own text that BYU wrapped in its span: count the reference.
+  const text = stripTags(dropByuInsertions(block)) || stripTags(block);
+  return text ? text.length : null;
+}
+
 // Human label for a citation's source.
 function sourceLabel(core, talk, cit) {
   if (talk.Corpus === 'G' || talk.Corpus === 'E') {
@@ -297,10 +398,16 @@ function inspect(core, content) {
 }
 
 // ---- build ----
-function build(core, content) {
+function build(core, content, inclusion) {
+  // The pack is rewritten whole: shards and talk files from an earlier build
+  // (another mode, a corpus since dropped) must not survive into this one.
+  for (const sub of ['citations', 'talks']) fs.rmSync(path.join(OUT, sub), { recursive: true, force: true });
   mkdirp(OUT);
   mkdirp(path.join(OUT, 'citations'));
   mkdirp(path.join(OUT, 'talks'));
+
+  // What each corpus is in this pack; a corpus it lacks is not built at all.
+  const corpora = packDescriptor(PACK, {}, inclusion).corpora;
 
   const bookMap = buildBookMap(core);
   const slugs = Object.keys(bookMap);
@@ -310,6 +417,8 @@ function build(core, content) {
   const talkHtmlCache = {};   // talkId -> decompressed html (for snippets/bundling)
   const bundledTalks = new Set();
   let totalCitations = 0;
+  let skipped = 0;       // citation rows of corpora this pack lacks
+  let uncounted = 0;     // fetched-excerpt cites whose span the talk HTML lacks
   const bookCounts = [];
 
   const getTalkHtml = (talkId) => {
@@ -342,6 +451,8 @@ function build(core, content) {
     let count = 0;
 
     for (const r of rows) {
+      const corpus = corpora[r.corpus];
+      if (!corpus) { skipped++; continue; } // not in this pack (the public pack's T)
       const ch = String(r.chapter);
       const vs = String(r.verse);
       (index[ch] = index[ch] || {});
@@ -351,14 +462,14 @@ function build(core, content) {
       if (!(r.citId in cites)) {
         const html = getTalkHtml(r.talkId);
         const { snippet, anchor } = extractCitation(html, r.citId);
-        const entry = { t: r.talkId, v: r.verses || vs, sn: snippet };
-        if (anchor) entry.a = anchor; // GC paragraph anchor for live deep-link
-        cites[r.citId] = entry;
+        const ec = corpus.excerpt === 'fetched' ? excerptChars(html, r.citId) : null;
+        if (corpus.excerpt === 'fetched' && ec === null) uncounted++;
+        cites[r.citId] = citeRecord(corpus, { t: r.talkId, v: r.verses || vs, sn: snippet, a: anchor, ec });
         count++;
       }
 
       if (!(r.talkId in sources)) {
-        const churchUrl = r.corpus === 'G' ? toChurchUrl(r.url) : null;
+        const churchUrl = corpus.text === 'live-church' ? toChurchUrl(r.url) : null;
         sources[r.talkId] = {
           c: r.corpus,
           sp: decodeEntities([r.given, r.last].filter(Boolean).join(' ')) || 'Unknown',
@@ -369,10 +480,9 @@ function build(core, content) {
         if (churchUrl) sources[r.talkId].url = churchUrl; // live-fetch target
       }
 
-      // Bundle full text for everything not opened live: E/J/T always, plus any
-      // G talk whose church URL couldn't be derived (so it's still openable).
-      const liveG = r.corpus === 'G' && sources[r.talkId] && sources[r.talkId].url;
-      if (!liveG && !bundledTalks.has(r.talkId)) {
+      // Talk files only for a corpus whose text is bundled; a references-only
+      // corpus ships none.
+      if (bundlesTalks(corpus) && !bundledTalks.has(r.talkId)) {
         const html = getTalkHtml(r.talkId);
         if (html) {
           fs.writeFileSync(path.join(OUT, 'talks', `${r.talkId}.html.gz`), zlib.gzipSync(Buffer.from(html, 'utf8')));
@@ -402,7 +512,7 @@ function build(core, content) {
     vintage,
     base: { db: path.basename(CORE), updated: dbUpdated.slice(0, 10) },
     derived: [],
-  });
+  }, inclusion);
   writeJSON(path.join(OUT, 'index.json'), {
     builtAt: new Date().toISOString(),
     dbUpdated,
@@ -412,13 +522,17 @@ function build(core, content) {
   });
 
   console.log(`\nDone. ${totalCitations} citations across ${slugs.length} books; ${Object.keys(sources).length} sources; ${bundledTalks.size} bundled talks.`);
-  console.log(`Pack: ${PACK} (vintage ${pack.vintage}; corpora ${Object.keys(pack.corpora).join(', ')})`);
+  console.log(`Pack: ${PACK} (vintage ${pack.vintage}; corpora ${Object.entries(pack.corpora).map(([c, e]) => `${c}:${e.inclusion}`).join(', ')})`);
+  console.log(`Skipped ${skipped} citation rows of corpora this pack lacks; ${uncounted} fetched-excerpt cites have no count (span not in the talk HTML).`);
   console.log(`Output: ${OUT}`);
 }
 
 // Reused by tools/rederive-js-snippets.js (which has no DBs but the shipped talk
-// HTML); packDescriptor and conferenceOf by tools/validate-citations.js.
-module.exports = { extractCitation, stpjsBodyPassage, decompressTalk, stripTags, toChurchUrl, packDescriptor, conferenceOf };
+// HTML); the pure rest by tools/validate-citations.js.
+module.exports = {
+  extractCitation, stpjsBodyPassage, decompressTalk, stripTags, toChurchUrl, excerptChars,
+  packDescriptor, parseInclusion, citeRecord, bundlesTalks, conferenceOf, PACK_CORPORA,
+};
 
 // ---- main ----
 if (require.main === module) {
@@ -426,10 +540,21 @@ if (require.main === module) {
     console.error(`ERROR: --pack must be one of ${Object.keys(PACK_OUT).join(', ')} (got ${PACK})`);
     process.exit(2);
   }
+  const inclusion = parseInclusion(arg('--inclusion'));
+  if (inclusion.error) {
+    console.error(`ERROR: ${inclusion.error}`);
+    process.exit(2);
+  }
+  // The verbatim matcher is a later ticket (#72); until it lands only 'all' builds.
+  const unbuilt = Object.entries(inclusion.rules).filter(([, rule]) => rule !== 'all');
+  if (unbuilt.length) {
+    console.error(`ERROR: inclusion rule verbatim is not built yet (${unbuilt.map(([c]) => c).join(', ')}); see issue #72`);
+    process.exit(2);
+  }
   const core = openDb(CORE);
   const content = openDb(CONTENT);
   if (INSPECT) inspect(core, content);
-  else build(core, content);
+  else build(core, content, inclusion.rules);
   core.close();
   content.close();
 }
