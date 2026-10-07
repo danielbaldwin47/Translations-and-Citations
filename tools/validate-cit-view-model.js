@@ -5,7 +5,8 @@
  * The view-model turns chapterData into descriptors (verse groups, source-type
  * groups, one row per talk) with no DOM involved, so the list's rules are
  * checkable here: anchor-verse dedup, one row per talk, both citation-layout
- * orderings, which groups start open, snippet cleaning and quoting, every label
+ * orderings, which groups start open, snippet cleaning and quoting, the
+ * excerpt source per corpus and the filter haystack, every label
  * (summary, counts, verse, range, screen-reader, empty state), plain-text
  * titles, the filter / collapse-all state transitions, and the talk reader's
  * heading.
@@ -57,6 +58,7 @@ function makeData(cites, pack) {
       talkId: c.talkId || 't-' + c.citId,
       versesInChapter: c.verses,
       snippet: c.snippet || '',
+      excerptChars: c.excerptChars,
       source: c.source,
     };
     for (const v of c.verses) (byVerse[v] = byVerse[v] || []).push(c.citId);
@@ -247,7 +249,7 @@ console.log('By-verse layout:');
   const row = v3.children[0].rows[0];
   eq(row.speaker, 'Nelson', 'row speaker');
   eq(row.sub, 'Born Again · 2020-04', 'sub line drops the redundant "General Conference"');
-  eq(row.snippet, '“…water and spirit”', 'snippet is cleaned and quoted for display');
+  eq(row.snippet.text, '“…water and spirit”', 'snippet is cleaned and quoted for display');
   eq(row.a11yLabel, 'Nelson, Born Again, 2020-04, verses 3 to 5', 'row names speaker, talk and range for a screen reader');
   eq(row.search, 'nelson born again 2020-04 general conference 2020-04 …water and spirit', 'filter haystack is lowercased');
   eq(row.entry, data.entries.a, 'row keeps its entry for the talk reader');
@@ -402,7 +404,7 @@ console.log('By-source layout:');
   deep(rows.map((r) => r.talkId), ['t-u', 'J1', 't-undated'], 'one row per talk, newest first, undated last');
   eq(rows[1].citId, 'k1', 'the merged row opens at the earliest cite');
   eq(rows[1].rangeLabel, 'vv. 3–5, 7', 'the badge is the union of every cite');
-  eq(rows[1].snippet, '“…first passage”', 'the snippet is the earliest cite’s');
+  eq(rows[1].snippet.text, '“…first passage”', 'the snippet is the earliest cite’s');
   eq(rows[1].sub, 'The New Birth, Etc. · vol. 14, p. 321', 'Journal of Discourses location is spelled out');
   eq(view.groups[0].count, 3, 'the group counts talks');
   eq(view.talks, 3, 'the view counts talks');
@@ -502,6 +504,41 @@ console.log('Source types from the descriptor:');
   eq(VM.buildView(makeData([cites[0]], null), OPTS).groups.length, 1, '(fixture: makeData defaults to the personal pack)');
   eq(VM.buildView(Object.assign(makeData([cites[0]]), { pack: undefined }), OPTS).empty, true,
     'with no descriptor no corpus exists');
+}
+
+// --- excerpt source per corpus ---------------------------------------------
+// A row's excerpt comes from where the descriptor says (`excerpt`): a bundled
+// corpus hands over display-ready text, a fetched one a fetch marker with the
+// characters to reserve; the filter haystack holds snippet text only for
+// bundled corpora, so filtering never depends on what has scrolled into view.
+console.log('Excerpt source:');
+{
+  const FETCHED = Object.assign({}, PUBLIC, { corpora: Object.assign({}, CORPORA, {
+    G: Object.assign({}, CORPORA.G, { excerpt: 'fetched' }),
+    E: Object.assign({}, CORPORA.E, { excerpt: 'fetched' }),
+  }) });
+  const data = makeData([
+    { citId: 'g', verses: [3], source: gc('Nelson', 'Born Again', '2020-04'), excerptChars: 120, snippet: 'stale bundled words' },
+    { citId: 'e', verses: [4], source: { c: 'E', sp: 'Clark', ti: 'Faith', d: '1950-04', lbl: '1950-04 General Conference' } },
+    { citId: 'j', verses: [5], source: jod('Young', 'On Rebirth', '1885-04'), snippet: 'born of water' },
+  ], FETCHED);
+  const rows = VM.allRows(VM.buildView(data, SRC));
+  const rowOf = (id) => rows.find((r) => r.citId === id);
+  deep(rowOf('g').snippet, { fetch: true, chars: 122 }, 'a fetched corpus reserves its count plus the two quote marks');
+  deep(rowOf('e').snippet, { fetch: true, chars: null }, 'a cite with no count reserves three lines');
+  deep(rowOf('j').snippet, { text: '“…born of water”' }, 'a bundled corpus hands over display-ready text');
+  check(!rowOf('g').search.includes('stale'), 'a fetched corpus keeps snippet text out of the filter haystack');
+  check(rowOf('g').search.includes('nelson') && rowOf('g').search.includes('born again'), 'speaker and title still filter it');
+  check(rowOf('j').search.includes('born of water'), 'a bundled corpus filters on its snippet');
+  eq(VM.filterPlan(VM.buildView(data, SRC), 'stale', VM.initialState(VM.buildView(data, SRC))).noResults != null, true,
+    'so a fetched row never matches on excerpt words');
+
+  const none = VM.allRows(VM.buildView(makeData([{ citId: 'x', verses: [1], source: jod('A', 'B', '1880-01') }], FETCHED), SRC))[0];
+  eq(none.snippet, null, 'a bundled cite with no snippet has no excerpt');
+
+  eq(VM.excerptText('  Faith  is\n a principle  of power. '), '“Faith is a principle of power.”', 'fetched text is collapsed and quoted');
+  eq(VM.excerptText('“Come, follow me,” He said.'), '“Come, follow me,” He said.', 'text opening on a quote is not quoted twice');
+  eq(VM.excerptText('   '), null, 'blank fetched text is no excerpt');
 }
 
 // --- footer: the pack vintage ----------------------------------------------
