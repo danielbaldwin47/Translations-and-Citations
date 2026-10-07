@@ -9,13 +9,16 @@
  * parseInclusion, citeRecord) on fixtures.
  *
  * Then every pack on disk — the committed public pack always, the personal
- * pack when its directory exists — is checked against its own descriptor
+ * pack when its directory exists, or only the pack in --dir <path> (a scratch
+ * build, e.g. the public pack under inclusion rule verbatim) — is checked
+ * against its own descriptor
  * (spec #69 checks A1, A2, A26): a references-only corpus (excerpt fetched,
  * text not bundled) has no snippet on any cite and no talk file; every cite
  * of a fetched-excerpt corpus carries an excerpt character count; a bundled
  * corpus has a talk file for every url-less source; every source's corpus is
  * in the descriptor, and the public pack lists no gated corpus; base talks
- * keep the ids in tools/fixtures/base-talk-ids.json; talk URLs are Church
+ * keep the ids in tools/fixtures/base-talk-ids.json; a corpus under
+ * inclusion rule verbatim keeps fewer cites, so the pack-size floors drop; talk URLs are Church
  * study URLs; through chapterIndex, every verse the panel shows a cite under
  * is one its `v` lists (stray index rows are a warning until a rebuild skips
  * them). With both packs present, they carry the same vintage.
@@ -28,6 +31,7 @@ const path = require('path');
 
 const ROOT = path.resolve(__dirname, '..');
 const DATA = path.join(ROOT, 'src', 'citations', 'data');
+const DIR_ARG = (() => { const i = process.argv.indexOf('--dir'); return i >= 0 ? process.argv[i + 1] : null; })();
 const citData = require(path.join(ROOT, 'src', 'citations', 'cit-data.js'));
 const build = require(path.join(ROOT, 'tools', 'build-citation-data.js'));
 const derive = require(path.join(ROOT, 'tools', 'derive-conference.js'));
@@ -364,7 +368,7 @@ const GATED = build.PACK_CORPORA.personal.filter((c) => !build.PACK_CORPORA.publ
 
 // Every check of one pack on disk, driven by its own descriptor.
 function checkPack(dir, expectFlavor) {
-  const DATA = path.join(ROOT, dir);
+  const DATA = path.resolve(ROOT, dir);
   const readJSON = (p) => JSON.parse(fs.readFileSync(path.join(DATA, p), 'utf8'));
   const index = readJSON('index.json');
   const sources = readJSON('sources.json');
@@ -390,9 +394,13 @@ function checkPack(dir, expectFlavor) {
   eq(d.vintage, latest, `${where}: the vintage is the latest conference in the pack`);
 
   console.log(`Index / sources (${where}):`);
+  // Under verbatim, early conference keeps about 58% of its cites and the
+  // Journal of Discourses about 15% (issue #72), about 79k of 126k in all.
+  const verbatim = Object.values(corpora).some((e) => e.inclusion === 'verbatim');
+  const floor = verbatim ? { citations: 60000, walked: 40000 } : { citations: 100000, walked: 50000 };
   check(index.counts && index.counts.books === index.books.length, `counts.books matches books[] (${index.counts && index.counts.books} vs ${index.books.length})`);
   check(index.counts && index.counts.books >= 88, `index covers all standard works, >= 88 books (got ${index.counts && index.counts.books})`);
-  check(index.counts.citations > 100000, `citation count is sane (${index.counts.citations})`);
+  check(index.counts.citations > floor.citations, `citation count is sane, over ${floor.citations} (${index.counts.citations})`);
   check(Object.keys(sources).length > 1000, `sources populated (${Object.keys(sources).length})`);
   const foreign = Object.entries(sources).filter(([, s]) => !(s.c in corpora));
   check(foreign.length === 0, `${where}: every source's corpus is in the descriptor ` +
@@ -461,7 +469,7 @@ function checkPack(dir, expectFlavor) {
       }
     }
   }
-  check(totalCites > 50000, `walked citations (${totalCites})`);
+  check(totalCites > floor.walked, `walked citations, over ${floor.walked} (${totalCites})`);
   deep(unanchored.slice(0, 5), [], `${where}: every derived cite carries its paragraph anchor (${unanchored.length} do not)`);
   deep(snippets, {}, `${where}: no cite of a references-only corpus carries a snippet (count per corpus)`);
   // A cite has no count only when BYU's copy of its talk carries no citation
@@ -548,6 +556,13 @@ function checkPack(dir, expectFlavor) {
 
 function packChecks() {
   descriptorChecks();
+  if (DIR_ARG) {
+    const index = JSON.parse(fs.readFileSync(path.resolve(DIR_ARG, 'index.json'), 'utf8'));
+    checkPack(DIR_ARG, index.pack && index.pack.flavor);
+    if (failures) { console.error(`\n${failures} check(s) failed.`); process.exit(1); }
+    console.log('\nAll checks passed.');
+    return;
+  }
   const [personalDir, publicDir] = citData.PACK_DIRS;
   const pub = checkPack(publicDir, 'public');
   if (fs.existsSync(path.join(ROOT, personalDir, 'index.json'))) {
