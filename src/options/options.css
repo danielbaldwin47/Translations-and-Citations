@@ -309,6 +309,12 @@ details > summary:hover { background: var(--accent-soft); }
 .radio-group legend { float: left; width: 100%; }
 .radio-group legend + * { clear: both; }
 
+/* ---- About: text and links only ---- */
+.about-meta { margin: 0; color: var(--muted); font-size: 14px; }
+.about-sources { margin: 12px 0 0; padding-left: 18px; font-size: 13.5px; }
+.about-sources li + li { margin-top: 6px; }
+.about-links { display: flex; flex-wrap: wrap; gap: 4px 20px; margin: 14px 0 0; font-weight: 600; }
+
 @media (max-width: 480px) {
   .wrap { padding: 20px 16px 72px; }
   .card { padding: 16px; }

@@ -71,12 +71,25 @@
       churchLanguage: 'Fetches that language’s chapter from churchofjesuschrist.org.',
     },
 
+    // --- The options page's About card (spec #69) ---
+    // Source lines and links, shown as text (options.js aboutCopy). The Store
+    // description (docs/store/listing.md) carries `citationSource` word for
+    // word (tools/validate-options-form.js). The two URLs are owner decisions:
+    // the privacy policy's published address (#81) and the support channel.
+    ABOUT: {
+      citationSource: 'Citation data compiled with reference to the BYU Scripture Citation Index. '
+        + 'Not affiliated with or endorsed by BYU or The Church of Jesus Christ of Latter-day Saints.',
+      jodSource: 'Journal of Discourses text: Wikisource, public domain',
+      privacyUrl: 'https://github.com/danielbaldwin47/Translations-and-Citations/blob/main/docs/privacy.md',
+      supportUrl: 'https://github.com/danielbaldwin47/Translations-and-Citations/issues',
+    },
+
     // --- Options deep links ---
     // OPEN_OPTIONS may carry `section`, one of OPTIONS_SECTIONS (the options
     // page's card ids). The worker parks it in chrome.storage.session under
     // OPTIONS_FOCUS_KEY before opening the page; the page reads it, clears it,
     // and scrolls that card into view.
-    OPTIONS_SECTIONS: ['bible', 'languages', 'reading'],
+    OPTIONS_SECTIONS: ['bible', 'languages', 'reading', 'about'],
     OPTIONS_FOCUS_KEY: 'btxOptionsFocus',
 
     // --- chrome.storage.local key prefixes (cache + rate limiting) ---
