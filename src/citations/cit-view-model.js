@@ -7,7 +7,7 @@
  * anchor at which verse, one row per talk, the corpus -> source-type bucketing
  * (read from the pack descriptor in data.pack: its corpora's `sourceType`
  * values, in its order; a corpus it lacks has no group, row or count), the
- * footer line from the pack vintage,
+ * footer line from the pack vintage (vintageLine, also the options page's About card),
  * both citation-layout orderings, which groups start open, snippet cleaning and
  * quoting, every label (summary, counts, verse, range, screen-reader), and the
  * filter / collapse-all state transitions. It also owns the talk reader's
@@ -693,7 +693,7 @@
   }
 
   const VM = {
-    formatVerses, verseLabel, anchorVerses, cleanSnippet, quoteSnippet, excerptText, verseUid,
+    formatVerses, verseLabel, anchorVerses, vintageLine, cleanSnippet, quoteSnippet, excerptText, verseUid,
     buildView, talkHeading,
     initialState, filterPlan, applyPlan, collapseAllPlan, collapseLabel, allRows,
   };

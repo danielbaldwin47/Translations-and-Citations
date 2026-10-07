@@ -333,10 +333,33 @@ check(C.CHURCH_LANGUAGES.every((l) => /^[a-z]{2,3}(-[A-Z][a-z]{3})?(-[A-Z]{2})?$
 eq(['jpn', 'zhs', 'zho', 'yue', 'kor'].map((c) => lang(c).tag), ['ja', 'zh-Hans', 'zh-Hant', 'yue-Hant', 'ko'],
   'CJK names are tagged so the browser picks the right glyphs');
 
+// ---- aboutCopy: the About card (spec #69, A10, A28) ----
+// What the card says, as text: version, pack vintage, source lines, links.
+console.log('aboutCopy:');
+const BYU_LINE = 'Citation data compiled with reference to the BYU Scripture Citation Index. '
+  + 'Not affiliated with or endorsed by BYU or The Church of Jesus Christ of Latter-day Saints.';
+const JOD_LINE = 'Journal of Discourses text: Wikisource, public domain';
+// ebible.org's copyright page for the engwebp edition, word for word.
+const WEB_LINE = 'The World English Bible is in the Public Domain. That means that it is not copyrighted. '
+  + 'However, "World English Bible" is a Trademark of eBible.org.';
+const about = F.aboutCopy({ version: '1.0.0', pack: { flavor: 'public', vintage: '2026-10' } });
+eq(about.version, 'Version 1.0.0', 'the version line names the manifest version');
+eq(about.vintage, 'Citations through October 2026', 'the pack vintage reads as the Citations footer does');
+eq(F.aboutCopy({ version: '1.0.0', pack: null }).vintage, null, 'no pack found: no vintage line');
+eq(F.aboutCopy({ version: '1.0.0', pack: { vintage: 'soon' } }).vintage, null, 'an unreadable vintage: no vintage line');
+eq(about.sources, [BYU_LINE, JOD_LINE, WEB_LINE],
+  'the source lines: BYU compiled source with the not-affiliated line, Wikisource, the World English Bible wording');
+eq(about.links.map((l) => l.label), ['Privacy policy', 'Support'], 'the card links the privacy policy and support');
+check(about.links.every((l) => /^https:\/\/\S+$/.test(l.href)), 'both links are https URLs');
+eq(about.links[1].href, 'https://github.com/danielbaldwin47/Translations-and-Citations/issues',
+  'support defaults to the repository\'s issues (owner decision, spec #69 Further Notes)');
+const settingKeys = Object.keys(S.defaults());
+check(!Object.keys(about).some((k) => settingKeys.indexOf(k) >= 0), 'nothing the About card shows is a setting');
+
 // ---- the DOM shell stays out of Node ----
 console.log('Shell:');
 eq(Object.keys(F).sort(), [
-  'commitPatch', 'connectedText', 'dedupeVersions', 'failedWrites', 'fillPlan', 'groupCount', 'initialChecks', 'isAdded',
+  'aboutCopy', 'commitPatch', 'connectedText', 'dedupeVersions', 'failedWrites', 'fillPlan', 'groupCount', 'initialChecks', 'isAdded',
   'keyControls', 'keyErrorText', 'languageGroups', 'listGuesses', 'matchesLanguage', 'mergeVersions', 'moreLabel', 'offeredLanguages',
   'patchLanded', 'pickDefaultId', 'stableGroups', 'translationPatch', 'versionGroups', 'versionLabel', 'withStored',
   'yoursNote',
@@ -505,6 +528,23 @@ check(/id="reading"[\s\S]*id="scrollSync"/.test(html) && /id="reading"[\s\S]*id=
   'scroll sync and text size sit in the Reading card');
 check(/id="languages"[\s\S]*id="churchLanguages"[\s\S]*id="reading"/.test(html),
   'the Church-language checklist sits in its own card');
+
+// The About card (spec #69): the fourth section, text and links only, so it
+// adds nothing the autosave could write.
+eq(C.OPTIONS_SECTIONS, ['bible', 'languages', 'reading', 'about'], 'About is the fourth section');
+const aboutCard = (html.match(/<section class="card" id="about"[\s\S]*?<\/section>/) || [''])[0];
+check(aboutCard, 'the About card is on the page');
+check(!/<(input|select|textarea|button)\b|contenteditable/i.test(aboutCard), 'the About card has no form control');
+check(!/els\.about/.test(fieldsTable), 'no FIELDS row reads or writes the About card');
+const renderAboutBody = bodyOf('renderAbout');
+check(/aboutCopy\(\{ version: chrome\.runtime\.getManifest\(\)\.version, pack \}\)/.test(renderAboutBody),
+  'the card shows the running manifest\'s version through aboutCopy');
+check(/citData\.loadPack\(\)/.test(renderAboutBody), 'the vintage comes from the pack the reader loads (personal first, then public)');
+check(!/queueCommit|write\(|dirty|SETTINGS/.test(renderAboutBody), 'rendering the About card touches no setting');
+check(/renderAbout\(\)/.test(bodyOf('init')), 'init renders the About card');
+check(/cit-data\.js"><\/script>\s*<script src="\.\.\/citations\/cit-view-model\.js"><\/script>[\s\S]*<script src="options\.js">/.test(html),
+  'the options page loads the pack loader and the view-model (vintageLine) before its own script');
+check(/if \(section === 'about'\) return;/.test(bodyOf('focusSection')), 'a deep link to About scrolls to it and moves no focus');
 check(/chrome\.storage\.session\.get\(C\.OPTIONS_FOCUS_KEY\)/.test(bodyOf('takeFocusRequest'))
   && /chrome\.storage\.session\.remove\(C\.OPTIONS_FOCUS_KEY\)/.test(bodyOf('takeFocusRequest')),
   'a deep link is read and cleared from session storage');

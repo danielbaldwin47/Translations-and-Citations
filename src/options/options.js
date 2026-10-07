@@ -1,9 +1,10 @@
 /*
- * Options page: an autosaving editor of the stored settings, in three cards
- * whose ids are C.OPTIONS_SECTIONS — `bible` (api.bible key and which
- * translations the panel offers), `languages` (Church languages and where
- * they show), `reading` (text size, panel width, scroll sync, pages in other
- * languages).
+ * Options page: an autosaving editor of the stored settings, in cards whose
+ * ids are C.OPTIONS_SECTIONS — `bible` (api.bible key and which translations
+ * the panel offers), `languages` (Church languages and where they show),
+ * `reading` (text size, panel width, scroll sync, pages in other languages),
+ * and `about` (version, pack vintage, source lines, privacy and support
+ * links: text only, no control, so nothing for the autosave; aboutCopy).
  *
  * The form is an editor of the stored settings, not a second copy of them.
  * Every change is written as it happens, through __BTX.settings.patch (never
@@ -45,6 +46,9 @@
 
   const C = (root.__BTX && root.__BTX.const)
     || (typeof require === 'function' ? require('../shared/constants.js') : null);
+  // The citation view-model, for the pack vintage's wording (vintageLine).
+  const VM = (root.__BTX && root.__BTX.citVM)
+    || (typeof require === 'function' ? require('../citations/cit-view-model.js') : null);
 
   // ---- Pure form core (Node-testable) ------------------------------------
 
@@ -332,9 +336,27 @@
     return [lang.name, lang.english, lang.code].some((f) => fold(f).indexOf(needle) >= 0);
   }
 
+  // ---- About ----
+
+  // The About card, all text: the manifest version, the pack vintage as the
+  // Citations footer words it (null when no pack or no readable vintage), the
+  // source lines, and the privacy and support links. It has no control, so
+  // nothing here reaches the autosave.
+  function aboutCopy({ version, pack }) {
+    return {
+      version: `Version ${version}`,
+      vintage: VM.vintageLine(pack),
+      sources: [C.ABOUT.citationSource, C.ABOUT.jodSource, C.BUNDLED_BIBLE.copyright],
+      links: [
+        { label: 'Privacy policy', href: C.ABOUT.privacyUrl },
+        { label: 'Support', href: C.ABOUT.supportUrl },
+      ],
+    };
+  }
+
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = {
-      isAdded, dedupeVersions, versionGroups, stableGroups, mergeVersions, listGuesses, withStored, initialChecks, pickDefaultId,
+      aboutCopy, isAdded, dedupeVersions, versionGroups, stableGroups, mergeVersions, listGuesses, withStored, initialChecks, pickDefaultId,
       translationPatch, commitPatch, patchLanded, failedWrites, fillPlan, keyControls,
       versionLabel, moreLabel, connectedText, yoursNote, keyErrorText,
       offeredLanguages, languageGroups, groupCount, matchesLanguage,
@@ -377,6 +399,10 @@
     sidebarWidthOut: $('sidebarWidthOut'),
     scrollSync: $('scrollSync'),
     showOnOtherLanguages: $('showOnOtherLanguages'),
+    aboutVersion: $('aboutVersion'),
+    aboutVintage: $('aboutVintage'),
+    aboutSources: $('aboutSources'),
+    aboutLinks: $('aboutLinks'),
   };
 
   let settings = SETTINGS.defaults();
@@ -939,6 +965,27 @@
     }
   }
 
+  // ---- About ----
+
+  // Text only (aboutCopy): the running version, the vintage of the pack the
+  // reader would load (personal first, then public), the source lines, links.
+  async function renderAbout() {
+    let pack = null;
+    try { pack = (await root.__BTX.citData.loadPack()).descriptor; } catch (e) { /* no pack: no vintage line */ }
+    const copy = aboutCopy({ version: chrome.runtime.getManifest().version, pack });
+    els.aboutVersion.textContent = copy.version;
+    els.aboutVintage.textContent = copy.vintage || '';
+    els.aboutVintage.hidden = !copy.vintage;
+    els.aboutSources.replaceChildren(...copy.sources.map((line) => el('li', null, line)));
+    els.aboutLinks.replaceChildren(...copy.links.map((link) => {
+      const a = el('a', null, link.label);
+      a.href = link.href;
+      a.target = '_blank';
+      a.rel = 'noopener';
+      return a;
+    }));
+  }
+
   // ---- Deep links ----
 
   function focusSection(section) {
@@ -948,6 +995,7 @@
     card.classList.remove('flash');
     void card.offsetWidth; // restart the highlight
     card.classList.add('flash');
+    if (section === 'about') return; // text only: nothing to focus
     if (section !== 'bible') {
       (section === 'languages' ? els.langFilter : els.fontScale).focus({ preventScroll: true });
       return;
@@ -1014,6 +1062,7 @@
     buildLanguageList();
     showStoredList(cached);
     fillForm();
+    renderAbout();
 
     for (const f of FIELDS) {
       if (f.key === 'apiKey') continue;

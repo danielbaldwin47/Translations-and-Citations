@@ -132,11 +132,24 @@
         <span>Also show on pages in other languages</span>
       </label>
     </section>
+
+    <!-- Text and links only (options.js aboutCopy / renderAbout): no control,
+         so nothing here is a setting or reaches the autosave. -->
+    <section class="card" id="about" aria-labelledby="aboutHead">
+      <h2 id="aboutHead">About</h2>
+      <p id="aboutVersion" class="about-meta"></p>
+      <p id="aboutVintage" class="about-meta" hidden></p>
+      <ul id="aboutSources" class="about-sources"></ul>
+      <p id="aboutLinks" class="about-links"></p>
+    </section>
   </main>
 
   <!-- Shared modules first (plain scripts attach to window.__BTX), then page logic. -->
   <script src="../shared/constants.js"></script>
   <script src="../shared/settings.js"></script>
+  <!-- The citation pack loader and the view-model, for the About card's pack vintage. -->
+  <script src="../citations/cit-data.js"></script>
+  <script src="../citations/cit-view-model.js"></script>
   <!-- The worker's cache module, for the version list's first paint. -->
   <script src="../background/cache.js"></script>
   <script src="options.js"></script>
