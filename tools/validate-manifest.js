@@ -19,7 +19,12 @@
  *     description's first sentence names both modes and carries the BYU
  *     source and not-affiliated line, no word repeats more than five times,
  *     the single-purpose text is the spec's, every permission and host has a
- *     one-line justification, the URLs are the About card's (C.ABOUT).
+ *     one-line justification, the URLs are the About card's (C.ABOUT);
+ *   - the privacy policy (A28, A30) exists at the docs/ path C.ABOUT.privacyUrl
+ *     names, carries the Limited Use statement verbatim and the BYU source
+ *     line, names every host the manifest reaches as a party, and covers
+ *     synced vs device storage, deletion (uninstall), and no analytics, sale
+ *     or ads.
  * Run: node tools/validate-manifest.js   Exits non-zero on failure.
  */
 'use strict';
@@ -106,6 +111,27 @@ for (const t of ['Authentication information', 'Website content', 'Web history']
 check(/^No\b/.test(pasted('Remote code')), 'remote code is answered No');
 check(section('Privacy policy').includes(C.ABOUT.privacyUrl) && section('Support').includes(C.ABOUT.supportUrl),
   'the privacy policy and support URLs are the About card\'s (C.ABOUT)');
+
+// The privacy policy (A28, A30) is the page C.ABOUT.privacyUrl publishes
+// from this repo: the file the URL's path names under docs/.
+console.log('Privacy policy (A30):');
+const LIMITED_USE = 'The use of information received by this extension will adhere to the Chrome Web Store '
+  + 'User Data Policy, including the Limited Use requirements.';
+const policyPath = (C.ABOUT.privacyUrl.match(/\/blob\/[^/]+\/(docs\/.+\.md)$/) || [])[1];
+check(policyPath, `C.ABOUT.privacyUrl names a markdown file under docs/ on a branch (${C.ABOUT.privacyUrl})`);
+const policy = policyPath && fs.existsSync(path.join(ROOT, policyPath))
+  ? fs.readFileSync(path.join(ROOT, policyPath), 'utf8').replace(/\r\n/g, '\n') : '';
+check(policy, `the policy exists at ${policyPath || '(no path)'}`);
+check(policy.includes(LIMITED_USE), 'the policy carries the Limited Use statement verbatim');
+check(policy.includes(C.ABOUT.citationSource), 'the policy carries the BYU source line and the not-affiliated line (C.ABOUT.citationSource)');
+// Every host the manifest lets the extension reach is a named party.
+const hosts = [...(manifest.host_permissions || []), ...scriptMatches].map((p) => new URL(p.replace(/\*$/, '')).hostname);
+for (const h of hosts) check(policy.includes(h), `the policy names ${h} as a party contacted`);
+for (const word of [/\bsync\b/i, /\bdevice\b/i, /\buninstall/i]) {
+  check(word.test(policy), `the policy covers ${word} (where data is stored, and how to delete it)`);
+}
+check(/no analytics/i.test(policy) && /\bsell|\bsold|\bsale\b/i.test(policy) && /\bads?\b/i.test(policy),
+  'the policy states no analytics, no sale, no ads');
 
 if (failures) {
   console.error(`\n${failures} check(s) failed.`);

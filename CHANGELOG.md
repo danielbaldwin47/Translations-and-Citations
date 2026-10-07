@@ -4,7 +4,63 @@ High-level only. Mechanism lives in module headers, `GLOSSARY.md`, and
 `docs/adr/`. Versions are the extension's own numbering (`manifest.json`),
 starting fresh at 0.x for the first tagged release.
 
-## Unreleased
+## 1.0.0 — October 2026
+
+The public release: the extension ships free on the Chrome Web Store, one
+codebase in two flavors (ADR-0008). The **public release** runs the committed
+public pack; the **personal build** (load-unpacked) runs a private personal
+pack, the only home of data without rights evidence. The rights record is
+issue #61; the spec is #69.
+
+### For the reader
+
+- **Bible translations with no setup.** The World English Bible is built in
+  (public domain, text unaltered): a fresh install opens a Bible chapter with
+  it beside the page. api.bible stays for NIV, NKJV and the other versions
+  your key unlocks; the `bible-api.com` provider is gone.
+- **Citations from every General Conference since 1942** and the **Journal of
+  Discourses**, in the public pack. Conference talks are indexed as references
+  only: each row's excerpt is the cited paragraph, fetched when the row comes
+  on screen inside a group you opened (at most six requests to the Church
+  site and two to BYU at a time, one fetch per talk per session, nothing kept
+  past the session). While it loads the row holds its exact size. Early
+  conference (1942–1970) is fetched from scriptures.byu.edu, its publisher,
+  and says so in the byline; the Journal of Discourses text is Wikisource's,
+  bundled, with "Text: Wikisource, revision N" and a permalink in the byline.
+  Teachings of the Prophet Joseph Smith is in the personal build only.
+- **Talks open at the cited paragraph** even without an anchor: the footnote
+  locator reads the talk's own scripture links. Groups start collapsed except
+  the verse you are reading. The Citations footer and the About card show the
+  pack vintage ("Citations through October 2026"); October 2026 is the first
+  conference indexed from the Church's own talk pages.
+- **Disclosures and About.** One sentence beside Connect and on the setup card
+  says what connecting to api.bible sends; one line beside Add language says
+  the chapter is fetched from churchofjesuschrist.org. Settings gain an About
+  card: version, pack vintage, data sources, the privacy policy
+  (`docs/privacy.md`) and support links.
+- api.bible usage reporting is a plain request from the service worker, never
+  a script on the page. Name: "Translations & Citations: a scripture study
+  companion".
+
+### Under the hood
+
+- **Pack descriptor** (`index.json` `pack`): the reader learns every
+  per-corpus fact — source type, where text comes from, scroll target,
+  bundled or fetched excerpt, inclusion rule, vintage — from the pack it
+  finds (`src/citations/data-personal/` first, then `src/citations/data/`),
+  never from a corpus table of its own.
+- **Build:** `build-citation-data.js --pack public|personal`, with
+  `--inclusion` (`all` or `verbatim`, the quotation matcher in
+  `verbatim-matcher.js`), excerpt character counts, derived cites from
+  `derive-conference.js` (one conference per run, no Church text kept), the
+  Journal of Discourses from `fetch-jod-wikisource.js` + `build-jod-talks.js`,
+  the Bible from `build-bible-data.js`, and `build-store-zip.js` (the committed
+  tree alone, via `git archive`). Pack-aware validators, `validate-manifest`
+  (manifest, Store listing texts, privacy policy), `validate-store-zip`,
+  `validate-service-worker` (FUMS on cache hits too), `validate-jod`,
+  `validate-derivation`, `validate-bible-data`, `validate-verbatim-matcher`.
+- Docs: ADR-0008, the pack-refresh checklist (`docs/agents/pack-refresh.md`),
+  the Store listing texts (`docs/store/listing.md`), the privacy policy.
 
 ### UX pass
 
@@ -67,7 +123,7 @@ end-to-end verification.
   or the citation filter; A− / A+ keep your place.
 - New extension icons; one product name, "Translations & Citations".
 
-### Earlier in this release
+### Earlier in 1.0.0
 
 - **Church languages** (new options card): the chapter in Spanish, Portuguese,
   Japanese, … beside the English page, on every standard work — straight from
