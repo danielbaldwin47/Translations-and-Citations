@@ -14,7 +14,9 @@
  *       tools/test-talk-source.js.
  *
  * Layout: a sticky header (Back, verse chip, external link; then the title),
- * then in the scroll body a byline (speaker, source), the one-line highlight
+ * then in the scroll body a byline (speaker, source, and the credit line
+ * citVM.talkCredit gives a bundled corpus's descriptor entry, linked to the
+ * text's source, e.g. "Text: Wikisource, revision N"), the one-line highlight
  * hint until the first highlight exists, and the article. The cited passage is
  * marked (btx-cit-highlight on the target, btx-cit-passage on its paragraph)
  * and revealed on open; the verse chip reveals it again.
@@ -239,7 +241,7 @@
     return s;
   }
 
-  function errorState(url, onRetry) {
+  function errorState(url, onRetry, linkLabel) {
     const s = el('div', 'btx-state btx-talk-error');
     s.setAttribute('role', 'status');
     s.appendChild(el('p', 'btx-state-text', 'Couldn’t load this talk.'));
@@ -248,7 +250,7 @@
     again.type = 'button';
     again.addEventListener('click', onRetry);
     s.appendChild(again);
-    if (url) s.appendChild(externalLink('btx-talk-error-link', url, SITE));
+    if (url) s.appendChild(externalLink('btx-talk-error-link', url, linkLabel || SITE));
     return s;
   }
 
@@ -260,10 +262,15 @@
     return a;
   }
 
-  function byline(heading) {
+  function byline(heading, credit) {
     const b = el('div', 'btx-talk-byline');
     if (heading.speaker) b.appendChild(el('div', 'btx-talk-speaker', heading.speaker));
     if (heading.where) b.appendChild(el('div', 'btx-talk-where', heading.where));
+    if (credit) {
+      const line = el('div', 'btx-talk-credit');
+      line.appendChild(externalLink('btx-talk-credit-link', credit.href, credit.text));
+      b.appendChild(line);
+    }
     return b.childElementCount ? b : null;
   }
 
@@ -373,17 +380,22 @@
       body.textContent = '';
       // The stored URL may redirect; deep-link the effective one.
       if (ext && loaded.url) ext.href = talkSource().fullTalkUrl(loaded.url, entry.anchor);
+      const credit = citVM().talkCredit(source, loaded.corpus);
+      if (ext && credit) {
+        ext.title = credit.linkLabel;
+        ext.setAttribute('aria-label', credit.linkLabel);
+      }
 
       if (!loaded.html) {
         body.appendChild(errorState(loaded.url || source.url, () => {
           back.focus({ preventScroll: true });
           show(true);
-        }));
+        }, credit && credit.linkLabel));
         keepView(false);
         return;
       }
 
-      const by = byline(heading);
+      const by = byline(heading, credit);
       if (by) body.appendChild(by);
       let hint = hintDone ? null : el('p', 'btx-talk-hint', HINT);
       if (hint) body.appendChild(hint);

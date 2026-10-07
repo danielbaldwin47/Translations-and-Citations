@@ -23,7 +23,7 @@ const ORIGIN = 'https://www.churchofjesuschrist.org';
 const CORPORA = {
   G: { sourceType: 'General Conference', text: 'live-church', target: 'anchor', excerpt: 'bundled', inclusion: 'all' },
   E: { sourceType: 'General Conference', text: 'bundled', target: 'citationSpan', excerpt: 'bundled', inclusion: 'all' },
-  J: { sourceType: 'Journal of Discourses', text: 'bundled', target: 'citationSpan', excerpt: 'bundled', inclusion: 'all' },
+  J: { sourceType: 'Journal of Discourses', text: 'bundled', target: 'citationSpan', excerpt: 'bundled', inclusion: 'all', attribution: 'wikisource' },
 };
 const PACK_BASE = { vintage: '2026-04', base: { db: 'core.53.db', updated: '2026-05-18' }, derived: [] };
 const PUBLIC = { ...PACK_BASE, flavor: 'public', corpora: CORPORA };
@@ -73,6 +73,24 @@ test('corpusPlan: a live talk that ships no URL reads the bundle', () => {
   assert.deepStrictEqual(talkSource.corpusPlan(PUBLIC, 'G', { hasUrl: true }), { text: 'live-church', target: 'anchor' });
   // A bundled corpus is bundled with or without a URL.
   assert.deepStrictEqual(talkSource.corpusPlan(PUBLIC, 'J', { hasUrl: true }), { text: 'bundled', target: 'citationSpan' });
+});
+
+test('targetIds: a live paragraph anchor is tried before the citation span', () => {
+  const plan = talkSource.corpusPlan(PUBLIC, 'G');
+  assert.deepStrictEqual(talkSource.targetIds(plan, { citId: 7, anchor: 'p21' }, true), ['p21', '7']);
+  assert.deepStrictEqual(talkSource.targetIds(plan, { citId: 7, anchor: 'p21' }, false), ['7'],
+    'a live corpus read from the bundle has no paragraph ids to find');
+});
+
+test('targetIds: a Journal of Discourses cite falls back from its marker to its page anchor', () => {
+  const plan = talkSource.corpusPlan(PUBLIC, 'J');
+  assert.deepStrictEqual(talkSource.targetIds(plan, { citId: '73652' }, false), ['73652']);
+  assert.deepStrictEqual(talkSource.targetIds(plan, { citId: '73653', anchor: 'jdp-12' }, false), ['73653', 'jdp-12']);
+});
+
+test('fullTalkUrl: a page anchor never deep-links a URL off the Church site', () => {
+  const permalink = 'https://en.wikisource.org/w/index.php?title=Journal_of_Discourses/Volume_1/Salvation&oldid=16217145';
+  assert.strictEqual(talkSource.fullTalkUrl(permalink, 'jdp-3'), permalink);
 });
 
 test('lastSlug: trailing slashes do not shift the slug', () => {

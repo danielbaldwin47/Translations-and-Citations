@@ -91,7 +91,8 @@ _Avoid_: source (bare — that still means a source type or the BYU DBs); always
 
 **Scroll target**:
 The element in a rendered talk the reader scrolls to and marks for a cite:
-the paragraph anchor (live GC), the citation span (bundled E/J), or the body
+the paragraph anchor (live GC), the citation span (bundled E/J; a J cite
+the Wikisource build could not place targets its printed page's anchor), or the body
 passage (STPJS) — else the paragraph that contains the cite's snippet (most
 2020s GC cites carry no paragraph anchor).
 

@@ -11,7 +11,8 @@
  * both citation-layout orderings, which groups start open, snippet cleaning and
  * quoting, every label (summary, counts, verse, range, screen-reader), and the
  * filter / collapse-all state transitions. It also owns the talk reader's
- * heading (talkHeading: title, byline, verse chip). cit-panel is a thin adapter from
+ * heading (talkHeading: title, byline, verse chip) and its credit line
+ * (talkCredit: "Text: Wikisource, revision N"). cit-panel is a thin adapter from
  * these descriptors to elements, which keeps this module reachable from Node
  * (tools/validate-cit-view-model.js). The adapter owns only copy that depends
  * on no data: the loading line, the filter placeholder, the Clear filter
@@ -656,9 +657,28 @@
     };
   }
 
+  // The talk reader's credit for where a bundled talk's text is from, read
+  // from the corpus's descriptor entry (`attribution`), or null:
+  //   text       the byline line ("Text: Wikisource, revision N"; N is the
+  //              revision the source record's permalink pins, `oldid`)
+  //   href       the source record's URL, which the line links
+  //   linkLabel  the header's external-link label for that URL
+  const CREDITS = { wikisource: { name: 'Wikisource', linkLabel: 'Open on Wikisource' } };
+  function talkCredit(source, corpus) {
+    const credit = corpus && CREDITS[corpus.attribution];
+    const url = source && source.url;
+    if (!credit || !url) return null;
+    const rev = /[?&]oldid=(\d+)/.exec(url);
+    return {
+      text: `Text: ${credit.name}` + (rev ? `, revision ${rev[1]}` : ''),
+      href: url,
+      linkLabel: credit.linkLabel,
+    };
+  }
+
   const VM = {
     formatVerses, verseLabel, anchorVerses, cleanSnippet, quoteSnippet, verseUid,
-    buildView, talkHeading,
+    buildView, talkHeading, talkCredit,
     initialState, filterPlan, applyPlan, collapseAllPlan, collapseLabel, allRows,
   };
 

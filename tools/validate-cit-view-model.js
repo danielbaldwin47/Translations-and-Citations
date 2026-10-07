@@ -37,7 +37,7 @@ const visibleRowIds = (view, plan) =>
 const CORPORA = {
   G: { sourceType: 'General Conference', text: 'live-church', target: 'anchor', excerpt: 'bundled', inclusion: 'all' },
   E: { sourceType: 'General Conference', text: 'bundled', target: 'citationSpan', excerpt: 'bundled', inclusion: 'all' },
-  J: { sourceType: 'Journal of Discourses', text: 'bundled', target: 'citationSpan', excerpt: 'bundled', inclusion: 'all' },
+  J: { sourceType: 'Journal of Discourses', text: 'bundled', target: 'citationSpan', excerpt: 'bundled', inclusion: 'all', attribution: 'wikisource' },
 };
 const PACK_FACTS = { vintage: '2026-04', base: { db: 'core.53.db', updated: '2026-05-18' }, derived: [] };
 const PUBLIC = Object.assign({ flavor: 'public', corpora: CORPORA }, PACK_FACTS);
@@ -629,6 +629,20 @@ console.log('Talk heading:');
   eq(bare.speaker, null, 'no speaker line when the speaker is unknown');
   eq(bare.chip.text, 'Cited passage', 'a cite without verses still gets a chip');
   eq(bare.chip.a11yLabel, 'Go to the cited passage', 'with a plain label');
+}
+
+console.log('Talk credit (where the bundled text is from):');
+{
+  const PERMALINK = 'https://en.wikisource.org/w/index.php?title=Journal_of_Discourses/Volume_1/Salvation&oldid=16217145';
+  const src = { c: 'J', sp: 'Brigham Young', ti: 'Salvation.', d: '1853-01', lbl: 'Journal of Discourses 1:3', url: PERMALINK };
+  deep(VM.talkCredit(src, CORPORA.J), { text: 'Text: Wikisource, revision 16217145', href: PERMALINK, linkLabel: 'Open on Wikisource' },
+    'a Wikisource talk credits the revision and links its permalink');
+  eq(VM.talkCredit(src, CORPORA.E), null, 'a corpus with no attribution has no credit line');
+  eq(VM.talkCredit(src, null), null, 'nor does a corpus the descriptor lacks');
+  deep(VM.talkCredit({ c: 'J', url: 'https://en.wikisource.org/wiki/Journal_of_Discourses' }, CORPORA.J),
+    { text: 'Text: Wikisource', href: 'https://en.wikisource.org/wiki/Journal_of_Discourses', linkLabel: 'Open on Wikisource' },
+    'a link with no revision credits Wikisource without one');
+  eq(VM.talkCredit({ c: 'J' }, CORPORA.J), null, 'a talk with no URL has nothing to link');
 }
 
 if (failures) { console.error(`\n${failures} check(s) failed.`); process.exit(1); }

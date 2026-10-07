@@ -21,6 +21,12 @@
  * public descriptor lists no T corpus, the personal one does. The pack's other
  * contents do not differ by mode yet.
  *
+ * Journal of Discourses (J) talk text, snippets, page anchors and source URLs
+ * come from the Wikisource build, a cached input beside the DBs (--jod, default
+ * ./source-data/jod-talks; make it with tools/fetch-jod-wikisource.js then
+ * tools/build-jod-talks.js). No J text is taken from BYU's HTML; the pack gets
+ * that build's provenance file as jod-provenance.json.
+ *
  * Inspect the raw DBs first (recommended before a full build) to confirm the
  * real talk.URL formats and talk HTML markup:
  *   node --experimental-sqlite tools/build-citation-data.js --inspect
@@ -30,7 +36,10 @@
  *                              pack = the pack descriptor (packDescriptor)
  *   data/sources.json          { [talkId]: { c, sp, ti, d, lbl, url? } }   // one entry per cited talk
  *   data/citations/{slug}.json { cites:{ [citId]:{t,v,sn} }, index:{ [chap]:{ [verse]:[citId,...] } } }
- *   data/talks/{talkId}.html.gz  gzipped cleaned HTML for corpus E/J/T only (G is fetched live)
+ *   data/talks/{talkId}.html.gz  gzipped HTML for corpus E/J/T only (G is fetched live);
+ *                              J is the Wikisource build's HTML
+ *   data/jod-provenance.json   { snapshot, license, talks: { [talkId]: provenance row } }
+ *                              (tools/build-jod-talks.js; checked by tools/validate-jod.js)
  */
 'use strict';
 
@@ -52,6 +61,7 @@ const PACK = arg('--pack', 'public');
 const CORE = arg('--core', path.resolve(__dirname, '..', 'source-data', 'core.53.db'));
 const CONTENT = arg('--content', path.resolve(__dirname, '..', 'source-data', 'content.53.db'));
 const OUT = arg('--out', PACK_OUT[PACK]);
+const JOD = arg('--jod', path.resolve(__dirname, '..', 'source-data', 'jod-talks'));
 const INSPECT = process.argv.includes('--inspect');
 
 // ---- pack descriptor ----
@@ -63,11 +73,13 @@ const INSPECT = process.argv.includes('--inspect');
 //   target      the corpus plan's scroll-target rule: 'anchor' | 'citationSpan' | 'bodyPassage'
 //   excerpt     'bundled' (a snippet cut at build time) | 'fetched' (on visibility)
 //   inclusion   the build's inclusion rule: 'all' | 'verbatim'
+//   attribution where the bundled text is from, for the reader's byline:
+//               'wikisource' (the source record's URL is the permalink at its revision)
 // Key order is display order of source types (the reader groups in first-seen order).
 const CORPORA = {
   G: { sourceType: 'General Conference', text: 'live-church', target: 'anchor', excerpt: 'bundled', inclusion: 'all' },
   E: { sourceType: 'General Conference', text: 'bundled', target: 'citationSpan', excerpt: 'bundled', inclusion: 'all' },
-  J: { sourceType: 'Journal of Discourses', text: 'bundled', target: 'citationSpan', excerpt: 'bundled', inclusion: 'all' },
+  J: { sourceType: 'Journal of Discourses', text: 'bundled', target: 'citationSpan', excerpt: 'bundled', inclusion: 'all', attribution: 'wikisource' },
   // The gated element (ADR-0008): personal pack only.
   T: { sourceType: 'Teachings of the Prophet Joseph Smith', text: 'bundled', target: 'bodyPassage', excerpt: 'bundled', inclusion: 'all' },
 };
@@ -302,6 +314,21 @@ function build(core, content) {
   mkdirp(path.join(OUT, 'citations'));
   mkdirp(path.join(OUT, 'talks'));
 
+  // The Journal of Discourses build (tools/build-jod-talks.js): talk HTML,
+  // snippets, page anchors and permalinks from Wikisource.
+  const jodIndex = path.join(JOD, 'talks.json');
+  if (!fs.existsSync(jodIndex)) {
+    console.error(`ERROR: no Journal of Discourses build at ${JOD}.`);
+    console.error('Run tools/fetch-jod-wikisource.js (once) and tools/build-jod-talks.js first, or pass --jod.');
+    process.exit(2);
+  }
+  const jod = JSON.parse(fs.readFileSync(jodIndex, 'utf8'));
+  const jodTalk = (talkId) => {
+    if (!jod[talkId]) { console.error(`ERROR: J talk ${talkId} is missing from the Wikisource build (${JOD}).`); process.exit(2); }
+    return jod[talkId];
+  };
+  const jodCite = (talkId, citId) => jodTalk(talkId).cites[citId] || { sn: '' };
+
   const bookMap = buildBookMap(core);
   const slugs = Object.keys(bookMap);
   console.log(`Mapped ${slugs.length} standard-works books.`);
@@ -349,16 +376,25 @@ function build(core, content) {
       if (!index[ch][vs].includes(r.citId)) index[ch][vs].push(r.citId);
 
       if (!(r.citId in cites)) {
-        const html = getTalkHtml(r.talkId);
-        const { snippet, anchor } = extractCitation(html, r.citId);
-        const entry = { t: r.talkId, v: r.verses || vs, sn: snippet };
-        if (anchor) entry.a = anchor; // GC paragraph anchor for live deep-link
+        let entry;
+        if (r.corpus === 'J') {
+          // Journal of Discourses: the snippet and the page-anchor fallback come
+          // from the Wikisource build, never from BYU's HTML.
+          const jc = jodCite(r.talkId, r.citId);
+          entry = { t: r.talkId, v: r.verses || vs, sn: jc.sn };
+          if (jc.a) entry.a = jc.a;
+        } else {
+          const html = getTalkHtml(r.talkId);
+          const { snippet, anchor } = extractCitation(html, r.citId);
+          entry = { t: r.talkId, v: r.verses || vs, sn: snippet };
+          if (anchor) entry.a = anchor; // GC paragraph anchor for live deep-link
+        }
         cites[r.citId] = entry;
         count++;
       }
 
       if (!(r.talkId in sources)) {
-        const churchUrl = r.corpus === 'G' ? toChurchUrl(r.url) : null;
+        const url = r.corpus === 'G' ? toChurchUrl(r.url) : r.corpus === 'J' ? jodTalk(r.talkId).url : null;
         sources[r.talkId] = {
           c: r.corpus,
           sp: decodeEntities([r.given, r.last].filter(Boolean).join(' ')) || 'Unknown',
@@ -366,11 +402,20 @@ function build(core, content) {
           d: (r.date || '').slice(0, 7),
           lbl: sourceLabel(core, { Corpus: r.corpus, Date: r.date }, { Page: r.page, Volume: r.volume }),
         };
-        if (churchUrl) sources[r.talkId].url = churchUrl; // live-fetch target
+        if (url) sources[r.talkId].url = url; // G: live-fetch target; J: Wikisource permalink
       }
 
-      // Bundle full text for everything not opened live: E/J/T always, plus any
-      // G talk whose church URL couldn't be derived (so it's still openable).
+      // J talks are the Wikisource build's HTML.
+      if (r.corpus === 'J') {
+        if (!bundledTalks.has(r.talkId)) {
+          const html = fs.readFileSync(path.join(JOD, 'talks', `${r.talkId}.html`));
+          fs.writeFileSync(path.join(OUT, 'talks', `${r.talkId}.html.gz`), zlib.gzipSync(html));
+          bundledTalks.add(r.talkId);
+        }
+        continue;
+      }
+      // Bundle full text for everything else not opened live: E/T always, plus
+      // any G talk whose church URL couldn't be derived (so it's still openable).
       const liveG = r.corpus === 'G' && sources[r.talkId] && sources[r.talkId].url;
       if (!liveG && !bundledTalks.has(r.talkId)) {
         const html = getTalkHtml(r.talkId);
@@ -389,6 +434,7 @@ function build(core, content) {
   }
 
   writeJSON(path.join(OUT, 'sources.json'), sources);
+  fs.copyFileSync(path.join(JOD, 'provenance.json'), path.join(OUT, 'jod-provenance.json'));
   let dbUpdated = '';
   try { dbUpdated = String(core.prepare('SELECT * FROM updated LIMIT 1').get() && Object.values(core.prepare('SELECT * FROM updated LIMIT 1').get())[0] || ''); } catch (e) {}
   let vintage = '';
@@ -418,7 +464,7 @@ function build(core, content) {
 
 // Reused by tools/rederive-js-snippets.js (which has no DBs but the shipped talk
 // HTML); packDescriptor and conferenceOf by tools/validate-citations.js.
-module.exports = { extractCitation, stpjsBodyPassage, decompressTalk, stripTags, toChurchUrl, packDescriptor, conferenceOf };
+module.exports = { extractCitation, stpjsBodyPassage, decompressTalk, stripTags, decodeEntities, toChurchUrl, packDescriptor, conferenceOf };
 
 // ---- main ----
 if (require.main === module) {

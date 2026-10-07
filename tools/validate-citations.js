@@ -9,8 +9,10 @@
  * (the committed public pack always, the personal pack when its directory
  * exists). Then, over the public pack: the index covers every standard-works
  * book; every shard's index references resolve to a cite; every cite's talk
- * exists in sources.json; live-GC URLs are church-study URLs; url-less talks
- * have a .html.gz file; and, through chapterIndex, every verse the panel shows
+ * exists in sources.json; live-GC URLs are church-study URLs and J URLs are
+ * Wikisource permalinks (the descriptor's `attribution`); url-less talks and
+ * every talk of a bundled corpus have a .html.gz file (the J corpus in depth:
+ * tools/validate-jod.js); and, through chapterIndex, every verse the panel shows
  * a cite under is one its `v` lists (the clip that hides the build's stray
  * index rows; the stray rows themselves are counted as a warning until a
  * rebuild clears them).
@@ -103,6 +105,8 @@ const CORPUS_FIELDS = {
   inclusion: ['all', 'verbatim'],
 };
 const CONFERENCE = /^\d{4}-(04|10)$/;
+const CHURCH_STUDY = /^https:\/\/www\.churchofjesuschrist\.org\/study\//;
+const WIKISOURCE_PERMALINK = /^https:\/\/en\.wikisource\.org\/w\/index\.php\?title=[^&]+&oldid=\d+$/;
 
 // The shape every descriptor has, whatever its flavor.
 function checkDescriptorShape(d, where) {
@@ -199,11 +203,17 @@ function packChecks() {
           const src = sources[c.t];
           if (!src) { check(false, `${b.slug} cite ${citId} -> talk ${c.t} not in sources`); continue; }
           totalCites++;
-          // For live GC the url must be a church study URL; otherwise a bundled
-          // file must exist.
+          // A Church-fetched talk's url is a church study URL; a bundled
+          // corpus's url, when it has one, is its credited source (Wikisource
+          // for J) and it still needs its bundled file; a url-less talk is
+          // bundled.
+          const entry = (index.pack.corpora || {})[src.c] || {};
+          const bundled = !src.url || entry.text === 'bundled';
           if (src.url) {
-            if (!/^https:\/\/www\.churchofjesuschrist\.org\/study\//.test(src.url)) badUrls++;
-          } else if (!bundledChecked.has(c.t)) {
+            const want = entry.attribution === 'wikisource' ? WIKISOURCE_PERMALINK : CHURCH_STUDY;
+            if (!want.test(src.url)) badUrls++;
+          }
+          if (bundled && !bundledChecked.has(c.t)) {
             bundledChecked.add(c.t);
             if (!fs.existsSync(path.join(DATA, 'talks', `${c.t}.html.gz`))) bundledMissing++;
           }
@@ -256,7 +266,7 @@ function packChecks() {
     console.log(`  warning: ${strayRows} index row(s) file a cite under a verse outside its v ` +
       '(build-citation-data.js; hidden by the clip, cleared by a rebuild that skips them)');
   }
-  check(badUrls === 0, `all live-GC URLs are church study URLs (${badUrls} bad)`);
+  check(badUrls === 0, `every talk URL is a church study URL, or its corpus's credited source (${badUrls} bad)`);
   check(bundledMissing === 0, `all bundled talks have a .html.gz (${bundledMissing} missing)`);
 
   if (failures) { console.error(`\n${failures} check(s) failed.`); process.exit(1); }

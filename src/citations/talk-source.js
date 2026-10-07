@@ -2,10 +2,11 @@
  * Talk source: the one place that knows how a talk is obtained and where its
  * cite sits inside it. Answers a single question for the reader —
  *
- *     load({ entry, source }) -> { html, url, findTarget(container) }
+ *     load({ entry, source }) -> { html, url, corpus, findTarget(container) }
  *
  * "give me displayable HTML for this cite, plus how to find its target once
- * that HTML is rendered". Corpus differences (live fetch vs bundled gzip,
+ * that HTML is rendered" (`corpus` is the descriptor's entry for the talk's
+ * corpus, for the reader's credit line). Corpus differences (live fetch vs bundled gzip,
  * paragraph anchor vs citation span vs STPJS body passage) are decided by the
  * corpus plan; talk-view renders and scrolls, and decides nothing per corpus.
  *
@@ -16,7 +17,10 @@
  * no per-corpus table. A corpus the descriptor lacks has no plan, so load()
  * hands back no HTML, no URL and no target for it.
  *
- * Every corpus shares one last resort: when the plan's target is missing (most
+ * A cite's own anchor backs up a citation span: a Journal of Discourses cite
+ * the Wikisource build could not place carries its printed page's anchor
+ * (`jdp-N`) instead (targetIds). Every corpus shares one last resort: when the
+ * plan's target is missing (most
  * General Conference cites from 2020 on carry no paragraph anchor, and live
  * HTML has no citation spans), the target is the first paragraph whose text
  * holds the cite's snippet (snippetKey / snippetMatches).
@@ -24,7 +28,7 @@
  * A live fetch gives up after LIVE_TIMEOUT_MS, so a hung request ends in the
  * reader's error state rather than an endless spinner.
  *
- * The DOM-free half (corpusPlan, the pre-2013 URL repair, snippetKey,
+ * The DOM-free half (corpusPlan, targetIds, the pre-2013 URL repair, snippetKey,
  * snippetMatches) is exported for Node: `node --test tools/test-talk-source.js`.
  *
  * IIFE -> __BTX.talkSource (+ module.exports for the Node tests).
@@ -106,9 +110,10 @@
   }
 
   // Deep-link to a live church talk paragraph: "...&id=pN#pN" scrolls to and
-  // highlights that paragraph on churchofjesuschrist.org.
+  // highlights that paragraph on churchofjesuschrist.org. Any other site's URL
+  // (a Wikisource permalink) is left as it is: its anchors mean nothing there.
   function fullTalkUrl(url, anchor) {
-    if (!anchor) return url;
+    if (!anchor || !/^https:\/\/(?:www\.)?churchofjesuschrist\.org\//.test(String(url))) return url;
     const base = String(url).split('#')[0];
     const sep = base.indexOf('?') >= 0 ? '&' : '?';
     return `${base}${sep}id=${anchor}#${anchor}`;
@@ -223,22 +228,36 @@
     return hit;
   }
 
+  // The element ids a cite's scroll target may carry, most precise first.
+  // Pure, so the order is testable in Node:
+  //   anchor plan, live HTML   the paragraph anchor (pN), then the citation span
+  //   any other plan           the citation span, then the cite's own anchor:
+  //                            a Journal of Discourses cite the Wikisource build
+  //                            could not place carries its printed page's
+  //                            anchor (jdp-N) instead of a marker
+  // (An anchor plan read from the bundle has no pN ids, so it tries the span alone.)
+  function targetIds(plan, entry, live) {
+    const span = entry.citId == null ? [] : [String(entry.citId)];
+    if (!entry.anchor) return span;
+    if (plan.target === 'anchor') return live ? [entry.anchor].concat(span) : span;
+    return span.concat([entry.anchor]);
+  }
+
   // Locate the cite inside the rendered (sanitized) talk, per the corpus plan.
   // Render contract with talk-view: source ids survive, source classes come back
   // namespaced (`footnote` -> `btxk-footnote`), and each footnote carries its
   // number on `data-btx-footnum`. Change one side, change this.
-  // Falls back to the snippet's paragraph when the plan's target is missing.
+  // Falls back to the snippet's paragraph when no target id is found.
   function findTarget(container, { plan, entry, live }) {
-    if (plan.target === 'anchor' && live && entry.anchor) {
-      const hit = byId(container, entry.anchor);
-      if (hit) return hit;
+    for (const id of targetIds(plan, entry, live)) {
+      const hit = byId(container, id);
+      if (!hit) continue;
+      // STPJS: <span class="citation" id="{citId}"> sits in the footnote list.
+      if (plan.target !== 'bodyPassage' || id !== String(entry.citId)) return hit;
+      const note = hit.closest('.btxk-footnote');
+      return (note && bodyPassageForFootnote(container, note)) || hit;
     }
-    // <span class="citation" id="{citId}">
-    const span = entry.citId == null ? null : byId(container, String(entry.citId));
-    if (!span) return bySnippet(container, snippetKey(entry.snippet));
-    if (plan.target !== 'bodyPassage') return span;
-    const note = span.closest('.btxk-footnote');
-    return (note && bodyPassageForFootnote(container, note)) || span;
+    return bySnippet(container, snippetKey(entry.snippet));
   }
 
   /* -------------------------------------------------------------------- load */
@@ -250,8 +269,9 @@
     const src = source || {};
     let pack = null;
     try { pack = await citData().loadPack(); } catch (e) { pack = null; }
-    const plan = corpusPlan(pack && pack.descriptor, src.c, { hasUrl: !!src.url });
-    if (!plan) return { html: null, url: null, findTarget: () => null };
+    const descriptor = pack && pack.descriptor;
+    const plan = corpusPlan(descriptor, src.c, { hasUrl: !!src.url });
+    if (!plan) return { html: null, url: null, corpus: null, findTarget: () => null };
     let html = null;
     let url = src.url || null;
     let live = false;
@@ -269,12 +289,13 @@
     return {
       html,
       url,
+      corpus: descriptor.corpora[src.c],
       findTarget: (container) => findTarget(container, { plan, entry, live }),
     };
   }
 
   const API = {
-    load, corpusPlan, fullTalkUrl, pickSessionUrl, bouncedToConference, lastSlug,
+    load, corpusPlan, targetIds, fullTalkUrl, pickSessionUrl, bouncedToConference, lastSlug,
     snippetKey, snippetMatches,
   };
 
