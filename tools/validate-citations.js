@@ -527,6 +527,21 @@ function checkPack(dir, expectFlavor) {
   check(missing === 0, `${where}: a bundled corpus has a talk file for every source (${missing} missing)`);
   eq(index.counts.bundledTalks, files.length, `${where}: counts.bundledTalks matches the talk files`);
 
+  // The Wikisource provenance ships for exactly the talks the pack ships: a
+  // row per Wikisource-attributed talk, and none for a talk the inclusion
+  // rule left out.
+  const provFile = path.join(DATA, 'jod-provenance.json');
+  const attributed = Object.keys(sources).filter((id) => corpora[sources[id].c] && corpora[sources[id].c].attribution === 'wikisource');
+  if (attributed.length || fs.existsSync(provFile)) {
+    const rows = fs.existsSync(provFile) ? Object.keys(JSON.parse(fs.readFileSync(provFile, 'utf8')).talks || {}) : [];
+    const shipped = new Set(attributed);
+    const listed = new Set(rows);
+    const unshipped = rows.filter((id) => !shipped.has(id));
+    const unlisted = attributed.filter((id) => !listed.has(id));
+    check(!unshipped.length && !unlisted.length, `${where}: jod-provenance.json has a row for every shipped Wikisource talk and no other ` +
+      `(${unshipped.length} rows for talks not in the pack, e.g. ${unshipped.slice(0, 3).join(', ')}; ${unlisted.length} talks without a row)`);
+  }
+
   // What the panel shows: each cite only under verses its own `v` lists. A cite
   // whose index span and `v` share no verse keeps its index span (the clip's
   // fallback); those are listed, not failed.

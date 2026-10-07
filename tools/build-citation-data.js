@@ -63,7 +63,8 @@
  * come from the Wikisource build, a cached input beside the DBs (--jod, default
  * ./source-data/jod-talks; make it with tools/fetch-jod-wikisource.js then
  * tools/build-jod-talks.js). No J text is taken from BYU's HTML; the pack gets
- * that build's provenance file as jod-provenance.json.
+ * that build's provenance file as jod-provenance.json, its rows cut to the J
+ * talks the pack ships.
  *
  * Inspect the raw DBs first (recommended before a full build) to confirm the
  * real talk.URL formats and talk HTML markup:
@@ -752,7 +753,14 @@ function build(core, content, inclusion) {
 
   Object.assign(sources, derived.sources);
   writeJSON(path.join(OUT, 'sources.json'), sources);
-  fs.copyFileSync(path.join(JOD, 'provenance.json'), path.join(OUT, 'jod-provenance.json'));
+  // The Wikisource build's provenance, for exactly the J talks this pack
+  // ships (an inclusion rule may leave some out).
+  const provenance = JSON.parse(fs.readFileSync(path.join(JOD, 'provenance.json'), 'utf8'));
+  const provRows = {};
+  for (const [id, row] of Object.entries(provenance.talks || {})) {
+    if (sources[id] && sources[id].c === 'J') provRows[id] = row;
+  }
+  writeJSON(path.join(OUT, 'jod-provenance.json'), Object.assign({}, provenance, { talks: provRows }));
   let vintage = '';
   for (const s of Object.values(sources)) {
     if (CORPORA[s.c] && CORPORA[s.c].sourceType === 'General Conference') {
