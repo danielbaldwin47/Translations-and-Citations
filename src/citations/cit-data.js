@@ -29,7 +29,10 @@
  * cites, each under the verses its own `v` lists (chapterIndex clips the
  * index's spans to that; see there), plus whether the book is in the index
  * at all. Each entry also carries what the footnote locator needs: its book
- * slug, chapter and refRank. chapterIndex, citedVerses and refRanks are pure, and
+ * slug, chapter and refRank; and, for a corpus whose excerpt is fetched,
+ * `excerptChars`, the length of the text its excerpt will show (absent: the
+ * row reserves three lines). `talkId` is the shard's `t` as written: a number
+ * for a talk from the BYU base, a `gc/YYYY/MM/{slug}` string for a derived one. chapterIndex, citedVerses and refRanks are pure, and
  * tools/validate-citations.js exercises them (chapterIndex over every shard).
  *
  * IIFE -> __BTX.citData (+ module.exports for the Node validator).
@@ -209,6 +212,7 @@
         verses: c.v,
         versesInChapter: spanOf[id],
         snippet: c.sn,
+        excerptChars: c.ec,
         anchor: c.a,
         book: slug,
         chapter: Number(chapter),

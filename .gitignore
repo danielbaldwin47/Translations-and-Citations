@@ -16,3 +16,6 @@
 # macOS Finder droppings, and the scratch worktrees agents work in.
 .DS_Store
 /.claude/worktrees/
+
+# Store zips built by tools/build-store-zip.js.
+/dist/
