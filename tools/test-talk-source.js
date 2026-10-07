@@ -28,7 +28,7 @@ const ORIGIN = 'https://www.churchofjesuschrist.org';
 const CORPORA = {
   G: { sourceType: 'General Conference', text: 'live-church', target: 'anchor', excerpt: 'bundled', inclusion: 'all' },
   E: { sourceType: 'General Conference', text: 'live-byu', target: 'citationSpan', excerpt: 'bundled', inclusion: 'all' },
-  J: { sourceType: 'Journal of Discourses', text: 'bundled', target: 'citationSpan', excerpt: 'bundled', inclusion: 'all' },
+  J: { sourceType: 'Journal of Discourses', text: 'bundled', target: 'citationSpan', excerpt: 'bundled', inclusion: 'all', attribution: 'wikisource' },
 };
 const PACK_BASE = { vintage: '2026-04', base: { db: 'core.53.db', updated: '2026-05-18' }, derived: [] };
 const PUBLIC = { ...PACK_BASE, flavor: 'public', corpora: CORPORA };
@@ -75,6 +75,42 @@ test('corpusPlan: a live talk that ships no URL reads the bundle', () => {
   assert.deepStrictEqual(talkSource.corpusPlan(PUBLIC, 'G', { hasUrl: true }), { text: 'live-church', target: 'anchor' });
   // A bundled corpus is bundled with or without a URL.
   assert.deepStrictEqual(talkSource.corpusPlan(PUBLIC, 'J', { hasUrl: true }), { text: 'bundled', target: 'citationSpan' });
+});
+
+test('targetIds: a Journal of Discourses cite falls back from its marker to its page anchor', () => {
+  const plan = talkSource.corpusPlan(PUBLIC, 'J');
+  assert.deepStrictEqual(talkSource.targetIds(plan, { citId: '73652' }), ['73652']);
+  assert.deepStrictEqual(talkSource.targetIds(plan, { citId: '73653', anchor: 'jdp-12' }), ['73653', 'jdp-12']);
+});
+
+test('targetIds: a modern talk\'s paragraph anchor is not a span fallback', () => {
+  const plan = talkSource.corpusPlan(PUBLIC, 'G');
+  assert.deepStrictEqual(talkSource.targetIds(plan, { citId: 7, anchor: 'p21' }), ['7'],
+    'its pN anchors are the live page\'s, tried before the span when the talk is live');
+});
+
+const PERMALINK = 'https://en.wikisource.org/w/index.php?title=Journal_of_Discourses/Volume_1/Salvation&oldid=16217145';
+
+test('talkCredit: a Wikisource talk credits its revision and links its permalink', () => {
+  assert.deepStrictEqual(talkSource.talkCredit(CORPORA.J, { c: 'J', url: PERMALINK }),
+    { text: 'Text: Wikisource, revision 16217145', href: PERMALINK });
+  assert.deepStrictEqual(talkSource.talkCredit(CORPORA.J, { c: 'J', url: 'https://en.wikisource.org/wiki/Journal_of_Discourses' }),
+    { text: 'Text: Wikisource', href: 'https://en.wikisource.org/wiki/Journal_of_Discourses' }, 'no revision, no number');
+  assert.strictEqual(talkSource.talkCredit(CORPORA.J, { c: 'J' }), null, 'nothing to link');
+});
+
+test('talkCredit: a BYU-fetched talk names the fetch; other corpora have no line', () => {
+  assert.deepStrictEqual(talkSource.talkCredit(CORPORA.E, { c: 'E' }), { text: 'Text fetched from scriptures.byu.edu' });
+  assert.strictEqual(talkSource.talkCredit(CORPORA.G, { c: 'G', url: NELSON }), null);
+  assert.strictEqual(talkSource.talkCredit(null, { c: 'T' }), null, 'a corpus the pack lacks');
+});
+
+test('readingDestination: a Journal of Discourses cite at its page anchor still opens the permalink', () => {
+  const plan = talkSource.corpusPlan(PUBLIC, 'J');
+  assert.deepStrictEqual(
+    talkSource.readingDestination(plan, { entry: { talkId: 10001, citId: 7, anchor: 'jdp-3' }, source: { c: 'J', url: PERMALINK } }),
+    { href: PERMALINK, label: 'Open on en.wikisource.org' },
+  );
 });
 
 // BYU's talk fragment and viewer (spec #69 "Reader"; research note
@@ -325,7 +361,7 @@ test('load: an early-conference talk is fetched from BYU, credentials omitted', 
   assert.deepStrictEqual(log.requests.map((q) => q.url), ['https://scriptures.byu.edu/content/talks_ajax/889']);
   assert.strictEqual(log.requests[0].init.credentials, 'omit');
   assert.strictEqual(r.html, '<div class="gcera">https://scriptures.byu.edu/content/talks_ajax/889</div>');
-  assert.strictEqual(r.credit, 'Text fetched from scriptures.byu.edu');
+  assert.deepStrictEqual(r.credit, { text: 'Text fetched from scriptures.byu.edu' });
   assert.deepStrictEqual(r.destination, { href: 'https://scriptures.byu.edu/#:t379$22657', label: 'Open on scriptures.byu.edu' });
   assert.strictEqual(log.bundleReads, 0);
 });
@@ -357,6 +393,15 @@ test('load: a bundled talk reads the pack and credits no fetch', async () => {
   assert.strictEqual(r.credit, null);
   assert.strictEqual(r.destination, null);
   assert.strictEqual(log.requests.length, 0);
+});
+
+test('load: a Journal of Discourses talk credits its Wikisource revision and opens the permalink', async () => {
+  const log = stubReader(PUBLIC);
+  const r = await talkSource.load({ entry: { talkId: 10001, citId: 7 }, source: { c: 'J', url: PERMALINK } });
+  assert.strictEqual(r.html, '<p>bundled</p>');
+  assert.deepStrictEqual(r.credit, { text: 'Text: Wikisource, revision 16217145', href: PERMALINK });
+  assert.deepStrictEqual(r.destination, { href: PERMALINK, label: 'Open on en.wikisource.org' });
+  assert.strictEqual(log.requests.length, 0, 'read from the bundle, offline');
 });
 
 test('load: a talk is fetched once per session, however often and however soon it opens again', async () => {

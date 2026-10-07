@@ -14,7 +14,9 @@
  *       tools/test-talk-source.js.
  *
  * Layout: a sticky header (Back, verse chip, external link; then the title),
- * then in the scroll body a byline (speaker, source), the one-line highlight
+ * then in the scroll body a byline (speaker, source, and talk-source's credit
+ * line: the BYU fetch line, or "Text: Wikisource, revision N" linking the
+ * permalink), the one-line highlight
  * hint until the first highlight exists, and the article. The cited passage is
  * marked (btx-cit-highlight on the target, btx-cit-passage on its paragraph)
  * and revealed on open; the verse chip reveals it again.
@@ -260,12 +262,17 @@
     return a;
   }
 
-  // `credit` is talk-source's line naming where fetched text came from.
+  // `credit` is talk-source's { text, href? } naming whose text this is;
+  // with an href the line links it.
   function byline(heading, credit) {
     const b = el('div', 'btx-talk-byline');
     if (heading.speaker) b.appendChild(el('div', 'btx-talk-speaker', heading.speaker));
     if (heading.where) b.appendChild(el('div', 'btx-talk-where', heading.where));
-    if (credit) b.appendChild(el('div', 'btx-talk-credit', credit));
+    if (credit) {
+      const line = el('div', 'btx-talk-credit', credit.href ? null : credit.text);
+      if (credit.href) line.appendChild(externalLink('btx-talk-credit-link', credit.href, credit.text));
+      b.appendChild(line);
+    }
     return b.childElementCount ? b : null;
   }
 

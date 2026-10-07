@@ -31,13 +31,20 @@
  * because the sanitizer unwraps links), else the snippet's paragraph for
  * corpora that still bundle a snippet. Every other plan (a BYU-fetched early
  * conference talk included), and a modern talk read from the bundle: the
- * citation span (STPJS: its body passage), else the snippet's paragraph
+ * citation span (STPJS: its body passage), else the cite's own anchor (a
+ * Journal of Discourses cite the Wikisource build could not place carries its
+ * printed page's anchor, `jdp-N`), else the snippet's paragraph
  * (snippetKey / snippetMatches).
  *
- * The DOM-free half (corpusPlan, readingDestination, the BYU URL builders,
- * the pre-2013 URL repair, locateParagraph, snippetKey, snippetMatches) is
- * exported for Node, and load() runs there over a stubbed fetch and citData:
- * `node --test tools/test-talk-source.js`.
+ * Credit (talkCredit): the byline line saying whose text the reader shows,
+ * from the descriptor's corpus entry: a BYU-fetched talk's fetch line, or a
+ * Wikisource-attributed corpus's "Text: Wikisource, revision N" linking the
+ * source's permalink.
+ *
+ * The DOM-free half (corpusPlan, readingDestination, talkCredit, the BYU URL
+ * builders, the pre-2013 URL repair, locateParagraph, snippetKey,
+ * snippetMatches) is exported for Node, and load() runs there over a stubbed
+ * fetch and citData: `node --test tools/test-talk-source.js`.
  *
  * IIFE -> __BTX.talkSource (+ module.exports for the Node tests).
  */
@@ -302,6 +309,22 @@
   // The byline line of a talk whose text came from BYU (spec #69 disclosure).
   const BYU_CREDIT = 'Text fetched from scriptures.byu.edu';
 
+  // The reader's credit line for a loaded talk, from its corpus's descriptor
+  // entry. Pure. -> { text, href? } | null
+  //   text 'live-byu'            the BYU fetch line
+  //   attribution 'wikisource'   "Text: Wikisource, revision N" linking the
+  //                              source's URL, the permalink whose `oldid` is N
+  function talkCredit(corpus, source) {
+    if (!corpus) return null;
+    if (corpus.text === 'live-byu') return { text: BYU_CREDIT };
+    const url = source && source.url;
+    if (corpus.attribution === 'wikisource' && url) {
+      const rev = /[?&]oldid=(\d+)/.exec(url);
+      return { text: 'Text: Wikisource' + (rev ? `, revision ${rev[1]}` : ''), href: url };
+    }
+    return null;
+  }
+
   // Fetch an early-conference talk's fragment from BYU -> its HTML, or null.
   // Never throws. The fragment wraps the talk's div.gcera in viewer chrome;
   // talk-view renders only the content root, so the chrome never shows.
@@ -524,6 +547,18 @@
     return hit;
   }
 
+  // The element ids tried for a cite once a live paragraph anchor and the
+  // locator have had their turn, most precise first. Pure, so the order is
+  // testable in Node: the citation span, then — outside the anchor plan, whose
+  // pN anchors are the live page's — the cite's own anchor: a Journal of
+  // Discourses cite the Wikisource build could not place carries its printed
+  // page's anchor (jdp-N) instead of a marker.
+  function targetIds(plan, entry) {
+    const ids = entry.citId == null ? [] : [String(entry.citId)];
+    if (entry.anchor && plan.target !== 'anchor') ids.push(String(entry.anchor));
+    return ids;
+  }
+
   // Locate the cite inside the rendered (sanitized) talk, per the corpus plan.
   // Render contract with talk-view: source ids survive, source classes come back
   // namespaced (`footnote` -> `btxk-footnote`), and each footnote carries its
@@ -539,20 +574,27 @@
       const hit = located && byId(container, located);
       if (hit) return hit;
     }
-    // <span class="citation" id="{citId}">
-    const span = entry.citId == null ? null : byId(container, String(entry.citId));
-    if (!span) return bySnippet(container, snippetKey(entry.snippet));
-    if (plan.target !== 'bodyPassage') return span;
-    const note = span.closest('.btxk-footnote');
-    return (note && bodyPassageForFootnote(container, note)) || span;
+    for (const id of targetIds(plan, entry)) {
+      const hit = byId(container, id);
+      if (!hit) continue;
+      // STPJS: <span class="citation" id="{citId}"> sits in the footnote list.
+      if (plan.target !== 'bodyPassage' || id !== String(entry.citId)) return hit;
+      const note = hit.closest('.btxk-footnote');
+      return (note && bodyPassageForFootnote(container, note)) || hit;
+    }
+    return bySnippet(container, snippetKey(entry.snippet));
   }
 
   /* -------------------------------------------------------------------- load */
 
-  async function planFor(src) {
+  // The talk's corpus plan and its descriptor entry -> { plan, corpus } (both
+  // null for a corpus the pack lacks).
+  async function corpusFor(src) {
     let pack = null;
     try { pack = await citData().loadPack(); } catch (e) { pack = null; }
-    return corpusPlan(pack && pack.descriptor, src.c, { hasUrl: !!src.url });
+    const descriptor = pack && pack.descriptor;
+    const plan = corpusPlan(descriptor, src.c, { hasUrl: !!src.url });
+    return { plan, corpus: plan ? descriptor.corpora[src.c] : null };
   }
 
   // Public: the cite's reading destination before its talk loads (the header
@@ -560,7 +602,7 @@
   // same, with the effective URL of a repaired redirect.
   async function destination({ entry, source }) {
     const src = source || {};
-    return readingDestination(await planFor(src), { entry, source: src });
+    return readingDestination((await corpusFor(src)).plan, { entry, source: src });
   }
 
   // Public: obtain displayable HTML for `entry` plus how to find its target.
@@ -568,12 +610,12 @@
   //   html         null when the talk could not be loaded (the caller shows
   //                its error state, with the destination as the way out)
   //   destination  readingDestination's { href, label } | null
-  //   credit       a byline line naming where fetched text came from, or null
+  //   credit       talkCredit's { text, href? } for a loaded talk, or null
   // A live talk whose fetch failed has no html: it never falls back to the
   // pack, whose talk files are only the bundled corpora's.
   async function load({ entry, source }) {
     const src = source || {};
-    const plan = await planFor(src);
+    const { plan, corpus } = await corpusFor(src);
     if (!plan) return { html: null, url: null, destination: null, credit: null, findTarget: () => null };
     let html = null;
     let url = src.url || null;
@@ -594,13 +636,13 @@
       html,
       url,
       destination: readingDestination(plan, { entry, source: src, url }),
-      credit: html != null && plan.text === 'live-byu' ? BYU_CREDIT : null,
+      credit: html != null ? talkCredit(corpus, src) : null,
       findTarget: (container) => findTarget(container, { plan, entry, live, html }),
     };
   }
 
   const API = {
-    load, destination, corpusPlan, fullTalkUrl, pickSessionUrl, bouncedToConference, lastSlug,
+    load, destination, corpusPlan, targetIds, talkCredit, fullTalkUrl, pickSessionUrl, bouncedToConference, lastSlug,
     snippetKey, snippetMatches, locateParagraph, byuTalkUrl, byuViewerUrl, readingDestination, FETCH_POLICY,
   };
 

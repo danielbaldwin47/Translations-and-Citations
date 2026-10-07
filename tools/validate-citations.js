@@ -15,11 +15,13 @@
  * (spec #69 checks A1, A2, A26): a references-only corpus (excerpt fetched,
  * text not bundled) has no snippet on any cite and no talk file; every cite
  * of a fetched-excerpt corpus carries an excerpt character count; a bundled
- * corpus has a talk file for every url-less source; every source's corpus is
+ * corpus has a talk file for every source; every source's corpus is
  * in the descriptor, and the public pack lists no gated corpus; base talks
  * keep the ids in tools/fixtures/base-talk-ids.json; a corpus under
- * inclusion rule verbatim keeps fewer cites, so the pack-size floors drop; talk URLs are Church
- * study URLs; through chapterIndex, every verse the panel shows a cite under
+ * inclusion rule verbatim keeps fewer cites, so the pack-size floors drop;
+ * talk URLs are Church study URLs, except a Wikisource-attributed corpus's
+ * (J), which are Wikisource permalinks (the J corpus in depth:
+ * tools/validate-jod.js); through chapterIndex, every verse the panel shows a cite under
  * is one its `v` lists (stray index rows are a warning until a rebuild skips
  * them). With both packs present, they carry the same vintage.
  * Exits non-zero on failure.
@@ -214,6 +216,8 @@ const CORPUS_FIELDS = {
   inclusion: ['all', 'verbatim'],
 };
 const CONFERENCE = /^\d{4}-(04|10)$/;
+const CHURCH_STUDY = /^https:\/\/www\.churchofjesuschrist\.org\/study\/(?!study\/)/;
+const WIKISOURCE_PERMALINK = /^https:\/\/en\.wikisource\.org\/w\/index\.php\?title=[^&]+&oldid=\d+$/;
 
 // The shape every descriptor has, whatever its flavor.
 function checkDescriptorShape(d, where) {
@@ -398,10 +402,12 @@ function checkPack(dir, expectFlavor) {
     console.log(`  note: talk(s) ${unmeasured.join(', ')} have no excerpt counts (BYU's copy has no citation spans); their rows reserve three lines`);
   }
   for (const [id, s] of Object.entries(sources)) {
-    if (s.url && !/^https:\/\/www\.churchofjesuschrist\.org\/study\/(?!study\/)/.test(s.url)) badUrls++;
+    const credited = corpora[s.c] && corpora[s.c].attribution === 'wikisource';
+    if (s.url && !(credited ? WIKISOURCE_PERMALINK : CHURCH_STUDY).test(s.url)) badUrls++;
     check(cited.has(id), `${where}: source ${id} is cited by some cite`);
   }
-  check(badUrls === 0, `${where}: every talk URL is a Church study URL with a single /study/ (${badUrls} bad)`);
+  check(badUrls === 0, `${where}: every talk URL is a Church study URL with a single /study/, ` +
+    `or a Wikisource-attributed corpus's permalink (${badUrls} bad)`);
 
   console.log(`Talk files (${where}):`);
   const files = fs.existsSync(path.join(DATA, 'talks')) ? fs.readdirSync(path.join(DATA, 'talks')) : [];
@@ -417,9 +423,9 @@ function checkPack(dir, expectFlavor) {
   deep(stray, {}, `${where}: talk files exist only for sources of corpora whose text is bundled (strays by reason)`);
   let missing = 0;
   for (const [id, s] of Object.entries(sources)) {
-    if (corpora[s.c] && build.bundlesTalks(corpora[s.c]) && !s.url && !fileIds.has(id)) missing++;
+    if (corpora[s.c] && build.bundlesTalks(corpora[s.c]) && !fileIds.has(id)) missing++;
   }
-  check(missing === 0, `${where}: a bundled corpus has a talk file for every url-less source (${missing} missing)`);
+  check(missing === 0, `${where}: a bundled corpus has a talk file for every source (${missing} missing)`);
   eq(index.counts.bundledTalks, files.length, `${where}: counts.bundledTalks matches the talk files`);
 
   // What the panel shows: each cite only under verses its own `v` lists. A cite
