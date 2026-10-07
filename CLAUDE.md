@@ -95,9 +95,9 @@ src/
   citations/
     cit-data.js            __BTX.citData   probes the pack once per session (personal dir, then public; pure pickPack) → loadPack() {dir,descriptor}; shards/sources/gunzip talks; chapterData(slug,chap) carries the descriptor as `pack`, clips each cite's verses to its own `v` and ranks same-reference cites for the locator (pure citedVerses/chapterIndex/refRanks)
     cit-view-model.js      __BTX.citVM     PURE: chapter cites → descriptor tree; source types from the pack descriptor; every ordering/grouping/counting/label rule; vintage footer; toolbar state machine
-    cit-panel.js           __BTX.citPanel  DOM adapter over citVM: render(host, opts) / refocus() / markVerse(v) / revealVerse(v); reads verse excerpts from the page (read-only); fetched row excerpts (observer on the panel body, exact-size reserve)
+    cit-panel.js           __BTX.citPanel  DOM adapter over citVM: render(host, opts) / refocus() / markVerse(v) / revealVerse(v); reads verse text from the page (read-only); fetched row excerpts (observer on the panel body, exact-size reserve)
     highlights.js          __BTX.highlights local select-to-highlight in the reader
-    talk-source.js         __BTX.talkSource load({entry,source}) → {html,url,destination,credit,findTarget}; excerpt({entry,source}, claim) → paragraph text; pure corpusPlan(descriptor, corpus, {hasUrl}), readingDestination, talkCredit (BYU fetch line; "Text: Wikisource, revision N"), BYU fragment/viewer URLs; footnote locator (locateParagraph, pure on fetched HTML), targetIds (span, then a J cite's page anchor) + snippet fallback (snippetKey); pre-2013 GC URL repair; FETCH_POLICY (per-host slots, session talk cache, 15s timeout) + pure slotPolicy (which waiting fetch a free slot goes to)
+    talk-source.js         __BTX.talkSource load({entry,source}) → {html,url,destination,credit,findTarget}; excerpt({entry,source}, claim) → paragraph text (read from the fetched HTML string: excerptAt / paragraphText, no DOM); pure corpusPlan(descriptor, corpus, {hasUrl}), readingDestination, talkCredit (BYU fetch line; "Text: Wikisource, revision N"), BYU fragment/viewer URLs; footnote locator (locateParagraph, pure on fetched HTML), targetIds (span, then a J cite's page anchor) + snippet fallback (snippetKey); HTML scanning the build tools require (decodeEntities, scanTalk, scriptureLink, linkChapters' 'locate' vs 'derive' span rules, dropByuInsertions); pre-2013 GC URL repair; FETCH_POLICY (per-host slots, session talk cache, 15s timeout) + pure slotPolicy (which waiting fetch a free slot goes to)
     talk-view.js           __BTX.talkView  inline reader: sanitizer, render, highlights, sticky header; one Esc listener on #btx-root (highlight menu first, then Back)
     citations.css
     data/                  GENERATED, committed, shipped: the public pack (~30 MB, ADR-0008): index.json (its `pack` is the pack descriptor), sources.json, citations/{slug}.json (G/E cites: no snippet, an excerpt count `ec`), talks/{talkId}.html.gz (J only, Wikisource text), jod-provenance.json
@@ -298,7 +298,7 @@ validators — go there before changing behaviour.
   `--btx-line` is **always a length** — `theme.lineHeightOf` states even
   `normal` in px — because multiplying a ratio would apply the scale twice.
 - **Source-type marking** is a coloured strip on each source-type group, hue
-  set once per `btx-grp-*` (`--btx-src`). No setting.
+  set once per `btx-grp-{sourceType slug}` (`--btx-src`). No setting.
 - **Translatable and the setup card**: a chapter is translatable when some
   enabled text offers it. On one that isn't, the panel opens on Citations;
   clicking Translation sets the pure core's per-visit override and shows the
@@ -330,8 +330,10 @@ validators — go there before changing behaviour.
   table of its own or from which directory the pack came from. A corpus the
   descriptor lacks has no group, row, plan or reading destination.
 - **Reader scroll targets by corpus** follow each corpus's `target` in the
-  pack descriptor (`talkSource.corpusPlan`). `findTarget` runs over the *rendered* talk, so it
-  depends on talk-view's render contract: ids survive, classes come back
+  pack descriptor (`talkSource.corpusPlan`). `findTarget` runs over the *rendered* talk only
+  (a row's excerpt follows the same order over the fetched HTML string, in
+  `excerptAt`; a body passage has no excerpt), so it depends on talk-view's
+  render contract: ids survive, classes come back
   `btxk-`-prefixed, footnotes carry `data-btx-footnum`, and the article's
   `textContent` stays exactly the source text (display additions are CSS
   generated content or wrapper spans; the byline and highlight hint sit

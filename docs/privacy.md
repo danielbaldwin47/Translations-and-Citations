@@ -58,7 +58,7 @@ Church-language chapters live in the page's memory while the tab is open and
 are gone when it closes.
 
 The extension reads the text of the chapter you are reading, on your screen,
-to show verse excerpts in the citation list and to lay the Church-language
+to show each verse's text in the citation list and to lay the Church-language
 text beside the English. That reading happens in your browser; none of it is
 sent anywhere.
 

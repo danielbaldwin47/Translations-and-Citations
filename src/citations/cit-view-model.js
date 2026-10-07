@@ -15,7 +15,7 @@
  * these descriptors to elements, which keeps this module reachable from Node
  * (tools/validate-cit-view-model.js). The adapter owns only copy that depends
  * on no data: the loading line, the filter placeholder, the Clear filter
- * button and the page-read verse excerpt.
+ * button and the verse text read from the page.
  *
  * A **talk** is one citing sermon/discourse (entry.talkId); a cite is one
  * passage of it. Every count and every list shows talks: a talk that cites the
@@ -48,14 +48,9 @@
   // distinct `sourceType` among its corpora, in the order the descriptor first
   // names each (E and G both say "General Conference"). A corpus the
   // descriptor lacks is in no bucket, so its cites never reach the list.
-  // `key` names the bucket's chip hue (btx-grp-{key} in citations.css): the
-  // hues already designed keep their short keys, any other source type gets
-  // its label as a slug.
-  const HUE_KEYS = {
-    'General Conference': 'gc',
-    'Journal of Discourses': 'jod',
-    'Teachings of the Prophet Joseph Smith': 'tpjs',
-  };
+  // `key` is the source type as a slug and names the bucket's hue
+  // (btx-grp-{key} in citations.css, which designs a hue per source type the
+  // packs carry; another source type shows no strip).
   const slugOf = (s) => String(s).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 
   function sourceTypesOf(pack) {
@@ -65,7 +60,7 @@
       const label = entry && entry.sourceType;
       if (!label) continue;
       let t = types.find((x) => x.label === label);
-      if (!t) types.push(t = { key: HUE_KEYS[label] || slugOf(label), label, corpora: [], fetched: [] });
+      if (!t) types.push(t = { key: slugOf(label), label, corpora: [], fetched: [] });
       t.corpora.push(corpus);
       if (entry.excerpt === 'fetched') t.fetched.push(corpus);
     }
