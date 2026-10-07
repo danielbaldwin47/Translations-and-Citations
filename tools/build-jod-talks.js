@@ -72,7 +72,8 @@
  */
 'use strict';
 
-const BUILD = require('./build-citation-data.js'); // decodeEntities, decompressTalk
+const BUILD = require('./build-citation-data.js'); // decompressTalk
+const { decodeEntities } = require('../src/citations/talk-source.js');
 
 /* ---------------------------------------------------------------- wikitext */
 
@@ -244,7 +245,7 @@ function scanDoc(html, wikitext) {
     .replace(/<\/?i\b[^>]*>/gi, "''")
     .replace(/<\/?(?:p|div|hr|br|h\d|li|ul|ol|table|tr|td)\b[^>]*>/gi, '\n\n')
     .replace(/<[^>]*>/g, '');
-  const blocks = BUILD.decodeEntities(asWikitext).replace(/​/g, '').split(/\n[ \t]*\n/).map(inlineStream);
+  const blocks = decodeEntities(asWikitext).replace(/​/g, '').split(/\n[ \t]*\n/).map(inlineStream);
   return { heading: headingOf(fields), subtitle: subtitleOf(fields), paras: paragraphsFrom(blocks) };
 }
 
@@ -391,7 +392,7 @@ function byuWords(html) {
     .replace(/<div class="break[^"]*"[^>]*>[\s\S]*?<\/div>/g, ' ')
     .replace(/<\/?(?:div|p|br|h\d|li|blockquote)\b[^>]*>/gi, ' ')
     .replace(/<[^>]*>/g, '');
-  const raw = BUILD.decodeEntities(body).split(/\s+/).filter(Boolean).map((tok) => {
+  const raw = decodeEntities(body).split(/\s+/).filter(Boolean).map((tok) => {
     const c = /^\u0001(\d+)\u0001$/.exec(tok);
     return c ? { cite: c[1] } : { raw: tok, end: 0 };
   });

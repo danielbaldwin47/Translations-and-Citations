@@ -56,8 +56,8 @@
   // A load quicker than this shows no spinner at all, rather than a flash.
   const LOADING_DELAY_MS = 200;
   // The site may still be showing the previous chapter when the list renders
-  // (SPA navigation); verse excerpts are retried this many ms later.
-  const EXCERPT_RETRY_MS = [600, 2000];
+  // (SPA navigation); verse texts are retried this many ms later.
+  const VERSE_TEXT_RETRY_MS = [600, 2000];
 
   let describedIds = 0;
 
@@ -85,9 +85,9 @@
     text.title = group.label;
     label.appendChild(text);
     if (group.kind === 'verse') {
-      const excerpt = el('span', 'btx-cit-excerpt');
-      excerpt.dataset.btxVerse = String(group.verse);
-      label.appendChild(excerpt);
+      const verseLine = el('span', 'btx-cit-verse-text');
+      verseLine.dataset.btxVerse = String(group.verse);
+      label.appendChild(verseLine);
     }
     sum.appendChild(label);
     sum.appendChild(el('span', 'btx-cit-count' + (group.countClass ? ' ' + group.countClass : ''), String(group.count)));
@@ -139,8 +139,8 @@
   // never intersect). Each row asks the talk source once, with a claim that
   // says where the row is now; the talk source's slot policy decides which
   // waiting fetch a free slot goes to. The observer and every row's state
-  // live with the list's own element (excerptState), so the view host's
-  // re-mount keeps them; a detached list's rows count as gone.
+  // are held by the observer's own callback, not by the list, so the view
+  // host's re-mount keeps them; a detached list's rows count as gone.
   const FILLER = 'the word was with god and all things were made by him in the beginning of the ' +
     'light that shines in darkness which comprehended it not there was a man sent from ';
   const FULL_RESERVE_CHARS = 600; // more than three lines at the widest panel
@@ -162,15 +162,12 @@
     return slot;
   }
 
-  const excerptState = new WeakMap(); // list element -> { body, observer, inBand, asked }
-
   function watchExcerpts(wrap, rowsByNode) {
     if (!rowsByNode.size) return;
     const body = wrap.closest('.btx-body');
     if (!body) return;
     const st = { body, rows: rowsByNode, inBand: new Set(), asked: new WeakSet(), observer: null, band: -1 };
     observeRows(st);
-    excerptState.set(wrap, st);
   }
 
   // (Re)build the observer at half the body's current height: the band is
@@ -425,7 +422,7 @@
     node.classList.add('btx-cit-last');
   }
 
-  // --- verse excerpts (read-only, from the site's page) ----------------------
+  // --- verse text (read-only, from the site's page) -------------------------
 
   // The verse's words without its number, pilcrow or study-note markers.
   function verseText(p) {
@@ -437,26 +434,26 @@
     return text.replace(/\s+/g, ' ').trim().replace(/^\d+\s*/, '').replace(/^¶\s*/, '');
   }
 
-  // Fill the empty excerpt slots, if the page is showing this list's chapter.
-  // Returns false when it isn't (yet), so the caller can try again later.
-  function fillExcerpts(wrap) {
-    if ('btxExcerpts' in wrap.dataset) return true;
+  // Fill the empty verse-text slots, if the page is showing this list's
+  // chapter. Returns false when it isn't (yet), so the caller can try again later.
+  function fillVerseTexts(wrap) {
+    if ('btxVerseTexts' in wrap.dataset) return true;
     const article = document.querySelector('article[data-uri]');
     const uri = (article && article.getAttribute('data-uri')) || '';
     if (!uri.endsWith(`/${wrap.dataset.btxSlug}/${wrap.dataset.btxChapter}`)) return false;
     let any = false;
-    for (const slot of wrap.querySelectorAll('.btx-cit-excerpt')) {
+    for (const slot of wrap.querySelectorAll('.btx-cit-verse-text')) {
       const p = document.getElementById('p' + slot.dataset.btxVerse);
       if (p && article.contains(p)) slot.textContent = verseText(p);
       if (slot.textContent) any = true;
     }
-    if (any) wrap.dataset.btxExcerpts = '';
+    if (any) wrap.dataset.btxVerseTexts = '';
     return true;
   }
 
-  function scheduleExcerpts(wrap) {
-    if (fillExcerpts(wrap)) return;
-    for (const ms of EXCERPT_RETRY_MS) setTimeout(() => fillExcerpts(wrap), ms);
+  function scheduleVerseTexts(wrap) {
+    if (fillVerseTexts(wrap)) return;
+    for (const ms of VERSE_TEXT_RETRY_MS) setTimeout(() => fillVerseTexts(wrap), ms);
   }
 
   // --- render ---------------------------------------------------------------
@@ -511,7 +508,7 @@
     host.textContent = '';
     host.appendChild(wrap);
     watchExcerpts(wrap, pending);
-    if (viewModel.layout === 'verse' && !viewModel.empty) scheduleExcerpts(wrap);
+    if (viewModel.layout === 'verse' && !viewModel.empty) scheduleVerseTexts(wrap);
     const focusEl = viewModel.focusUid && wrap.querySelector(`[data-btx-uid="${CSS.escape(viewModel.focusUid)}"]`);
     // Where the focus verse lands is the panel's rule, not ours — the same one
     // the talk reader gets, so the list arrives with context above it too.
@@ -529,7 +526,7 @@
   function markVerse(v) {
     const wrap = mountedList();
     if (!wrap || wrap.dataset.btxLayout !== 'verse') return null;
-    fillExcerpts(wrap);
+    fillVerseTexts(wrap);
     const uid = vm().verseUid(v);
     for (const n of wrap.querySelectorAll('.btx-cit-focus')) {
       if (n.dataset.btxUid !== uid) n.classList.remove('btx-cit-focus');

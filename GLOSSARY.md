@@ -290,8 +290,8 @@ open-state and data-derived label rule of Citations mode lives there;
 `cit-panel` only builds elements from what it returns (display-ready
 snippets with their quote marks, the no-results line and the summary
 included), and owns nothing beyond fixed chrome (the loading line, the filter
-placeholder, the Clear filter label) and the verse excerpts it reads from the
-page.
+placeholder, the Clear filter label) and the verse text it reads from the
+page (each verse's own words under its header; not an excerpt).
 _Avoid_: renderer, formatter
 
 **Descriptor**:

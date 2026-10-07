@@ -235,7 +235,7 @@ console.log('By-verse layout:');
   eq(v3.a11yLabel, 'Verse 3, 1 talk', 'verse group names itself for a screen reader');
   eq(v3.children[0].label, 'General Conference', 'source-type group label');
   eq(v3.children[0].a11yLabel, 'General Conference, 1 talk', 'source-type group screen-reader label');
-  eq(v3.children[0].countClass, 'btx-grp-gc', 'source-type chip class');
+  eq(v3.children[0].countClass, 'btx-grp-general-conference', 'source-type chip class: the sourceType as a slug, no per-label table');
 
   eq(allGroups(view).filter((g) => g.kind === 'sourceType').every((g) => g.open), true,
     'source-type groups start open, so opening a verse shows its talks');
@@ -336,7 +336,7 @@ console.log('By-verse layout:');
   ]);
   const g = VM.buildView(data, OPTS).groups[0];
   eq(g.count, 3, 'verse chip counts all three');
-  deep(g.children.map((c) => c.key), ['gc', 'jod', 'tpjs'], 'source-type groups keep their fixed order');
+  deep(g.children.map((c) => c.key), ['general-conference', 'journal-of-discourses', 'teachings-of-the-prophet-joseph-smith'], 'source-type groups keep their fixed order');
   deep(g.children.map((c) => c.count), [1, 1, 1], 'per-source-type counts');
   eq(g.children[2].rows[0].sub, 'p. 2', 'an untitled Teachings row shows its page');
 
@@ -379,7 +379,7 @@ console.log('By-source layout:');
   const view = VM.buildView(data, SRC);
 
   eq(view.layout, 'source', 'layout is by source');
-  deep(view.groups.map((g) => g.key), ['gc', 'jod'], 'only non-empty source-type groups, in order');
+  deep(view.groups.map((g) => g.key), ['general-conference', 'journal-of-discourses'], 'only non-empty source-type groups, in order');
   deep(view.groups[0].rows.slice(0, 3).map((r) => r.citId), ['a', 'c', 'b'], 'talks order newest first');
   eq(view.groups[0].children.length, 0, 'by-source groups hold rows directly');
   eq(view.groups[0].rows[1].rangeLabel, 'vv. 3–4', 'every by-source row is range-labelled');
@@ -487,7 +487,7 @@ console.log('Source types from the descriptor:');
   }
   deep(VM.buildView(pub, OPTS).groups.map((g) => g.label), ['Verse 16'],
     'a verse cited only by a missing corpus has no group');
-  deep(VM.buildView(pub, SRC).groups.map((g) => g.key), ['gc', 'jod'], 'by source: one group per source type the pack lists');
+  deep(VM.buildView(pub, SRC).groups.map((g) => g.key), ['general-conference', 'journal-of-discourses'], 'by source: one group per source type the pack lists');
 
   const onlyT = VM.buildView(makeData([cites[2]], PUBLIC), OPTS);
   eq(onlyT.empty, true, 'a chapter cited only by a missing corpus is empty');

@@ -19,13 +19,15 @@
  * report carries no `dId`. The session id is minted when this file loads,
  * so it lasts one worker lifetime.
  *
- * Loaded via importScripts -> self.__BTX.fums.
- * Covered by tools/validate-service-worker.js.
+ * IIFE -> __BTX.fums (loaded via importScripts in the worker; + module.exports
+ * so Node can require the pure reportUrl). Covered by
+ * tools/validate-service-worker.js.
  */
 (function (root) {
   'use strict';
 
-  const C = root.__BTX.const;
+  const C = (root.__BTX && root.__BTX.const)
+    || (typeof require === 'function' ? require('../shared/constants.js') : null);
   const SESSION_ID = root.crypto.randomUUID();
 
   function reportUrl(token, deviceId, sessionId) {
@@ -54,5 +56,7 @@
     fetch(url, { credentials: 'omit' }).catch(() => {});
   }
 
-  root.__BTX.fums = { report, connected, reportUrl };
-})(self);
+  const API = { report, connected, reportUrl };
+  if (typeof module !== 'undefined' && module.exports) module.exports = API;
+  root.__BTX = Object.assign(root.__BTX || {}, { fums: API });
+})(typeof globalThis !== 'undefined' ? globalThis : this);

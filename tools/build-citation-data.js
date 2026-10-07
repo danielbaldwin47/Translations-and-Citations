@@ -63,7 +63,8 @@
  * come from the Wikisource build, a cached input beside the DBs (--jod, default
  * ./source-data/jod-talks; make it with tools/fetch-jod-wikisource.js then
  * tools/build-jod-talks.js). No J text is taken from BYU's HTML; the pack gets
- * that build's provenance file as jod-provenance.json.
+ * that build's provenance file as jod-provenance.json, its rows cut to the J
+ * talks the pack ships.
  *
  * Inspect the raw DBs first (recommended before a full build) to confirm the
  * real talk.URL formats and talk HTML markup:
@@ -87,6 +88,10 @@ const fs = require('fs');
 const path = require('path');
 const zlib = require('node:zlib');
 const BOOKS = require('../src/shared/books.js'); // { LDS_TO_USFM, BIBLE_NAMES, ... }
+// The reader's entity decoding (talk-source's "HTML scanning") and `v` parser.
+const { decodeEntities, textOf, blockHtml, paragraphText, replaceElements } = require('../src/citations/talk-source.js');
+const { refPunctuation } = require('../src/citations/talk-view.js');
+const { citedVerses } = require('../src/citations/cit-data.js');
 
 // ---- args ----
 function arg(name, def) {
@@ -162,18 +167,18 @@ function parseInclusion(value) {
   return { rules };
 }
 
-// Whether a corpus ships talks/{talkId}.html.gz files.
-function bundlesTalks(corpus) {
-  return corpus.text === 'bundled';
+// Whether a corpus ships talks/{talkId}.html.gz files, from its descriptor entry.
+function bundlesTalks(corpusEntry) {
+  return corpusEntry.text === 'bundled';
 }
 
-// One cite's shard record, shaped by its corpus's descriptor entry:
+// One cite's shard record, shaped by its corpus's descriptor entry (corpusEntry):
 //   facts { t, v, sn, a, ec } -> { t, v, sn? (bundled excerpt), a? (anchor), ec? (fetched excerpt's count) }
-function citeRecord(corpus, facts) {
+function citeRecord(corpusEntry, facts) {
   const rec = { t: facts.t, v: facts.v };
-  if (corpus.excerpt === 'bundled') rec.sn = facts.sn;
+  if (corpusEntry.excerpt === 'bundled') rec.sn = facts.sn;
   if (facts.a) rec.a = facts.a; // G: paragraph anchor for a live deep-link; J: an unplaced cite's page anchor
-  if (corpus.excerpt === 'fetched' && Number.isInteger(facts.ec)) rec.ec = facts.ec;
+  if (corpusEntry.excerpt === 'fetched' && Number.isInteger(facts.ec)) rec.ec = facts.ec;
   return rec;
 }
 
@@ -186,29 +191,19 @@ function conferenceOf(d) {
   return `${m[1]}-${Number(m[2]) <= 6 ? '04' : '10'}`;
 }
 
-// '7,18-19' -> [7, 18, 19]
-function versesOf(v) {
-  const out = [];
-  for (const part of String(v).split(',')) {
-    const m = /^\s*(\d+)(?:-(\d+))?\s*$/.exec(part);
-    if (m) for (let n = Number(m[1]); n <= Number(m[2] || m[1]); n++) out.push(n);
-  }
-  return out;
-}
-
 // Derived cites (GLOSSARY.md "Derived cite"): the derivation run's inputs
 // (tools/derive-conference.js, source-data/derived/gc-YYYY-MM.json) -> what
 // they add to the pack. Their provenance is the Church's talk page; a cite is
 // derived exactly when its talk id is a gc/YYYY/MM/{slug} path, and its
 // conference is listed in the descriptor's `derived`.
 //   inputs  [{ conference, talks:[{ id, url, sp, ti, d, lbl, cites:[{ id, book, chapter, v, a, ec }] }] }]
-//   corpus  the G descriptor entry (citeRecord shapes each cite by it)
+//   corpusEntry  the G descriptor entry (citeRecord shapes each cite by it)
 //   opts    { books: Set of the pack's slugs, base: { updated:'YYYY-MM-DD', conferences: Set of 'YYYY-MM' } }
 //   -> { sources: { [talkId]: source }, shards: { [slug]: { cites, index } }, conferences: ['YYYY-MM'], errors: [msg] }
 // A conference the base covers, or one not newer than the base stamp, is
 // refused whole (an error, nothing added): the BYU base is frozen and its
 // conferences carry no derived cites. A cite into a book the pack lacks is dropped.
-function derivedCites(inputs, corpus, opts) {
+function derivedCites(inputs, corpusEntry, opts) {
   const out = { sources: {}, shards: {}, conferences: [], errors: [] };
   const stamp = String(opts.base.updated || '').slice(0, 7);
   for (const input of inputs.slice().sort((a, b) => (a.conference < b.conference ? -1 : 1))) {
@@ -222,9 +217,9 @@ function derivedCites(inputs, corpus, opts) {
       for (const c of talk.cites) {
         if (!opts.books.has(c.book)) continue;
         const shard = out.shards[c.book] = out.shards[c.book] || { cites: {}, index: {} };
-        shard.cites[c.id] = citeRecord(corpus, { t: talk.id, v: c.v, a: c.a, ec: c.ec });
+        shard.cites[c.id] = citeRecord(corpusEntry, { t: talk.id, v: c.v, a: c.a, ec: c.ec });
         const chap = shard.index[c.chapter] = shard.index[c.chapter] || {};
-        for (const v of versesOf(c.v)) (chap[v] = chap[v] || []).push(c.id);
+        for (const v of citedVerses(c.v)) (chap[v] = chap[v] || []).push(c.id);
         out.sources[talk.id] = { c: 'G', sp: talk.sp, ti: talk.ti, d: talk.d, lbl: talk.lbl, url: talk.url };
       }
     }
@@ -282,17 +277,6 @@ function diffReport(before, after, descriptor, vintageBefore) {
 const ALL_VOLUMES = new Set([1, 2, 3, 4, 5]);
 
 // ---- helpers ----
-const ENTITIES = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ', eacute: 'é', egrave: 'è', uuml: 'ü', ouml: 'ö', auml: 'ä', ccedil: 'ç', ntilde: 'ñ', uacute: 'ú', iacute: 'í', oacute: 'ó', aacute: 'á', agrave: 'à', mdash: '—', ndash: '–', rsquo: '’', lsquo: '‘', ldquo: '“', rdquo: '”', hellip: '…' };
-function decodeEntities(s) {
-  if (!s) return '';
-  return String(s).replace(/&(#x?[0-9a-f]+|[a-z]+);/gi, (m, code) => {
-    if (code[0] === '#') {
-      const n = code[1] === 'x' || code[1] === 'X' ? parseInt(code.slice(2), 16) : parseInt(code.slice(1), 10);
-      return Number.isFinite(n) ? String.fromCodePoint(n) : m;
-    }
-    return Object.prototype.hasOwnProperty.call(ENTITIES, code.toLowerCase()) ? ENTITIES[code.toLowerCase()] : m;
-  });
-}
 function stripTags(html) {
   return decodeEntities(String(html).replace(/<[^>]*>/g, ' ')).replace(/\s+/g, ' ').trim();
 }
@@ -437,54 +421,49 @@ function extractCitation(html, citId) {
   return { snippet, anchor };
 }
 
-// BYU's insertions into a talk's prose: the reference label around each
-// citation span (`ccontainer`, the span itself) and, in modern talks, the
-// footnote BYU inlines at its marker (`sup.noteMarker`). The publishing site's
-// paragraph has none of them.
-const BYU_INSERTION = /^<(span|sup)\b[^>]*\bclass="(?:ccontainer\b[^"]*|citation|noteMarker)"/i;
-
-// `html` with every BYU insertion removed, nested tags included.
-function dropByuInsertions(html) {
-  let out = '';
-  let i = 0;
-  const tag = /<(\/?)(span|sup)\b[^>]*>/gi;
-  while (i < html.length) {
-    tag.lastIndex = i;
-    const m = tag.exec(html);
-    if (!m) { out += html.slice(i); break; }
-    out += html.slice(i, m.index);
-    i = m.index + m[0].length;
-    if (m[1] || !BYU_INSERTION.test(m[0])) { out += m[0]; continue; }
-    // Skip to this element's own closing tag.
-    const name = m[2].toLowerCase();
-    const same = new RegExp(`<(/?)${name}\\b[^>]*>`, 'gi');
-    same.lastIndex = i;
-    let depth = 1;
-    let n;
-    while (depth && (n = same.exec(html))) depth += n[1] ? -1 : 1;
-    i = n ? same.lastIndex : html.length;
-  }
-  return out;
+// The excerpt character count of one cite (spec #69, "excerpt lengths"; A18):
+// the length of the text the cite's row will show, so a pending row reserves
+// exactly its size. The row shows the paragraph the reader's target order
+// lands on, from wherever the corpus's text comes from (the descriptor's
+// `text`); the count reads BYU's copy of the talk (content.53.db), from the
+// paragraph holding the cite's citation span:
+//   live-byu     BYU's own paragraph as the reader shows it — talk-source's
+//                paragraphText, the very function the row calls, over the
+//                same markup (BYU's talks_ajax fragment carries the
+//                database's div.gcera byte for byte): BYU's labels and
+//                inlined footnotes dropped.
+//   live-church  the Church page's paragraph, predicted (churchParagraphText).
+// A number only; no talk text ships. null when the talk or the span is
+// missing, or the paragraph has no text (the reader then reserves three lines).
+function excerptChars(html, citId, text) {
+  if (!html) return null;
+  const t = text === 'live-church' ? churchParagraphText(html, citId) : paragraphText(html, String(citId));
+  return t ? t.length : null;
 }
 
-// The excerpt character count of one cite (spec #69, "excerpt lengths"): the
-// length of the text of the paragraph holding its citation span — the last
-// <p or <div opening before the span to the first </p> or </div> after it,
-// the prototype's paragraph rule — with BYU's insertions dropped, entities
-// decoded and whitespace runs collapsed. A number only; no talk text ships.
-// null when the talk or the span is missing (the reader then reserves three lines).
-function excerptChars(html, citId) {
-  if (!html) return null;
-  const at = html.indexOf(`<span class="citation" id="${citId}"`);
-  if (at < 0) return null;
-  const open = Math.max(html.lastIndexOf('<p', at), html.lastIndexOf('<div', at));
-  const closes = ['</p>', '</div>'].map((t) => html.indexOf(t, at)).filter((k) => k >= 0);
-  if (open < 0 || !closes.length) return null;
-  const block = html.slice(open, Math.min(...closes));
-  // A paragraph that is nothing but a reference (a subtitle, a footnote) is
-  // the talk's own text that BYU wrapped in its span: count the reference.
-  const text = stripTags(dropByuInsertions(block)) || stripTags(block);
-  return text ? text.length : null;
+// The Church page's paragraph for the cite, from BYU's copy of a modern talk.
+// BYU's markup differs from the page's in three ways, each undone here:
+//   - an in-text reference, "(Alma 5:14).", is BYU's citation span inside a
+//     label (ccontainer) whose classes spell the punctuation BYU took out of
+//     the text: the reference counts, spelled back (talk-view's refPunctuation);
+//   - each citation span opens with BYU's spacer link (a no-break space and a
+//     space): not on the page;
+//   - BYU inlines each footnote at its marker (sup.noteMarker: the number and
+//     the note): the page has an empty marker whose number CSS draws from
+//     data-value, so neither the note nor the number is in the row's text.
+// Measured against 5,557 cached Church paragraphs (tools' count-measure,
+// October 2026): 87.3% within 3 characters, against 75.9% when every label
+// was dropped; counting the marker numbers drops it to 41%.
+function churchParagraphText(html, citId) {
+  const block = blockHtml(html, String(citId));
+  if (block == null) return null;
+  let h = replaceElements(block, (open) => /^<sup\b[^>]*\bclass="noteMarker"/i.test(open));
+  h = h.replace(/(<span\b[^>]*\bclass="citation"[^>]*>)\s*<a\b[^>]*>\s*<\/a>/gi, '$1');
+  h = replaceElements(h, (open) => /^<span\b[^>]*\bclass="ccontainer\b/i.test(open), (open, inner) => {
+    const p = refPunctuation((/\bclass="([^"]*)"/i.exec(open) || [])[1]);
+    return p.open + inner + p.close;
+  });
+  return textOf(h) || null;
 }
 
 // Human label for a citation's source.
@@ -546,7 +525,6 @@ function inspect(core, content) {
 // shard record's `v` is.
 function verbatimCiteIds(core, content, bookMap, corpusList) {
   const matcher = require('./verbatim-matcher.js');
-  const { citedVerses } = require('../src/citations/cit-data.js');
   const started = Date.now();
   const scripture = matcher.scriptureIndex(matcher.loadScripture(SCRIPTURE));
   const slugOf = {};
@@ -693,9 +671,9 @@ function build(core, content, inclusion) {
     let count = 0;
 
     for (const r of rows) {
-      const corpus = corpora[r.corpus];
-      if (!corpus) { skipped++; continue; } // not in this pack (the public pack's T)
-      if (corpus.inclusion === 'verbatim') {
+      const corpusEntry = corpora[r.corpus];
+      if (!corpusEntry) { skipped++; continue; } // not in this pack (the public pack's T)
+      if (corpusEntry.inclusion === 'verbatim') {
         const cov = coverage[r.corpus] || (coverage[r.corpus] = { all: new Set(), kept: new Set() });
         cov.all.add(r.citId);
         if (!rederived.has(r.citId)) continue;
@@ -712,19 +690,19 @@ function build(core, content, inclusion) {
           // Journal of Discourses: the snippet and the page-anchor fallback come
           // from the Wikisource build, never from BYU's HTML.
           const jc = jodCite(r.talkId, r.citId);
-          cites[r.citId] = citeRecord(corpus, { t: r.talkId, v: r.verses || vs, sn: jc.sn, a: jc.a });
+          cites[r.citId] = citeRecord(corpusEntry, { t: r.talkId, v: r.verses || vs, sn: jc.sn, a: jc.a });
         } else {
           const html = getTalkHtml(r.talkId);
           const { snippet, anchor } = extractCitation(html, r.citId);
-          const ec = corpus.excerpt === 'fetched' ? excerptChars(html, r.citId) : null;
-          if (corpus.excerpt === 'fetched' && ec === null) uncounted++;
-          cites[r.citId] = citeRecord(corpus, { t: r.talkId, v: r.verses || vs, sn: snippet, a: anchor, ec });
+          const ec = corpusEntry.excerpt === 'fetched' ? excerptChars(html, r.citId, corpusEntry.text) : null;
+          if (corpusEntry.excerpt === 'fetched' && ec === null) uncounted++;
+          cites[r.citId] = citeRecord(corpusEntry, { t: r.talkId, v: r.verses || vs, sn: snippet, a: anchor, ec });
         }
         count++;
       }
 
       if (!(r.talkId in sources)) {
-        const url = corpus.text === 'live-church' ? toChurchUrl(r.url) : r.corpus === 'J' ? jodTalk(r.talkId).url : null;
+        const url = corpusEntry.text === 'live-church' ? toChurchUrl(r.url) : r.corpus === 'J' ? jodTalk(r.talkId).url : null;
         sources[r.talkId] = {
           c: r.corpus,
           sp: decodeEntities([r.given, r.last].filter(Boolean).join(' ')) || 'Unknown',
@@ -746,7 +724,7 @@ function build(core, content, inclusion) {
       }
       // Talk files only for a corpus whose text is bundled; a references-only
       // corpus ships none.
-      if (bundlesTalks(corpus) && !bundledTalks.has(r.talkId)) {
+      if (bundlesTalks(corpusEntry) && !bundledTalks.has(r.talkId)) {
         const html = getTalkHtml(r.talkId);
         if (html) {
           fs.writeFileSync(path.join(OUT, 'talks', `${r.talkId}.html.gz`), zlib.gzipSync(Buffer.from(html, 'utf8')));
@@ -775,7 +753,14 @@ function build(core, content, inclusion) {
 
   Object.assign(sources, derived.sources);
   writeJSON(path.join(OUT, 'sources.json'), sources);
-  fs.copyFileSync(path.join(JOD, 'provenance.json'), path.join(OUT, 'jod-provenance.json'));
+  // The Wikisource build's provenance, for exactly the J talks this pack
+  // ships (an inclusion rule may leave some out).
+  const provenance = JSON.parse(fs.readFileSync(path.join(JOD, 'provenance.json'), 'utf8'));
+  const provRows = {};
+  for (const [id, row] of Object.entries(provenance.talks || {})) {
+    if (sources[id] && sources[id].c === 'J') provRows[id] = row;
+  }
+  writeJSON(path.join(OUT, 'jod-provenance.json'), Object.assign({}, provenance, { talks: provRows }));
   let vintage = '';
   for (const s of Object.values(sources)) {
     if (CORPORA[s.c] && CORPORA[s.c].sourceType === 'General Conference') {
@@ -815,7 +800,7 @@ function build(core, content, inclusion) {
 // HTML); decodeEntities and decompressTalk by tools/build-jod-talks.js; the
 // pure rest by tools/validate-citations.js.
 module.exports = {
-  extractCitation, stpjsBodyPassage, decompressTalk, stripTags, decodeEntities, toChurchUrl, excerptChars,
+  extractCitation, stpjsBodyPassage, decompressTalk, stripTags, toChurchUrl, excerptChars,
   packDescriptor, parseInclusion, citeRecord, bundlesTalks, conferenceOf, PACK_CORPORA,
   buildBookMap, derivedCites, tallyPack, diffReport,
 };

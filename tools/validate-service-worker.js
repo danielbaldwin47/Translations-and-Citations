@@ -291,6 +291,15 @@ async function run() {
   const manifest = JSON.parse(fs.readFileSync(path.join(ROOT, 'manifest.json'), 'utf8'));
   check(manifest.host_permissions.includes('https://fums.api.bible/*'), 'the FUMS host is a host permission');
 
+  // ---- fums.js follows the module pattern: Node can require its pure half ----
+  let fums = null;
+  try { fums = require(path.join(ROOT, 'src/background/fums.js')); } catch (e) { fums = null; }
+  check(fums && typeof fums.reportUrl === 'function', 'fums.js exports its API to Node (module.exports)');
+  if (fums && typeof fums.reportUrl === 'function') {
+    eq(fums.reportUrl('T', null, 'S'), `${C.FUMS_BASE}/f3?t=T&sId=S`, 'reportUrl: no device id, no dId');
+    eq(fums.reportUrl('T', 'D', 'S'), `${C.FUMS_BASE}/f3?t=T&dId=D&sId=S`, 'reportUrl: the device id before the session id');
+  }
+
   if (failures) {
     console.error(`\n${failures} check(s) failed.`);
     process.exit(1);
