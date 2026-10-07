@@ -64,7 +64,8 @@ function words(text) {
 
 // ---- scripture inputs ----
 const BOOKS = require('../src/shared/books.js');
-const { decodeEntities } = require('../src/citations/talk-source.js');
+// The reader's entity decoding and BYU-insertion rule (talk-source).
+const { decodeEntities, dropByuInsertions } = require('../src/citations/talk-source.js');
 const OT_NT = Object.keys(BOOKS.LDS_TO_USFM); // canonical KJV order
 const BOM = ['1-ne', '2-ne', 'jacob', 'enos', 'jarom', 'omni', 'w-of-m', 'mosiah', 'alma', 'hel', '3-ne', '4-ne', 'morm', 'ether', 'moro'];
 
@@ -273,33 +274,12 @@ function talkText(html) {
   return { text, citeAt };
 }
 
-const INSERTION = /^<(span|sup)\b[^>]*\bclass="(?:ccontainer\b[^"]*|citation|noteMarker)"/i;
-// html with every BYU insertion element removed, nested tags included; the
-// \u0001id\u0002 marks placed before each span survive.
+// html with every BYU insertion element removed (talk-source's
+// dropByuInsertions, the rule the reader's excerpt and the build's count use);
+// the \u0001id\u0002 marks of spans nested inside one (a ccontainer wraps its
+// citation) stay in its place.
 function dropInsertions(html) {
-  let out = '';
-  let i = 0;
-  const tag = /<(\/?)(span|sup)\b[^>]*>/gi;
-  while (i < html.length) {
-    tag.lastIndex = i;
-    const m = tag.exec(html);
-    if (!m) { out += html.slice(i); break; }
-    out += html.slice(i, m.index);
-    i = m.index + m[0].length;
-    if (m[1] || !INSERTION.test(m[0])) { out += m[0]; continue; }
-    const name = m[2].toLowerCase();
-    const same = new RegExp(`<(/?)${name}\\b[^>]*>`, 'gi');
-    same.lastIndex = i;
-    let depth = 1;
-    let n;
-    while (depth && (n = same.exec(html))) depth += n[1] ? -1 : 1;
-    const end = n ? same.lastIndex : html.length;
-    const inner = html.slice(i, end);
-    // Keep the marks of spans nested inside this one (a ccontainer wraps its citation).
-    for (const k of inner.match(/\u0001\d+\u0002/g) || []) out += k;
-    i = end;
-  }
-  return out;
+  return dropByuInsertions(html, (inner) => (inner.match(/\u0001\d+\u0002/g) || []).join(''));
 }
 
 // ---- matching ----

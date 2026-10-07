@@ -88,7 +88,7 @@ const path = require('path');
 const zlib = require('node:zlib');
 const BOOKS = require('../src/shared/books.js'); // { LDS_TO_USFM, BIBLE_NAMES, ... }
 // The reader's entity decoding (talk-source's "HTML scanning") and `v` parser.
-const { decodeEntities } = require('../src/citations/talk-source.js');
+const { decodeEntities, dropByuInsertions } = require('../src/citations/talk-source.js');
 const { citedVerses } = require('../src/citations/cit-data.js');
 
 // ---- args ----
@@ -417,36 +417,6 @@ function extractCitation(html, citId) {
   let snippet = stripTags(block);
   if (snippet.length > 220) snippet = snippet.slice(0, 200).replace(/\s+\S*$/, '') + '…';
   return { snippet, anchor };
-}
-
-// BYU's insertions into a talk's prose: the reference label around each
-// citation span (`ccontainer`, the span itself) and, in modern talks, the
-// footnote BYU inlines at its marker (`sup.noteMarker`). The publishing site's
-// paragraph has none of them.
-const BYU_INSERTION = /^<(span|sup)\b[^>]*\bclass="(?:ccontainer\b[^"]*|citation|noteMarker)"/i;
-
-// `html` with every BYU insertion removed, nested tags included.
-function dropByuInsertions(html) {
-  let out = '';
-  let i = 0;
-  const tag = /<(\/?)(span|sup)\b[^>]*>/gi;
-  while (i < html.length) {
-    tag.lastIndex = i;
-    const m = tag.exec(html);
-    if (!m) { out += html.slice(i); break; }
-    out += html.slice(i, m.index);
-    i = m.index + m[0].length;
-    if (m[1] || !BYU_INSERTION.test(m[0])) { out += m[0]; continue; }
-    // Skip to this element's own closing tag.
-    const name = m[2].toLowerCase();
-    const same = new RegExp(`<(/?)${name}\\b[^>]*>`, 'gi');
-    same.lastIndex = i;
-    let depth = 1;
-    let n;
-    while (depth && (n = same.exec(html))) depth += n[1] ? -1 : 1;
-    i = n ? same.lastIndex : html.length;
-  }
-  return out;
 }
 
 // The excerpt character count of one cite (spec #69, "excerpt lengths"): the

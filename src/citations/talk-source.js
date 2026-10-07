@@ -12,9 +12,13 @@
  *     excerpt({ entry, source }, claim) -> Promise<paragraph text | null>
  *     reschedule()   rows moved: hand free request slots out again
  *
- * excerpt() is the text of the paragraph load()'s findTarget lands on, from
- * the same fetch and cache; `claim` is the row asking ({ where() -> { zone,
- * top } }, see slotPolicy). Corpus differences (Church fetch vs BYU fetch vs
+ * excerpt() is the text of the paragraph the reader's target order lands on,
+ * from the same fetch and cache; `claim` is the row asking ({ where() -> {
+ * zone, top } }, see slotPolicy). Two inputs, two functions: findTarget runs
+ * over the rendered talk (talk-view's DOM, for the reader's scroll), excerpt
+ * reads the fetched HTML string (excerptAt: the same order over element ids,
+ * through the string scanner below). A body-passage target exists only in the
+ * rendered talk, so a bodyPassage plan has no excerpt. Corpus differences (Church fetch vs BYU fetch vs
  * bundled gzip, paragraph anchor vs citation span vs STPJS body passage,
  * Church page vs BYU viewer) are decided by the corpus plan; talk-view and
  * cit-panel render, and decide nothing per corpus.
@@ -56,7 +60,9 @@
  * snippetKey, snippetMatches) is exported for Node, and load() runs there over a stubbed
  * fetch and citData: `node --test tools/test-talk-source.js`. So is the HTML
  * scanning the build tools share with the reader (decodeEntities, textOf,
- * verseList, scanTalk, scriptureLink, linkChapters; see that section).
+ * verseList, scanTalk, scriptureLink, linkChapters; see that section) and
+ * the excerpt text (paragraphText, dropByuInsertions), which the build's
+ * excerpt count for a BYU-fetched corpus calls as is.
  *
  * IIFE -> __BTX.talkSource (+ module.exports for the Node tests).
  */
@@ -729,10 +735,12 @@
   }
 
   // Locate the cite inside the rendered (sanitized) talk, per the corpus plan.
-  // Render contract with talk-view: source ids survive, source classes come back
+  // Its input is talk-view's render only — never a raw document: the body
+  // passage and the snippet blocks are found by talk-view's classes. Render
+  // contract with talk-view: source ids survive, source classes come back
   // namespaced (`footnote` -> `btxk-footnote`), and each footnote carries its
   // number on `data-btx-footnum`. Change one side, change this.
-  // Target order: the header's.
+  // Target order: the header's; excerptAt follows it over the raw HTML.
   function findTarget(container, { plan, entry, live, html }) {
     if (plan.target === 'anchor' && live) {
       const anchored = entry.anchor && byId(container, entry.anchor);
@@ -815,40 +823,146 @@
     };
   }
 
-  // BYU's insertions into a talk's prose (its citation-span labels and the
-  // footnotes it inlines into modern talks); the publishing site's paragraph
-  // has none, and the build's excerpt count leaves them out too
-  // (tools/build-citation-data.js BYU_INSERTION).
-  const BYU_INSERTIONS = 'span[class^="ccontainer"], span.citation, sup.noteMarker';
-  const EXCERPT_BLOCK = 'p, li, blockquote, h1, h2, h3, h4, h5, h6';
+  /* ----------------------------------------------------------- excerpt text */
 
-  // The text of the paragraph a target sits in, as the build counted it:
-  // BYU's insertions dropped, unless nothing else is left (a paragraph that is
-  // only a reference).
-  function paragraphText(target) {
-    const block = target.matches(EXCERPT_BLOCK) ? target : target.closest('p, div') || target;
-    const copy = block.cloneNode(true);
-    for (const n of copy.querySelectorAll(BYU_INSERTIONS)) n.remove();
-    const squashed = (s) => String(s || '').replace(/\s+/g, ' ').trim();
-    return squashed(copy.textContent) || squashed(block.textContent) || null;
+  // A row's excerpt is read from the fetched HTML string, never a document:
+  // the same scanner as the locator, so it runs in Node, and so the build's
+  // excerpt count for a BYU-fetched corpus is this very function
+  // (tools/build-citation-data.js excerptChars).
+
+  // BYU's insertions into a talk's prose: its citation spans, the reference
+  // labels around them (ccontainer) and the footnotes it inlines into modern
+  // talks at their markers (noteMarker). One rule for everyone who drops
+  // them: the reader's excerpt text, the build's excerpt count, the quotation
+  // matcher (tools/verbatim-matcher.js).
+  const BYU_INSERTION = /^<(span|sup)\b[^>]*\bclass="(?:ccontainer\b[^"]*|citation|noteMarker)"/i;
+  const isByuInsertion = (openTag) => BYU_INSERTION.test(openTag);
+
+  // `html` with each element whose opening tag passes `test` replaced, nested
+  // elements of the same name counted, by fn(openTag, innerHtml) -> string
+  // (default: nothing). An element left open runs to the end.
+  function replaceElements(html, test, fn) {
+    const src = String(html == null ? '' : html);
+    const tag = /<(\/?)([a-zA-Z][\w:-]*)\b(?:[^>"']|"[^"]*"|'[^']*')*>/g;
+    let out = '';
+    let i = 0;
+    while (i < src.length) {
+      tag.lastIndex = i;
+      const m = tag.exec(src);
+      if (!m) { out += src.slice(i); break; }
+      out += src.slice(i, m.index);
+      i = m.index + m[0].length;
+      if (m[1] || !test(m[0])) { out += m[0]; continue; }
+      const same = new RegExp(`<(/?)${m[2]}\\b(?:[^>"']|"[^"]*"|'[^']*')*>`, 'gi');
+      same.lastIndex = i;
+      let depth = 1;
+      let n;
+      let inner = src.length;
+      while (depth && (n = same.exec(src))) {
+        depth += n[1] ? -1 : 1;
+        if (!depth) inner = n.index;
+      }
+      out += fn ? fn(m[0], src.slice(i, inner)) : '';
+      i = n ? same.lastIndex : src.length;
+    }
+    return out;
+  }
+
+  // `html` without BYU's insertions; `keep(innerHtml)` -> what stays in an
+  // insertion's place (default nothing).
+  function dropByuInsertions(html, keep) {
+    return replaceElements(html, isByuInsertion, keep ? (open, inner) => keep(inner) : null);
+  }
+
+  // The excerpt block of the element with id `id`: the element itself when it
+  // is a paragraph-like block, else its nearest enclosing p or div, else the
+  // element itself. -> its inner HTML, or null when no element has the id.
+  // An open p ends where a block opens, as an HTML parser closes it.
+  const EXCERPT_BLOCK = /^(?:p|li|blockquote|h[1-6])$/;
+  const CLOSES_P = /^(?:p|div|ul|ol|li|dl|blockquote|h[1-6]|table|pre|section|article|header|footer|figure|hr)$/;
+  function blockHtml(html, id) {
+    const text = withoutRawText(html);
+    const want = String(id);
+    const stack = [];            // open elements: { tag, start }
+    let block = null;            // the frame whose end we wait for
+    TAG.lastIndex = 0;
+    for (let m; (m = TAG.exec(text));) {
+      const tag = m[2].toLowerCase();
+      if (m[1]) {
+        for (let i = stack.length - 1; i >= 0; i--) {
+          if (stack[i].tag !== tag) continue;
+          if (block && stack.indexOf(block) >= i) return text.slice(block.start, m.index);
+          stack.length = i;
+          break;
+        }
+        continue;
+      }
+      if (CLOSES_P.test(tag) && stack.length && stack[stack.length - 1].tag === 'p') {
+        if (block === stack[stack.length - 1]) return text.slice(block.start, m.index);
+        stack.pop();
+      }
+      const frame = { tag, start: TAG.lastIndex };
+      const isVoid = VOID_TAGS.has(tag) || /\/\s*$/.test(m[3]);
+      if (!block && attrsOf(m[3]).id === want) {
+        if (EXCERPT_BLOCK.test(tag) && !isVoid) block = frame;
+        else {
+          for (let i = stack.length - 1; i >= 0 && !block; i--) if (/^(?:p|div)$/.test(stack[i].tag)) block = stack[i];
+          if (!block && isVoid) return ''; // closest('p, div') || the element itself
+          if (!block) block = frame;
+        }
+      }
+      if (!isVoid) stack.push(frame);
+    }
+    return block ? text.slice(block.start) : null;
+  }
+
+  // The text a row shows for the paragraph holding the element with id `id`:
+  // BYU's insertions dropped, unless nothing else is left (a paragraph that
+  // is only a reference), as textContent reads it, whitespace collapsed.
+  // -> string, or null when there is no such element or no text.
+  function paragraphText(html, id) {
+    const block = blockHtml(html, id);
+    if (block == null) return null;
+    return textOf(dropByuInsertions(block)) || textOf(block) || null;
+  }
+
+  // Where excerpt() reads, from the talk's HTML string: findTarget's order
+  // over element ids alone — for a fetched modern talk the cite's paragraph
+  // anchor, then the footnote locator's paragraph; then targetIds. A body
+  // passage is found only in the rendered talk (talk-view's footnote
+  // numbers), so a bodyPassage plan has no excerpt target; no descriptor
+  // fetches such an excerpt. The snippet fallback is left out too: a corpus
+  // whose excerpt is fetched ships no snippet. -> paragraph text | null
+  function excerptAt(html, plan, entry) {
+    if (plan.target === 'bodyPassage') return null;
+    const ids = [];
+    if (plan.target === 'anchor' && plan.text !== 'bundled') {
+      if (entry.anchor) ids.push(entry.anchor);
+      const located = locateParagraph(html, {
+        book: entry.book, chapter: entry.chapter, verses: entry.verses, rank: entry.refRank,
+      });
+      if (located) ids.push(located);
+    }
+    for (const id of ids.concat(targetIds(plan, entry))) {
+      const text = paragraphText(html, id);
+      if (text != null) return text;
+    }
+    return null;
   }
 
   // Public: the text of the paragraph the reader would scroll to for this
-  // cite -> Promise<string | null> (null: no plan, the fetch failed, or the
-  // target is missing). It shares the reader's fetch, cache and findTarget.
-  // `claim` ({ where() -> { zone, top } }) is the row asking: its fetch
-  // waits for a slot under slotPolicy, and never starts while every row
-  // asking is gone. Call reschedule() when rows move.
+  // cite -> Promise<string | null> (null: no plan, a plan with no excerpt
+  // target, the fetch failed, or the target is missing). It shares the
+  // reader's fetch and cache, and findTarget's order (excerptAt). `claim`
+  // ({ where() -> { zone, top } }) is the row asking: its fetch waits for a
+  // slot under slotPolicy, and never starts while every row asking is gone.
+  // Call reschedule() when rows move.
   async function excerpt({ entry, source }, claim) {
     const src = source || {};
     const { plan } = await corpusFor(src);
-    if (!plan) return null;
+    if (!plan || plan.target === 'bodyPassage') return null;
     const { html } = await talkHtml(plan, entry, src, claim);
-    if (html == null) return null;
-    let doc;
-    try { doc = new DOMParser().parseFromString(html, 'text/html'); } catch (e) { return null; }
-    const target = findTarget(doc, { plan, entry, live: plan.text !== 'bundled', html });
-    return target ? paragraphText(target) : null;
+    return html == null ? null : excerptAt(html, plan, entry);
   }
 
   const API = {
@@ -856,6 +970,7 @@
     snippetKey, snippetMatches, locateParagraph, byuTalkUrl, byuViewerUrl, readingDestination, FETCH_POLICY,
     // HTML scanning, shared with the build tools (see that section).
     decodeEntities, attrsOf, textOf, withoutRawText, verseList, scanTalk, scriptureLink, linkChapters,
+    isByuInsertion, replaceElements, dropByuInsertions, blockHtml, paragraphText,
   };
 
   if (typeof module !== 'undefined' && module.exports) module.exports = API;

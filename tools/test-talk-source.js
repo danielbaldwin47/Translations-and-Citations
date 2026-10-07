@@ -8,7 +8,10 @@
  *     snippet fallback for finding a cite, the fetch scheduler's slot policy
  *     (slotPolicy, pure), and the fetch policy through load() and excerpt()
  *     (one fetch per talk per session, a bounded cache, per-host slots, rows
- *     out of view never fetched) over a stubbed fetch and pack;
+ *     out of view never fetched) over a stubbed fetch and pack, the excerpt's
+ *     text (BYU's paragraph without its insertions, the Church paragraph at
+ *     its anchor or the locator's, none for a body passage), and the shared
+ *     link parser's two span rules;
  *   src/citations/talk-view.js   — the punctuation of BYU's inserted references.
  *
  * Run: node --test tools/test-talk-source.js
@@ -541,8 +544,8 @@ test('slotPolicy: equals keep their arrival order', () => {
 });
 
 // excerpt() through the same stubs: a row's claim says where it is when a
-// slot frees. (No DOMParser in Node, so the text itself is the browser's
-// check; these watch the requests.)
+// slot frees. These watch the requests; the excerpt text tests follow
+// (excerpt reads the HTML string, so its text is checked here too).
 const FETCHED_PACK = { ...PUBLIC, corpora: {
   ...CORPORA, G: { ...CORPORA.G, excerpt: 'fetched' }, E: { ...CORPORA.E, excerpt: 'fetched' },
 } };
@@ -586,6 +589,51 @@ test('excerpt: once the slots are busy, rows on screen go before the look-ahead 
   const order = log.requests.map((q) => Number(q.url.split('/').pop()));
   assert.deepStrictEqual(order, [60010, 60011, 60024, 60023, 60022, 60021]);
   assert.strictEqual(log.peak['scriptures.byu.edu'], 2);
+});
+
+// The excerpt's text, read from the fetched HTML string (no DOM): the
+// paragraph the reader's target order lands on, as the row shows it.
+const byuSpan = (id, ref) => `<span class="citation" id="${id}"><a href="javascript:void(0)" onclick="sx(this, ${id})">  </a>` +
+  `<a href="javascript:void(0)" onclick="gs(${id})">${ref}</a></span>`;
+const byuFragment = (body) => '<div id="centernavbar"><div id="talklabel">1957–A:133, Marion G. Romney</div></div>' +
+  `<div id="talkcontent"><div class="gcera"><div class="gcbody">${body}</div></div></div>`;
+
+test('excerpt: an early-conference row shows BYU\'s paragraph without the references BYU inserted', async () => {
+  stubReader(FETCHED_PACK, { respond: () => ({ html: byuFragment(
+    '<p>\nOpening.\n</p><p>\nFor you shall live by every word that proceedeth forth\nfrom the mouth of God &amp; man ' +
+    `<span class="ccontainer lparen rparendot">${byuSpan(11779, 'D&amp;C 84:44')}</span>\n</p><p>More.</p>`) }) });
+  const text = await talkSource.excerpt({ entry: { talkId: 60101, citId: 11779 }, source: { c: 'E' } }, rowAt('visible'));
+  assert.strictEqual(text, 'For you shall live by every word that proceedeth forth from the mouth of God & man');
+});
+
+test('excerpt: a paragraph that is only a reference shows the reference', async () => {
+  stubReader(FETCHED_PACK, { respond: () => ({ html: byuFragment(
+    `<p class="gcsub"><span class="ccontainer lparen rparen">${byuSpan(77, 'John 3:5')}</span></p>`) }) });
+  const text = await talkSource.excerpt({ entry: { talkId: 60102, citId: 77 }, source: { c: 'E' } }, rowAt('visible'));
+  assert.strictEqual(text, 'John 3:5');
+});
+
+test('excerpt: a modern row shows the Church page\'s paragraph at the cite\'s anchor, else the locator\'s', async () => {
+  const page = talk(
+    [para('p1', 'Opening.'), para('p2', `Born of water.${marker(1)}`), para('p3', 'Close &amp; amen.')],
+    [note(1, ref('nt/john/3?lang=eng&amp;id=p5#p5', 'John 3:5'))],
+  );
+  stubReader(FETCHED_PACK, { respond: () => ({ html: page }) });
+  const source = { c: 'G', url: `${ORIGIN}/study/general-conference/2024/04/excerpt-a?lang=eng` };
+  const anchored = await talkSource.excerpt({ entry: { talkId: 60103, citId: 1, anchor: 'p3' }, source }, rowAt('visible'));
+  assert.strictEqual(anchored, 'Close & amen.');
+  const located = await talkSource.excerpt({
+    entry: { talkId: 60103, citId: 2, book: 'john', chapter: 3, verses: '5', refRank: 1 }, source,
+  }, rowAt('visible'));
+  assert.strictEqual(located, 'Born of water.', 'the marker\'s number is drawn from data-value, not text');
+});
+
+test('excerpt: a body-passage target needs the rendered talk, so it has no excerpt and fetches nothing', async () => {
+  const pack = { ...PUBLIC, corpora: { T: { sourceType: 'TPJS', text: 'live-byu', target: 'bodyPassage', excerpt: 'fetched', inclusion: 'all' } } };
+  const log = stubReader(pack);
+  const text = await talkSource.excerpt({ entry: { talkId: 60104, citId: 3 }, source: { c: 'T' } }, rowAt('visible'));
+  assert.strictEqual(text, null);
+  assert.strictEqual(log.requests.length, 0);
 });
 
 test('refPunctuation: spells the class-encoded punctuation around an inserted reference', () => {
