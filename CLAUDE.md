@@ -145,11 +145,13 @@ source-data/               GITIGNORED build input, filled from the owner's priva
   full church URLs. The 30 April 2019 talks are stored as
   `lds.org/study/ensign/2019/05/{session}/{slug}` and become
   `.../study/ensign/2019/05/{slug}` (the session path redirects).
-- The excerpt character count (`ec`, `excerptChars`) is measured from
-  `content.53.db`: the text of the paragraph holding the citation span, with
-  BYU's insertions (`ccontainer` labels, modern `sup.noteMarker` footnotes)
-  dropped, unless the paragraph is only a reference. Talk 2723 (1975) has no
-  citation spans, so its cites carry no count.
+- The excerpt character count (`ec`, `excerptChars`) is the length of the
+  text the row will show, read from `content.53.db` by the corpus's `text`:
+  `live-byu` (E) calls the reader's own `talkSource.paragraphText` (BYU's
+  labels and inlined footnotes dropped); `live-church` (G) predicts the
+  Church paragraph — in-text references kept with their `ccontainer`
+  punctuation, BYU's spacer and `sup.noteMarker` (number and note) dropped.
+  Talk 2723 (1975) has no citation spans, so its cites carry no count.
 
 ## Build / test / verify
 

@@ -88,7 +88,8 @@ const path = require('path');
 const zlib = require('node:zlib');
 const BOOKS = require('../src/shared/books.js'); // { LDS_TO_USFM, BIBLE_NAMES, ... }
 // The reader's entity decoding (talk-source's "HTML scanning") and `v` parser.
-const { decodeEntities, dropByuInsertions } = require('../src/citations/talk-source.js');
+const { decodeEntities, textOf, blockHtml, paragraphText, replaceElements } = require('../src/citations/talk-source.js');
+const { refPunctuation } = require('../src/citations/talk-view.js');
 const { citedVerses } = require('../src/citations/cit-data.js');
 
 // ---- args ----
@@ -419,24 +420,49 @@ function extractCitation(html, citId) {
   return { snippet, anchor };
 }
 
-// The excerpt character count of one cite (spec #69, "excerpt lengths"): the
-// length of the text of the paragraph holding its citation span — the last
-// <p or <div opening before the span to the first </p> or </div> after it,
-// the prototype's paragraph rule — with BYU's insertions dropped, entities
-// decoded and whitespace runs collapsed. A number only; no talk text ships.
-// null when the talk or the span is missing (the reader then reserves three lines).
-function excerptChars(html, citId) {
+// The excerpt character count of one cite (spec #69, "excerpt lengths"; A18):
+// the length of the text the cite's row will show, so a pending row reserves
+// exactly its size. The row shows the paragraph the reader's target order
+// lands on, from wherever the corpus's text comes from (the descriptor's
+// `text`); the count reads BYU's copy of the talk (content.53.db), from the
+// paragraph holding the cite's citation span:
+//   live-byu     BYU's own paragraph as the reader shows it — talk-source's
+//                paragraphText, the very function the row calls, over the
+//                same markup (BYU's talks_ajax fragment carries the
+//                database's div.gcera byte for byte): BYU's labels and
+//                inlined footnotes dropped.
+//   live-church  the Church page's paragraph, predicted (churchParagraphText).
+// A number only; no talk text ships. null when the talk or the span is
+// missing, or the paragraph has no text (the reader then reserves three lines).
+function excerptChars(html, citId, text) {
   if (!html) return null;
-  const at = html.indexOf(`<span class="citation" id="${citId}"`);
-  if (at < 0) return null;
-  const open = Math.max(html.lastIndexOf('<p', at), html.lastIndexOf('<div', at));
-  const closes = ['</p>', '</div>'].map((t) => html.indexOf(t, at)).filter((k) => k >= 0);
-  if (open < 0 || !closes.length) return null;
-  const block = html.slice(open, Math.min(...closes));
-  // A paragraph that is nothing but a reference (a subtitle, a footnote) is
-  // the talk's own text that BYU wrapped in its span: count the reference.
-  const text = stripTags(dropByuInsertions(block)) || stripTags(block);
-  return text ? text.length : null;
+  const t = text === 'live-church' ? churchParagraphText(html, citId) : paragraphText(html, String(citId));
+  return t ? t.length : null;
+}
+
+// The Church page's paragraph for the cite, from BYU's copy of a modern talk.
+// BYU's markup differs from the page's in three ways, each undone here:
+//   - an in-text reference, "(Alma 5:14).", is BYU's citation span inside a
+//     label (ccontainer) whose classes spell the punctuation BYU took out of
+//     the text: the reference counts, spelled back (talk-view's refPunctuation);
+//   - each citation span opens with BYU's spacer link (a no-break space and a
+//     space): not on the page;
+//   - BYU inlines each footnote at its marker (sup.noteMarker: the number and
+//     the note): the page has an empty marker whose number CSS draws from
+//     data-value, so neither the note nor the number is in the row's text.
+// Measured against 5,557 cached Church paragraphs (tools' count-measure,
+// October 2026): 87.3% within 3 characters, against 75.9% when every label
+// was dropped; counting the marker numbers drops it to 41%.
+function churchParagraphText(html, citId) {
+  const block = blockHtml(html, String(citId));
+  if (block == null) return null;
+  let h = replaceElements(block, (open) => /^<sup\b[^>]*\bclass="noteMarker"/i.test(open));
+  h = h.replace(/(<span\b[^>]*\bclass="citation"[^>]*>)\s*<a\b[^>]*>\s*<\/a>/gi, '$1');
+  h = replaceElements(h, (open) => /^<span\b[^>]*\bclass="ccontainer\b/i.test(open), (open, inner) => {
+    const p = refPunctuation((/\bclass="([^"]*)"/i.exec(open) || [])[1]);
+    return p.open + inner + p.close;
+  });
+  return textOf(h) || null;
 }
 
 // Human label for a citation's source.
@@ -667,7 +693,7 @@ function build(core, content, inclusion) {
         } else {
           const html = getTalkHtml(r.talkId);
           const { snippet, anchor } = extractCitation(html, r.citId);
-          const ec = corpusEntry.excerpt === 'fetched' ? excerptChars(html, r.citId) : null;
+          const ec = corpusEntry.excerpt === 'fetched' ? excerptChars(html, r.citId, corpusEntry.text) : null;
           if (corpusEntry.excerpt === 'fetched' && ec === null) uncounted++;
           cites[r.citId] = citeRecord(corpusEntry, { t: r.talkId, v: r.verses || vs, sn: snippet, a: anchor, ec });
         }

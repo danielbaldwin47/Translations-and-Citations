@@ -110,38 +110,52 @@ console.log('Church URL transform (fixtures):');
   eq(build.toChurchUrl(''), null, 'no stored URL gives none');
 }
 
-// The excerpt character count (excerptChars): the length of the text of the
-// paragraph holding the cite, as the publishing site shows it, so BYU's
-// citation labels and footnote insertions are not counted.
+// The excerpt character count (excerptChars): the length of the text the
+// cite's row will show (spec #69 A18), so it depends on where the corpus's
+// text comes from (the descriptor's `text`):
+//   live-church  the Church page's paragraph, predicted from BYU's copy: the
+//                in-text reference kept with the punctuation BYU moved into
+//                its label's classes, BYU's inlined footnote (noteMarker)
+//                dropped whole — the Church page draws its marker number from
+//                data-value, so the number is not in the row's text either
+//   live-byu     BYU's own paragraph as the reader shows it: talk-source's
+//                paragraphText, the same function, so BYU's labels drop
 console.log('Excerpt character count (fixtures):');
 {
-  const label = (id, ref) => `<span class="citation" id="${id}"><a href="javascript:void(0)" onclick="sx(this, ${id})"> </a>` +
+  const TS = require(path.join(ROOT, 'src', 'citations', 'talk-source.js'));
+  const label = (id, ref) => `<span class="citation" id="${id}"><a href="javascript:void(0)" onclick="sx(this, ${id})">  </a>` +
     `<a href="javascript:void(0)" onclick="gs(${id})">${ref}</a></span>`;
   const modern = '<p data-aid="146038909" id="p2">This last year has been one for the record books.</p>\n' +
     '<p data-aid="146038910" id="p3">He said, “I will show [you] that I am able to do mine own work.”' +
     '<sup class="noteMarker"><a href="#note1">1</a><span class="footnote">[<span class="note-p">' +
     `<span class="ccontainer rdot">${label(137180, '2 Nephi 27:21')}</span></span>]</span></sup></p>\n<p id="p4">Often.</p>`;
-  eq(build.excerptChars(modern, 137180), 'He said, “I will show [you] that I am able to do mine own work.”'.length,
-    'a modern paragraph counts without BYU\'s footnote marker and label');
+  eq(build.excerptChars(modern, 137180, 'live-church'), 'He said, “I will show [you] that I am able to do mine own work.”'.length,
+    'a modern paragraph counts without BYU\'s inlined footnote, its marker number included');
   const inline = '<p uri="/ensign/1971/06/out-of-the-darkness.p21" class="">“the only true and living church upon the face of the whole earth.” ' +
     `<span class="ccontainer lparen rdotparen">${label(15674, 'D&amp;C 1:30')}</span></p>`;
-  eq(build.excerptChars(inline, 15674), '“the only true and living church upon the face of the whole earth.”'.length,
-    'an inline label is not counted');
+  eq(build.excerptChars(inline, 15674, 'live-church'), '“the only true and living church upon the face of the whole earth.” (D&C 1:30.)'.length,
+    'an in-text reference counts as the Church page prints it, punctuation included');
   const early = '</p><p>\nFor you shall live by every word that proceedeth forth\nfrom the mouth of God\n' +
     `<span class="ccontainer lparen rparendot">${label(11779, 'D&amp;C 84:32-44')}</span>\n</p><p>\nThere is much more.</p>`;
-  eq(build.excerptChars(early, 11779), 'For you shall live by every word that proceedeth forth from the mouth of God'.length,
+  eq(build.excerptChars(early, 11779, 'live-byu'), 'For you shall live by every word that proceedeth forth from the mouth of God'.length,
     'an early-conference paragraph counts with its line breaks as single spaces and no label');
+  eq(build.excerptChars(early, 11779, 'live-byu'), TS.paragraphText(early, '11779').length,
+    'a BYU-fetched count is the reader\'s own excerpt text');
   const two = `<p>Faith &amp; works <span class="ccontainer">${label(9, 'James 2:17')}</span> and grace ` +
     `<span class="ccontainer">${label(10, 'Eph. 2:8')}</span></p>`;
-  eq(build.excerptChars(two, 10), 'Faith & works and grace'.length,
-    'every label in the paragraph is dropped, and an entity counts as one character');
+  eq(build.excerptChars(two, 10, 'live-byu'), 'Faith & works and grace'.length,
+    'BYU-fetched: every label in the paragraph is dropped, and an entity counts as one character');
+  eq(build.excerptChars(two, 10, 'live-church'), 'Faith & works James 2:17 and grace Eph. 2:8'.length,
+    'Church: every in-text reference counts, without BYU\'s spacer');
   // A subtitle that is only a reference: the talk's own text, which BYU
-  // wrapped in its citation span (2019–2026 talks, a footnote that is only a reference).
+  // wrapped in its citation span (2019–2026 talks); the Church page prints it in parentheses.
   const subtitle = `<h1>Title</h1> <p class="subtitle" data-aid="171130208" id="p_nGsCY"><span class="ccontainer lparen rparen">${label(145619, 'Doctrine and Covenants 6:36')}</span></p>`;
-  eq(build.excerptChars(subtitle, 145619), 'Doctrine and Covenants 6:36'.length,
+  eq(build.excerptChars(subtitle, 145619, 'live-church'), '(Doctrine and Covenants 6:36)'.length,
     'a paragraph that is only a reference counts the reference');
-  eq(build.excerptChars(two, 11), null, 'a cite whose span is not in the talk has no count');
-  eq(build.excerptChars(null, 9), null, 'a talk with no HTML gives no count');
+  eq(build.excerptChars(subtitle, 145619, 'live-byu'), 'Doctrine and Covenants 6:36'.length,
+    'BYU-fetched, a paragraph that is only a reference shows the reference');
+  eq(build.excerptChars(two, 11, 'live-church'), null, 'a cite whose span is not in the talk has no count');
+  eq(build.excerptChars(null, 9, 'live-byu'), null, 'a talk with no HTML gives no count');
 }
 
 // chapterData over an in-memory pack (stubbed chrome.runtime and fetch): a
