@@ -524,8 +524,11 @@
   overflow-wrap: anywhere;
 }
 #btx-root .btx-talk-speaker { color: var(--btx-fg); font-weight: 600; }
-/* Where fetched text came from ("Text fetched from scriptures.byu.edu"). */
+/* Whose text this is ("Text fetched from scriptures.byu.edu"; "Text:
+   Wikisource, revision N", linked to the permalink). */
 #btx-root .btx-talk-credit { margin-top: 2px; font-size: 12px; }
+#btx-root .btx-talk-credit-link { color: inherit; text-decoration: underline; text-underline-offset: 2px; }
+#btx-root .btx-talk-credit-link:hover { color: var(--btx-accent); }
 #btx-root .btx-talk-hint {
   margin: 0 0 14px;
   padding: 6px 10px;
@@ -600,6 +603,26 @@
 #btx-root .btx-talk .btx-ref-spacer { font-size: 0; line-height: 0; }
 #btx-root .btx-talk .btx-ref-gap + .btxk-citation { margin-inline-start: 0.3em; }
 #btx-root .btx-talk .btxk-citation.btx-cit-highlight { color: var(--btx-fg); font-weight: 600; }
+/* Journal of Discourses from Wikisource (tools/build-jod-talks.js): the
+   citation marker is an empty span after the cited words, and a cite with
+   no marker targets its printed page's empty anchor; the marked one is drawn
+   as a short accent bar (generated content: the text is unchanged).
+   The printed subtitle and an appended item's heading read as headings. */
+#btx-root .btx-talk .btxk-citation:empty.btx-cit-highlight,
+#btx-root .btx-talk .btxk-jodPage.btx-cit-highlight { background: none; box-shadow: none; }
+#btx-root .btx-talk .btxk-citation:empty.btx-cit-highlight::before,
+#btx-root .btx-talk .btxk-jodPage.btx-cit-highlight::before {
+  content: '';
+  display: inline-block;
+  width: 3px;
+  height: 1.1em;
+  margin: 0 2px;
+  vertical-align: -0.2em;
+  border-radius: 1px;
+  background: var(--btx-accent);
+}
+#btx-root .btx-talk .btxk-jodSubtitle { font-style: italic; color: var(--btx-muted); }
+#btx-root .btx-talk .btxk-jodHeading { font-weight: 600; margin-top: 1.5em; }
 /* A footnote list is nothing but references: ordinary text there. */
 #btx-root .btx-talk .btxk-footnote .btxk-ccontainer,
 #btx-root .btx-talk .btxk-footnote .btxk-citation { color: inherit; font-size: inherit; line-height: inherit; }

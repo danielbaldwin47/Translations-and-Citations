@@ -9,8 +9,9 @@
  * commit that added them.
  *
  * Run (Node 22+, built-in SQLite + zlib — no npm install):
- *   node --experimental-sqlite tools/build-citation-data.js [--pack public|personal] [--inclusion E=all,J=all]
+ *   node --experimental-sqlite tools/build-citation-data.js [--pack public|personal] [--inclusion E=all,J=all] [--derived DIR] [--report FILE]
  *   (defaults: --pack public --core ./source-data/core.53.db --content ./source-data/content.53.db
+ *    --scripture ./source-data/scripture
  *    --out ./src/citations/data for public, ./src/citations/data-personal for personal)
  *
  * Pack mode: `public` builds the committed public pack, `personal` the
@@ -22,20 +23,63 @@
  * bundled. G and E are references-only in both modes. The build rewrites the
  * pack's shards and talk files whole.
  *
- * --inclusion: the per-corpus inclusion rule, recorded in the descriptor.
- * Only `all` builds today; `verbatim` exits with an error until issue #72.
+ * Derived cites (GLOSSARY.md): every conference newer than the BYU base comes
+ * from the derivation run's inputs, --derived DIR (default
+ * ./source-data/derived, files gc-YYYY-MM.json written by
+ * tools/derive-conference.js); derivedCites merges them as G cites under
+ * gc/YYYY/MM/{slug} talk ids and lists their conferences in the descriptor's
+ * `derived`. An input for a conference the base covers stops the build.
+ *
+ * Diff report: every build prints, after the pack is written, talks added and
+ * removed and cites before and after per corpus, the base stamp and the
+ * derived conferences, as Markdown for the refresh PR (--report FILE also
+ * writes it to FILE).
+ *
+ * --inclusion: the per-corpus inclusion rule (GLOSSARY.md "Inclusion rule"),
+ * a build input recorded in the descriptor: `all` keeps every BYU cite;
+ * `verbatim` keeps only the cites the quotation matcher (tools/verbatim-matcher.js,
+ * whose header states the rule) re-derives from the talk's text and
+ * public-domain scripture, BYU's cites not an input to the matching. Switching
+ * a corpus is this flag and a rebuild; the reader needs no change, since a
+ * kept cite's record is the same under both rules. A verbatim build prints its
+ * coverage per corpus: cites kept of the cites the `all` build holds.
+ *   node --experimental-sqlite tools/build-citation-data.js --inclusion E=verbatim,J=verbatim
+ * The committed public pack is built under `all`. To check a verbatim pack
+ * without touching it, build into a scratch directory and validate that:
+ *   node --experimental-sqlite tools/build-citation-data.js --inclusion E=verbatim,J=verbatim --out /tmp/pack-verbatim
+ *   node tools/validate-citations.js --dir /tmp/pack-verbatim
+ *
+ * The matcher's inputs (--scripture, default ./source-data/scripture/), read
+ * only under `verbatim`: four public-domain scripture texts, gitignored build
+ * inputs beside the databases, never shipped. Download once, from the repo root
+ * (SHA-256 of the copies the matcher's thresholds were measured on):
+ *   mkdir -p source-data/scripture && cd source-data/scripture
+ *   curl -L -o kjv.txt     https://www.gutenberg.org/cache/epub/10/pg10.txt   # KJV; 0204adaed1f25700aa854218cae63c7172228c41088f335e99167a071eed83c0
+ *   curl -L -o bom.txt     https://www.gutenberg.org/cache/epub/17/pg17.txt   # Book of Mormon; ac4bbea7d6f19905cf10d21465e0f491a41e2dd3cc2a64e9ee622b1f4a7a6882
+ *   curl -L -o dc1923.txt  https://archive.org/download/doctrinecovenant0000jose_n3n7/doctrinecovenant0000jose_n3n7_djvu.txt   # 1923 D&C; f08c5262a821e5bf00caa95303db962401bef771aac1f55e8fc4b18c7a0b383a
+ *   curl -L -o pgp1929.txt https://archive.org/download/pearlofgreatpric0000jose_d8d6/pearlofgreatpric0000jose_d8d6_djvu.txt   # 1929 PGP; ca4560fcba9a27f69098a700e8fcd5eada203a59bc7ea5ff4518bffc64063360
+ *
+ * Journal of Discourses (J) talk text, snippets, page anchors and source URLs
+ * come from the Wikisource build, a cached input beside the DBs (--jod, default
+ * ./source-data/jod-talks; make it with tools/fetch-jod-wikisource.js then
+ * tools/build-jod-talks.js). No J text is taken from BYU's HTML; the pack gets
+ * that build's provenance file as jod-provenance.json.
  *
  * Inspect the raw DBs first (recommended before a full build) to confirm the
  * real talk.URL formats and talk HTML markup:
  *   node --experimental-sqlite tools/build-citation-data.js --inspect
  *
- * Output layout (a talk id is BYU's numeric talk.ID; a derived talk's will be gc/YYYY/MM/{slug}):
+ * Output layout (a talk id is BYU's numeric talk.ID; a derived talk's is gc/YYYY/MM/{slug}):
  *   data/index.json            { builtAt, dbUpdated, pack, books:[{slug,fullName,bookId,citations}], counts }
  *                              pack = the pack descriptor (packDescriptor)
  *   data/sources.json          { [talkId]: { c, sp, ti, d, lbl, url? } }   // one entry per cited talk
  *   data/citations/{slug}.json { cites:{ [citId]:{t,v,sn?,a?,ec?} }, index:{ [chap]:{ [verse]:[citId,...] } } }
- *                              sn snippet (bundled excerpt), a paragraph anchor, ec excerpt character count (fetched excerpt)
- *   data/talks/{talkId}.html.gz  gzipped talk HTML for corpora whose text is bundled (J; T in the personal pack)
+ *                              sn snippet (bundled excerpt), a paragraph anchor (G) or a J cite's
+ *                              page anchor jdp-N, ec excerpt character count (fetched excerpt)
+ *   data/talks/{talkId}.html.gz  gzipped talk HTML for corpora whose text is bundled (J, the
+ *                              Wikisource build's HTML; T in the personal pack)
+ *   data/jod-provenance.json   { snapshot, license, talks: { [talkId]: provenance row } }
+ *                              (tools/build-jod-talks.js; checked by tools/validate-jod.js)
  */
 'use strict';
 
@@ -57,7 +101,11 @@ const PACK = arg('--pack', 'public');
 const CORE = arg('--core', path.resolve(__dirname, '..', 'source-data', 'core.53.db'));
 const CONTENT = arg('--content', path.resolve(__dirname, '..', 'source-data', 'content.53.db'));
 const OUT = arg('--out', PACK_OUT[PACK]);
+const SCRIPTURE = arg('--scripture', path.resolve(__dirname, '..', 'source-data', 'scripture'));
+const JOD = arg('--jod', path.resolve(__dirname, '..', 'source-data', 'jod-talks'));
 const INSPECT = process.argv.includes('--inspect');
+const DERIVED = arg('--derived', path.resolve(__dirname, '..', 'source-data', 'derived'));
+const REPORT = arg('--report');
 
 // ---- pack descriptor ----
 // What each corpus is to the reader (GLOSSARY.md "Pack descriptor"); the
@@ -68,6 +116,8 @@ const INSPECT = process.argv.includes('--inspect');
 //   target      the corpus plan's scroll-target rule: 'anchor' | 'citationSpan' | 'bodyPassage'
 //   excerpt     'bundled' (a snippet cut at build time) | 'fetched' (on visibility)
 //   inclusion   the build's inclusion rule: 'all' | 'verbatim'
+//   attribution where the bundled text is from, for the reader's byline:
+//               'wikisource' (the source record's URL is the permalink at its revision)
 // Key order is display order of source types (the reader groups in first-seen order).
 // A corpus whose text is not bundled and whose excerpt is fetched is
 // references-only (GLOSSARY.md): the pack holds no snippet and no talk file
@@ -77,7 +127,7 @@ const INSPECT = process.argv.includes('--inspect');
 const CORPORA = {
   G: { sourceType: 'General Conference', text: 'live-church', target: 'anchor', excerpt: 'fetched', inclusion: 'all' },
   E: { sourceType: 'General Conference', text: 'live-byu', target: 'citationSpan', excerpt: 'fetched', inclusion: 'all' },
-  J: { sourceType: 'Journal of Discourses', text: 'bundled', target: 'citationSpan', excerpt: 'bundled', inclusion: 'all' },
+  J: { sourceType: 'Journal of Discourses', text: 'bundled', target: 'citationSpan', excerpt: 'bundled', inclusion: 'all', attribution: 'wikisource' },
   // The gated element (ADR-0008): personal pack only.
   T: { sourceType: 'Teachings of the Prophet Joseph Smith', text: 'bundled', target: 'bodyPassage', excerpt: 'bundled', inclusion: 'all' },
 };
@@ -122,7 +172,7 @@ function bundlesTalks(corpus) {
 function citeRecord(corpus, facts) {
   const rec = { t: facts.t, v: facts.v };
   if (corpus.excerpt === 'bundled') rec.sn = facts.sn;
-  if (facts.a) rec.a = facts.a; // paragraph anchor for a live deep-link
+  if (facts.a) rec.a = facts.a; // G: paragraph anchor for a live deep-link; J: an unplaced cite's page anchor
   if (corpus.excerpt === 'fetched' && Number.isInteger(facts.ec)) rec.ec = facts.ec;
   return rec;
 }
@@ -134,6 +184,98 @@ function conferenceOf(d) {
   const m = /^(\d{4})-(\d{2})/.exec(String(d || ''));
   if (!m) return '';
   return `${m[1]}-${Number(m[2]) <= 6 ? '04' : '10'}`;
+}
+
+// '7,18-19' -> [7, 18, 19]
+function versesOf(v) {
+  const out = [];
+  for (const part of String(v).split(',')) {
+    const m = /^\s*(\d+)(?:-(\d+))?\s*$/.exec(part);
+    if (m) for (let n = Number(m[1]); n <= Number(m[2] || m[1]); n++) out.push(n);
+  }
+  return out;
+}
+
+// Derived cites (GLOSSARY.md "Derived cite"): the derivation run's inputs
+// (tools/derive-conference.js, source-data/derived/gc-YYYY-MM.json) -> what
+// they add to the pack. Their provenance is the Church's talk page; a cite is
+// derived exactly when its talk id is a gc/YYYY/MM/{slug} path, and its
+// conference is listed in the descriptor's `derived`.
+//   inputs  [{ conference, talks:[{ id, url, sp, ti, d, lbl, cites:[{ id, book, chapter, v, a, ec }] }] }]
+//   corpus  the G descriptor entry (citeRecord shapes each cite by it)
+//   opts    { books: Set of the pack's slugs, base: { updated:'YYYY-MM-DD', conferences: Set of 'YYYY-MM' } }
+//   -> { sources: { [talkId]: source }, shards: { [slug]: { cites, index } }, conferences: ['YYYY-MM'], errors: [msg] }
+// A conference the base covers, or one not newer than the base stamp, is
+// refused whole (an error, nothing added): the BYU base is frozen and its
+// conferences carry no derived cites. A cite into a book the pack lacks is dropped.
+function derivedCites(inputs, corpus, opts) {
+  const out = { sources: {}, shards: {}, conferences: [], errors: [] };
+  const stamp = String(opts.base.updated || '').slice(0, 7);
+  for (const input of inputs.slice().sort((a, b) => (a.conference < b.conference ? -1 : 1))) {
+    const conf = input.conference;
+    if (opts.base.conferences.has(conf) || !(conf > stamp)) {
+      out.errors.push(`derived input for ${conf}: the BYU base (updated ${opts.base.updated}) covers it; derived cites are only for later conferences`);
+      continue;
+    }
+    out.conferences.push(conf);
+    for (const talk of input.talks) {
+      for (const c of talk.cites) {
+        if (!opts.books.has(c.book)) continue;
+        const shard = out.shards[c.book] = out.shards[c.book] || { cites: {}, index: {} };
+        shard.cites[c.id] = citeRecord(corpus, { t: talk.id, v: c.v, a: c.a, ec: c.ec });
+        const chap = shard.index[c.chapter] = shard.index[c.chapter] || {};
+        for (const v of versesOf(c.v)) (chap[v] = chap[v] || []).push(c.id);
+        out.sources[talk.id] = { c: 'G', sp: talk.sp, ti: talk.ti, d: talk.d, lbl: talk.lbl, url: talk.url };
+      }
+    }
+  }
+  return out;
+}
+
+// A pack's contents per corpus, for the diff report.
+//   pack { sources, shards: iterable of { cites } } | null -> { [corpus]: { talks: Set, cites: n } }
+function tallyPack(pack) {
+  const out = {};
+  if (!pack) return out;
+  const of = (c) => (out[c] = out[c] || { talks: new Set(), cites: 0 });
+  for (const [id, s] of Object.entries(pack.sources || {})) of(s.c).talks.add(String(id));
+  for (const shard of pack.shards || []) {
+    for (const c of Object.values(shard.cites || {})) {
+      const s = pack.sources[c.t];
+      if (s) of(s.c).cites++;
+    }
+  }
+  return out;
+}
+
+// The refresh PR's diff report (spec #69): per corpus, talks before and
+// after, added and removed, cites before and after; the base stamp and the
+// derived conferences. Markdown, printed by the build.
+function diffReport(before, after, descriptor, vintageBefore) {
+  const corpora = [...new Set([...Object.keys(before), ...Object.keys(after)])].sort();
+  const empty = { talks: new Set(), cites: 0 };
+  const lines = [
+    `### Pack diff: ${descriptor.flavor} pack`,
+    '',
+    `Vintage ${vintageBefore || '(none)'} -> ${descriptor.vintage}. Base: ${descriptor.base.db}, updated ${descriptor.base.updated}. ` +
+      `Derived conferences: ${descriptor.derived.length ? descriptor.derived.join(', ') : 'none'}.`,
+    '',
+    '| Corpus | Talks before | Talks after | Added | Removed | Cites before | Cites after |',
+    '| --- | ---: | ---: | ---: | ---: | ---: | ---: |',
+  ];
+  const changes = [];
+  for (const c of corpora) {
+    const b = before[c] || empty;
+    const a = after[c] || empty;
+    const added = [...a.talks].filter((t) => !b.talks.has(t)).sort();
+    const removed = [...b.talks].filter((t) => !a.talks.has(t)).sort();
+    lines.push(`| ${c} | ${b.talks.size} | ${a.talks.size} | ${added.length} | ${removed.length} | ${b.cites} | ${a.cites} |`);
+    const list = (ids) => (ids.length > 40 ? `${ids.slice(0, 40).join(', ')} and ${ids.length - 40} more` : ids.join(', '));
+    if (added.length) changes.push(`Added (${c}): ${list(added)}`);
+    if (removed.length) changes.push(`Removed (${c}): ${list(removed)}`);
+  }
+  if (changes.length) lines.push('', ...changes);
+  return lines.join('\n');
 }
 
 // Volumes: 1=OT, 2=NT, 3=Book of Mormon, 4=D&C, 5=Pearl of Great Price.
@@ -397,14 +539,87 @@ function inspect(core, content) {
   }
 }
 
+// ---- inclusion rule verbatim ----
+// The ids of the cites the quotation matcher re-derives, over every talk of
+// the corpora listed (each under rule verbatim). A cite's verses are its
+// `Verses` field, or its citation_verse rows when that is empty, as its
+// shard record's `v` is.
+function verbatimCiteIds(core, content, bookMap, corpusList) {
+  const matcher = require('./verbatim-matcher.js');
+  const { citedVerses } = require('../src/citations/cit-data.js');
+  const started = Date.now();
+  const scripture = matcher.scriptureIndex(matcher.loadScripture(SCRIPTURE));
+  const slugOf = {};
+  for (const [slug, b] of Object.entries(bookMap)) slugOf[b.bookId] = slug;
+  const rows = core.prepare(`
+    SELECT c.ID AS citId, c.TalkID AS talkId, c.BookID AS bookId, c.Chapter AS chapter, c.Verses AS verses,
+           group_concat(cv.Verse) AS rowVerses
+    FROM citation c
+    JOIN talk t ON c.TalkID = t.ID
+    LEFT JOIN citation_verse cv ON cv.CitationID = c.ID
+    WHERE t.Corpus IN (${corpusList.map(() => '?').join(',')})
+    GROUP BY c.ID
+    ORDER BY c.TalkID
+  `).all(...corpusList);
+  const byTalk = new Map();
+  for (const r of rows) {
+    const slug = slugOf[r.bookId];
+    if (!slug) continue;
+    const verses = r.verses ? [...citedVerses(r.verses)] : String(r.rowVerses || '').split(',').filter(Boolean).map(Number);
+    if (!byTalk.has(r.talkId)) byTalk.set(r.talkId, []);
+    byTalk.get(r.talkId).push({ id: r.citId, slug, ch: r.chapter, verses });
+  }
+  const kept = new Set();
+  const body = content.prepare('SELECT Text FROM talkbody WHERE TalkID=?');
+  for (const [talkId, cites] of byTalk) {
+    const row = body.get(talkId);
+    let html = null;
+    if (row && row.Text) { try { html = decompressTalk(row.Text); } catch (e) { html = null; } }
+    if (!html) continue;
+    for (const id of matcher.verbatimCites(html, cites, scripture)) kept.add(id);
+  }
+  console.log(`Matched ${byTalk.size} talks of ${corpusList.join(', ')} against public-domain scripture in ${((Date.now() - started) / 1000).toFixed(1)}s.`);
+  return kept;
+}
+
 // ---- build ----
+// The pack now in `dir` (for the diff report's "before"), or null.
+function readPack(dir) {
+  const file = (p) => path.join(dir, p);
+  if (!fs.existsSync(file('index.json'))) return null;
+  try {
+    const index = JSON.parse(fs.readFileSync(file('index.json'), 'utf8'));
+    const sources = JSON.parse(fs.readFileSync(file('sources.json'), 'utf8'));
+    const shards = (index.books || []).filter((b) => fs.existsSync(file(`citations/${b.slug}.json`)))
+      .map((b) => JSON.parse(fs.readFileSync(file(`citations/${b.slug}.json`), 'utf8')));
+    return { vintage: index.pack && index.pack.vintage, sources, shards };
+  } catch (e) { return null; }
+}
+
+// The derivation run's inputs in `dir` (gc-YYYY-MM.json), oldest first.
+function readDerived(dir) {
+  if (!fs.existsSync(dir)) return [];
+  return fs.readdirSync(dir).filter((f) => /^gc-\d{4}-\d{2}\.json$/.test(f)).sort()
+    .map((f) => JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8')));
+}
+
 function build(core, content, inclusion) {
-  // The pack is rewritten whole: shards and talk files from an earlier build
-  // (another mode, a corpus since dropped) must not survive into this one.
-  for (const sub of ['citations', 'talks']) fs.rmSync(path.join(OUT, sub), { recursive: true, force: true });
-  mkdirp(OUT);
-  mkdirp(path.join(OUT, 'citations'));
-  mkdirp(path.join(OUT, 'talks'));
+  // The Journal of Discourses build (tools/build-jod-talks.js): talk HTML,
+  // snippets, page anchors and permalinks from Wikisource. Read before the
+  // pack is wiped, so a missing J build leaves the pack as it was.
+  const jodIndex = path.join(JOD, 'talks.json');
+  if (!fs.existsSync(jodIndex)) {
+    console.error(`ERROR: no Journal of Discourses build at ${JOD}.`);
+    console.error('Run tools/fetch-jod-wikisource.js (once) and tools/build-jod-talks.js first, or pass --jod.');
+    process.exit(2);
+  }
+  const jod = JSON.parse(fs.readFileSync(jodIndex, 'utf8'));
+  const jodTalk = (talkId) => {
+    if (!jod[talkId]) { console.error(`ERROR: J talk ${talkId} is missing from the Wikisource build (${JOD}).`); process.exit(2); }
+    return jod[talkId];
+  };
+  const jodCite = (talkId, citId) => jodTalk(talkId).cites[citId] || { sn: '' };
+  const before = readPack(OUT);
 
   // What each corpus is in this pack; a corpus it lacks is not built at all.
   const corpora = packDescriptor(PACK, {}, inclusion).corpora;
@@ -412,6 +627,33 @@ function build(core, content, inclusion) {
   const bookMap = buildBookMap(core);
   const slugs = Object.keys(bookMap);
   console.log(`Mapped ${slugs.length} standard-works books.`);
+
+  // Derived cites: every conference newer than the frozen base, from the
+  // derivation run's inputs. A conference the base covers stops the build.
+  let dbUpdated = '';
+  try { dbUpdated = String(Object.values(core.prepare('SELECT * FROM updated LIMIT 1').get() || {})[0] || ''); } catch (e) {}
+  const baseConferences = new Set(core.prepare("SELECT DISTINCT substr(Date, 1, 7) AS d FROM talk WHERE Corpus IN ('G', 'E')")
+    .all().map((r) => conferenceOf(r.d)));
+  const derived = derivedCites(readDerived(DERIVED), corpora.G,
+    { books: new Set(slugs), base: { updated: dbUpdated.slice(0, 10), conferences: baseConferences } });
+  if (derived.errors.length) {
+    for (const e of derived.errors) console.error(`ERROR: ${e}`);
+    process.exit(2);
+  }
+  console.log(`Derived conferences: ${derived.conferences.join(', ') || 'none'} (inputs in ${DERIVED}).`);
+
+  // Inclusion rule verbatim: a corpus under it keeps only re-derived cites.
+  const verbatim = Object.keys(corpora).filter((c) => corpora[c].inclusion === 'verbatim');
+  const rederived = verbatim.length ? verbatimCiteIds(core, content, bookMap, verbatim) : null;
+  const coverage = {}; // corpus under verbatim -> { all: cite ids the `all` build holds, kept: those re-derived }
+
+  // The pack is rewritten whole: shards and talk files from an earlier build
+  // (another mode, a corpus since dropped) must not survive into this one.
+  // After the matcher, so a missing scripture input leaves the pack as it was.
+  for (const sub of ['citations', 'talks']) fs.rmSync(path.join(OUT, sub), { recursive: true, force: true });
+  mkdirp(OUT);
+  mkdirp(path.join(OUT, 'citations'));
+  mkdirp(path.join(OUT, 'talks'));
 
   const sources = {};        // talkId -> meta
   const talkHtmlCache = {};   // talkId -> decompressed html (for snippets/bundling)
@@ -453,6 +695,12 @@ function build(core, content, inclusion) {
     for (const r of rows) {
       const corpus = corpora[r.corpus];
       if (!corpus) { skipped++; continue; } // not in this pack (the public pack's T)
+      if (corpus.inclusion === 'verbatim') {
+        const cov = coverage[r.corpus] || (coverage[r.corpus] = { all: new Set(), kept: new Set() });
+        cov.all.add(r.citId);
+        if (!rederived.has(r.citId)) continue;
+        cov.kept.add(r.citId);
+      }
       const ch = String(r.chapter);
       const vs = String(r.verse);
       (index[ch] = index[ch] || {});
@@ -460,16 +708,23 @@ function build(core, content, inclusion) {
       if (!index[ch][vs].includes(r.citId)) index[ch][vs].push(r.citId);
 
       if (!(r.citId in cites)) {
-        const html = getTalkHtml(r.talkId);
-        const { snippet, anchor } = extractCitation(html, r.citId);
-        const ec = corpus.excerpt === 'fetched' ? excerptChars(html, r.citId) : null;
-        if (corpus.excerpt === 'fetched' && ec === null) uncounted++;
-        cites[r.citId] = citeRecord(corpus, { t: r.talkId, v: r.verses || vs, sn: snippet, a: anchor, ec });
+        if (r.corpus === 'J') {
+          // Journal of Discourses: the snippet and the page-anchor fallback come
+          // from the Wikisource build, never from BYU's HTML.
+          const jc = jodCite(r.talkId, r.citId);
+          cites[r.citId] = citeRecord(corpus, { t: r.talkId, v: r.verses || vs, sn: jc.sn, a: jc.a });
+        } else {
+          const html = getTalkHtml(r.talkId);
+          const { snippet, anchor } = extractCitation(html, r.citId);
+          const ec = corpus.excerpt === 'fetched' ? excerptChars(html, r.citId) : null;
+          if (corpus.excerpt === 'fetched' && ec === null) uncounted++;
+          cites[r.citId] = citeRecord(corpus, { t: r.talkId, v: r.verses || vs, sn: snippet, a: anchor, ec });
+        }
         count++;
       }
 
       if (!(r.talkId in sources)) {
-        const churchUrl = corpus.text === 'live-church' ? toChurchUrl(r.url) : null;
+        const url = corpus.text === 'live-church' ? toChurchUrl(r.url) : r.corpus === 'J' ? jodTalk(r.talkId).url : null;
         sources[r.talkId] = {
           c: r.corpus,
           sp: decodeEntities([r.given, r.last].filter(Boolean).join(' ')) || 'Unknown',
@@ -477,9 +732,18 @@ function build(core, content, inclusion) {
           d: (r.date || '').slice(0, 7),
           lbl: sourceLabel(core, { Corpus: r.corpus, Date: r.date }, { Page: r.page, Volume: r.volume }),
         };
-        if (churchUrl) sources[r.talkId].url = churchUrl; // live-fetch target
+        if (url) sources[r.talkId].url = url; // G: live-fetch target; J: Wikisource permalink
       }
 
+      // J talks are the Wikisource build's HTML.
+      if (r.corpus === 'J') {
+        if (!bundledTalks.has(r.talkId)) {
+          const html = fs.readFileSync(path.join(JOD, 'talks', `${r.talkId}.html`));
+          fs.writeFileSync(path.join(OUT, 'talks', `${r.talkId}.html.gz`), zlib.gzipSync(html));
+          bundledTalks.add(r.talkId);
+        }
+        continue;
+      }
       // Talk files only for a corpus whose text is bundled; a references-only
       // corpus ships none.
       if (bundlesTalks(corpus) && !bundledTalks.has(r.talkId)) {
@@ -491,6 +755,17 @@ function build(core, content, inclusion) {
       }
     }
 
+    // This book's derived cites, after the base's.
+    const extra = derived.shards[slug];
+    if (extra) {
+      Object.assign(cites, extra.cites);
+      count += Object.keys(extra.cites).length;
+      for (const [ch, verses] of Object.entries(extra.index)) {
+        const chap = index[ch] = index[ch] || {};
+        for (const [v, ids] of Object.entries(verses)) chap[v] = (chap[v] || []).concat(ids);
+      }
+    }
+
     writeJSON(path.join(OUT, 'citations', `${slug}.json`), { book: slug, fullName: book.fullName, cites, index });
     totalCitations += count;
     bookCounts.push({ slug, fullName: book.fullName, bookId: book.bookId, citations: count });
@@ -498,9 +773,9 @@ function build(core, content, inclusion) {
     for (const k of Object.keys(talkHtmlCache)) delete talkHtmlCache[k];
   }
 
+  Object.assign(sources, derived.sources);
   writeJSON(path.join(OUT, 'sources.json'), sources);
-  let dbUpdated = '';
-  try { dbUpdated = String(core.prepare('SELECT * FROM updated LIMIT 1').get() && Object.values(core.prepare('SELECT * FROM updated LIMIT 1').get())[0] || ''); } catch (e) {}
+  fs.copyFileSync(path.join(JOD, 'provenance.json'), path.join(OUT, 'jod-provenance.json'));
   let vintage = '';
   for (const s of Object.values(sources)) {
     if (CORPORA[s.c] && CORPORA[s.c].sourceType === 'General Conference') {
@@ -511,7 +786,7 @@ function build(core, content, inclusion) {
   const pack = packDescriptor(PACK, {
     vintage,
     base: { db: path.basename(CORE), updated: dbUpdated.slice(0, 10) },
-    derived: [],
+    derived: derived.conferences,
   }, inclusion);
   writeJSON(path.join(OUT, 'index.json'), {
     builtAt: new Date().toISOString(),
@@ -524,14 +799,25 @@ function build(core, content, inclusion) {
   console.log(`\nDone. ${totalCitations} citations across ${slugs.length} books; ${Object.keys(sources).length} sources; ${bundledTalks.size} bundled talks.`);
   console.log(`Pack: ${PACK} (vintage ${pack.vintage}; corpora ${Object.entries(pack.corpora).map(([c, e]) => `${c}:${e.inclusion}`).join(', ')})`);
   console.log(`Skipped ${skipped} citation rows of corpora this pack lacks; ${uncounted} fetched-excerpt cites have no count (span not in the talk HTML).`);
+  for (const [c, cov] of Object.entries(coverage)) {
+    const pct = cov.all.size ? (100 * cov.kept.size / cov.all.size).toFixed(1) : '0.0';
+    console.log(`Inclusion verbatim, ${c}: kept ${cov.kept.size} of the ${cov.all.size} cites the all build holds (${pct}%).`);
+  }
   console.log(`Output: ${OUT}`);
+
+  // The diff report for the refresh PR (also written to --report FILE).
+  const report = diffReport(tallyPack(before), tallyPack(readPack(OUT)), pack, before && before.vintage);
+  console.log(`\n${report}`);
+  if (REPORT) { fs.writeFileSync(REPORT, report + '\n'); console.log(`\nDiff report written to ${REPORT}`); }
 }
 
 // Reused by tools/rederive-js-snippets.js (which has no DBs but the shipped talk
-// HTML); the pure rest by tools/validate-citations.js.
+// HTML); decodeEntities and decompressTalk by tools/build-jod-talks.js; the
+// pure rest by tools/validate-citations.js.
 module.exports = {
-  extractCitation, stpjsBodyPassage, decompressTalk, stripTags, toChurchUrl, excerptChars,
+  extractCitation, stpjsBodyPassage, decompressTalk, stripTags, decodeEntities, toChurchUrl, excerptChars,
   packDescriptor, parseInclusion, citeRecord, bundlesTalks, conferenceOf, PACK_CORPORA,
+  buildBookMap, derivedCites, tallyPack, diffReport,
 };
 
 // ---- main ----
@@ -545,16 +831,16 @@ if (require.main === module) {
     console.error(`ERROR: ${inclusion.error}`);
     process.exit(2);
   }
-  // The verbatim matcher is a later ticket (#72); until it lands only 'all' builds.
-  const unbuilt = Object.entries(inclusion.rules).filter(([, rule]) => rule !== 'all');
-  if (unbuilt.length) {
-    console.error(`ERROR: inclusion rule verbatim is not built yet (${unbuilt.map(([c]) => c).join(', ')}); see issue #72`);
-    process.exit(2);
-  }
   const core = openDb(CORE);
   const content = openDb(CONTENT);
   if (INSPECT) inspect(core, content);
-  else build(core, content, inclusion.rules);
+  else {
+    try { build(core, content, inclusion.rules); } catch (e) {
+      if (!/^scripture input/.test(e.message)) throw e;
+      console.error(`ERROR: ${e.message}`);
+      process.exit(2);
+    }
+  }
   core.close();
   content.close();
 }
