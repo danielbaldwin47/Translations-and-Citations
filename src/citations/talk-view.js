@@ -14,9 +14,9 @@
  *       tools/test-talk-source.js.
  *
  * Layout: a sticky header (Back, verse chip, external link; then the title),
- * then in the scroll body a byline (speaker, source, and the credit line
- * citVM.talkCredit gives a bundled corpus's descriptor entry, linked to the
- * text's source, e.g. "Text: Wikisource, revision N"), the one-line highlight
+ * then in the scroll body a byline (speaker, source, and talk-source's credit
+ * line: the BYU fetch line, or "Text: Wikisource, revision N" linking the
+ * permalink), the one-line highlight
  * hint until the first highlight exists, and the article. The cited passage is
  * marked (btx-cit-highlight on the target, btx-cit-passage on its paragraph)
  * and revealed on open; the verse chip reveals it again.
@@ -49,7 +49,6 @@
   // A load quicker than this shows no spinner at all, rather than a flash.
   const LOADING_DELAY_MS = 200;
   const HINT = 'Select text to highlight it. Highlights stay on this computer.';
-  const SITE = 'Open on churchofjesuschrist.org';
 
   // Tags kept when sanitizing fetched talk HTML; everything else is unwrapped.
   const ALLOWED = new Set(['P', 'DIV', 'SPAN', 'BLOCKQUOTE', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6',
@@ -241,16 +240,17 @@
     return s;
   }
 
-  function errorState(url, onRetry, linkLabel) {
+  // `dest` is the cite's reading destination ({ href, label } | null).
+  function errorState(dest, onRetry) {
     const s = el('div', 'btx-state btx-talk-error');
     s.setAttribute('role', 'status');
     s.appendChild(el('p', 'btx-state-text', 'Couldn’t load this talk.'));
-    if (url) s.appendChild(el('p', 'btx-state-hint', 'Check your connection and try again.'));
+    if (dest) s.appendChild(el('p', 'btx-state-hint', 'Check your connection and try again.'));
     const again = el('button', 'btx-cta', 'Try again');
     again.type = 'button';
     again.addEventListener('click', onRetry);
     s.appendChild(again);
-    if (url) s.appendChild(externalLink('btx-talk-error-link', url, linkLabel || SITE));
+    if (dest) s.appendChild(externalLink('btx-talk-error-link', dest.href, dest.label));
     return s;
   }
 
@@ -262,13 +262,15 @@
     return a;
   }
 
+  // `credit` is talk-source's { text, href? } naming whose text this is;
+  // with an href the line links it.
   function byline(heading, credit) {
     const b = el('div', 'btx-talk-byline');
     if (heading.speaker) b.appendChild(el('div', 'btx-talk-speaker', heading.speaker));
     if (heading.where) b.appendChild(el('div', 'btx-talk-where', heading.where));
     if (credit) {
-      const line = el('div', 'btx-talk-credit');
-      line.appendChild(externalLink('btx-talk-credit-link', credit.href, credit.text));
+      const line = el('div', 'btx-talk-credit', credit.href ? null : credit.text);
+      if (credit.href) line.appendChild(externalLink('btx-talk-credit-link', credit.href, credit.text));
       b.appendChild(line);
     }
     return b.childElementCount ? b : null;
@@ -333,15 +335,20 @@
     chip.title = 'Go to the cited passage';
     chip.setAttribute('aria-label', heading.chip.a11yLabel);
     chip.hidden = true; // until the passage is found
-    row.append(back, chip);
-    let ext = null;
-    if (source.url) {
-      ext = externalLink('btx-talk-ext', talkSource().fullTalkUrl(source.url, entry.anchor), null);
-      ext.title = SITE;
-      ext.setAttribute('aria-label', SITE);
-      ext.appendChild(icon(ICONS.external));
-      row.appendChild(ext);
-    }
+    // The external link to the cite's reading destination; hidden while the
+    // cite has none.
+    const ext = externalLink('btx-talk-ext', '#', null);
+    ext.hidden = true;
+    ext.appendChild(icon(ICONS.external));
+    row.append(back, chip, ext);
+    const showDestination = (dest) => {
+      ext.hidden = !dest;
+      if (!dest) { ext.removeAttribute('href'); return; }
+      ext.href = dest.href;
+      ext.title = dest.label;
+      ext.setAttribute('aria-label', dest.label);
+    };
+    talkSource().destination({ entry, source }).then(showDestination, () => {});
     const title = el('h2', 'btx-talk-title', heading.title);
     title.title = heading.title;
     header.append(row, title);
@@ -363,7 +370,7 @@
       const spin = setTimeout(() => body.appendChild(loadingState()), LOADING_DELAY_MS);
       // talk-source decides live vs bundled and hands back a locator for this
       // cite's target. It never throws; html is null when nothing loaded.
-      let loaded = { html: null, url: source.url || null, findTarget: () => null };
+      let loaded = { html: null, url: source.url || null, destination: null, credit: null, findTarget: () => null };
       let hintDone = true;
       try {
         const hl = highlights();
@@ -378,24 +385,20 @@
       // passage, rather than re-mounting a talk that never scrolled to it.
       if (!host.isConnected) { host.textContent = ''; return; }
       body.textContent = '';
-      // The stored URL may redirect; deep-link the effective one.
-      if (ext && loaded.url) ext.href = talkSource().fullTalkUrl(loaded.url, entry.anchor);
-      const credit = citVM().talkCredit(source, loaded.corpus);
-      if (ext && credit) {
-        ext.title = credit.linkLabel;
-        ext.setAttribute('aria-label', credit.linkLabel);
-      }
+      // The stored URL may redirect; the loaded destination deep-links the
+      // effective one.
+      if (loaded.destination) showDestination(loaded.destination);
 
       if (!loaded.html) {
-        body.appendChild(errorState(loaded.url || source.url, () => {
+        body.appendChild(errorState(loaded.destination, () => {
           back.focus({ preventScroll: true });
           show(true);
-        }, credit && credit.linkLabel));
+        }));
         keepView(false);
         return;
       }
 
-      const by = byline(heading, credit);
+      const by = byline(heading, loaded.credit);
       if (by) body.appendChild(by);
       let hint = hintDone ? null : el('p', 'btx-talk-hint', HINT);
       if (hint) body.appendChild(hint);

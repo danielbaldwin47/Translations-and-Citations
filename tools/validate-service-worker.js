@@ -17,7 +17,10 @@
  *     key); after it, every report carries the same one, kept across worker
  *     restarts, while the session id is new per worker lifetime;
  *   - the reply to the content script carries no FUMS script text or token,
- *     and the content script injects no script.
+ *     and the content script injects no script;
+ *   - the bundled World English Bible (provider `bundled`, #78) is offered and
+ *     served on a fresh profile with no key, from the packaged files only: no
+ *     api.bible call, no report, nothing cached.
  *
  * Exits non-zero on any failure so it can gate a commit.
  */
@@ -249,6 +252,34 @@ async function run() {
     await flush();
     check(res && Array.isArray(res.blocks), 'a chapter without a token still displays');
     eq(net.reports().length, 0, 'no token, no report');
+  }
+
+  // ---- the bundled World English Bible: no key, no network, no report ----
+  {
+    const disk = { local: {}, sync: {} }; // a fresh profile: no key, no settings
+    const calls = [];
+    const net = {
+      calls,
+      // The packaged files, by their path inside the extension.
+      answer(url) {
+        const file = path.join(ROOT, url);
+        if (/^https?:/.test(url) || !fs.existsSync(file)) return response(404, {});
+        return response(200, JSON.parse(fs.readFileSync(file, 'utf8')));
+      },
+    };
+    const w = boot(disk, net);
+    const enabled = await w.send({ type: C.MSG.GET_ENABLED_TRANSLATIONS });
+    eq(enabled && enabled.translations.map((t) => [t.id, t.provider]), [[C.BUNDLED_BIBLE.id, C.PROVIDER_BUNDLED]],
+      'a fresh profile offers the World English Bible');
+    eq(enabled && enabled.defaultId, C.BUNDLED_BIBLE.id, '...as the default translation');
+    const GET_WEB = { type: C.MSG.GET_CHAPTER, provider: C.PROVIDER_BUNDLED, bibleId: C.BUNDLED_BIBLE.id, chapterId: 'JHN.3', ldsBook: 'john', chapter: 3 };
+    const web = await w.send(GET_WEB);
+    await w.send(GET_WEB);
+    await flush();
+    check(web && Array.isArray(web.blocks) && web.blocks.length > 0, 'John 3 in the World English Bible displays with no key');
+    eq(web && web.copyright, C.BUNDLED_BIBLE.copyright, '...under the ebible.org public-domain line');
+    check(calls.length > 0 && calls.every((u) => u.startsWith(C.BUNDLED_BIBLE.dir + '/')), 'it reads only the packaged files: no api.bible call, no usage report');
+    eq(Object.keys(disk.local), [], 'nothing is cached or counted against the rate limit');
   }
 
   // ---- the page gets no script; the manifest lets the worker reach FUMS ----

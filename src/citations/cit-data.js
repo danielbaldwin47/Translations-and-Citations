@@ -28,8 +28,12 @@
  * chapterData(slug, chapter) is what Citations mode reads: the chapter's
  * cites, each under the verses its own `v` lists (chapterIndex clips the
  * index's spans to that; see there), plus whether the book is in the index
- * at all. chapterIndex and citedVerses are pure, and
- * tools/validate-citations.js runs them over every shard.
+ * at all. Each entry also carries what the footnote locator needs: its book
+ * slug, chapter and refRank; and, for a corpus whose excerpt is fetched,
+ * `excerptChars`, the length of the text its excerpt will show (absent: the
+ * row reserves three lines). `talkId` is the shard's `t` as written: a number
+ * for a talk from the BYU base, a `gc/YYYY/MM/{slug}` string for a derived one. chapterIndex, citedVerses and refRanks are pure, and
+ * tools/validate-citations.js exercises them (chapterIndex over every shard).
  *
  * IIFE -> __BTX.citData (+ module.exports for the Node validator).
  */
@@ -152,6 +156,27 @@
     return { verseOrder, byVerse, spanOf };
   }
 
+  // Pure: each cite's 1-based rank by numeric cite id among the same talk's
+  // cites of the same verses in this chapter (anchored cites included).
+  // talkSource.locateParagraph takes the rank-th matching scripture link;
+  // BYU's cite ids run in the talk's reading order.
+  //   ids [citId] of one chapter, cites { [citId]: { t, v } } -> { [citId]: k }
+  function refRanks(ids, cites) {
+    const groups = new Map();
+    for (const id of ids) {
+      const c = cites[id];
+      if (!c) continue;
+      const key = `${c.t}|${[...citedVerses(c.v)].sort((a, b) => a - b).join(',')}`;
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(String(id));
+    }
+    const out = {};
+    for (const group of groups.values()) {
+      group.sort((a, b) => Number(a) - Number(b)).forEach((id, i) => { out[id] = i + 1; });
+    }
+    return out;
+  }
+
   // Deduped citations for a chapter, plus each citation's in-chapter verse span.
   // A single citation can cover a verse range, so it is indexed under every verse
   // it spans; we collect those verses (versesInChapter) so the panel can show a
@@ -177,6 +202,7 @@
 
     const { verseOrder, byVerse, spanOf } = chapterIndex(chap, shard.cites);
     const entries = {};
+    const ranks = refRanks(Object.keys(spanOf), shard.cites);
     for (const id of Object.keys(spanOf)) {
       const c = shard.cites[id];
       if (!c) continue; // skip ids with no resolvable citation record
@@ -186,7 +212,11 @@
         verses: c.v,
         versesInChapter: spanOf[id],
         snippet: c.sn,
+        excerptChars: c.ec,
         anchor: c.a,
+        book: slug,
+        chapter: Number(chapter),
+        refRank: ranks[id],
         source: sources[c.t] || {},
       };
     }
@@ -195,6 +225,7 @@
 
   const API = {
     PACK_DIRS, pickPack, loadPack, loadSources, loadShard, loadTalkHtml, chapterData, chapterIndex, citedVerses,
+    refRanks,
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = API;
   root.__BTX = Object.assign(root.__BTX || {}, { citData: API });

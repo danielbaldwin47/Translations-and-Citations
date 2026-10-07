@@ -1,8 +1,13 @@
 /*
  * Unit tests for the pure (DOM-free) halves of the talk reader:
  *   src/citations/talk-source.js — the corpus plan over a pack descriptor (both
- *     flavors, and a corpus the descriptor lacks), the pre-2013 General
- *     Conference URL repair, and the snippet fallback for finding a cite;
+ *     flavors, and a corpus the descriptor lacks), the BYU URL builder and
+ *     viewer hash, the per-corpus reading destination, the pre-2013 General
+ *     Conference URL repair, the footnote locator (synthetic talks, then one
+ *     real talk per era from tools/fixtures/footnote-locator.json), the
+ *     snippet fallback for finding a cite, and load()'s fetch policy (one
+ *     fetch per talk per session, a bounded cache, per-host slots) over a
+ *     stubbed fetch and pack;
  *   src/citations/talk-view.js   — the punctuation of BYU's inserted references.
  *
  * Run: node --test tools/test-talk-source.js
@@ -22,7 +27,7 @@ const ORIGIN = 'https://www.churchofjesuschrist.org';
 // pack descriptor"). The public pack lists no T corpus; the personal pack does.
 const CORPORA = {
   G: { sourceType: 'General Conference', text: 'live-church', target: 'anchor', excerpt: 'bundled', inclusion: 'all' },
-  E: { sourceType: 'General Conference', text: 'bundled', target: 'citationSpan', excerpt: 'bundled', inclusion: 'all' },
+  E: { sourceType: 'General Conference', text: 'live-byu', target: 'citationSpan', excerpt: 'bundled', inclusion: 'all' },
   J: { sourceType: 'Journal of Discourses', text: 'bundled', target: 'citationSpan', excerpt: 'bundled', inclusion: 'all', attribution: 'wikisource' },
 };
 const PACK_BASE = { vintage: '2026-04', base: { db: 'core.53.db', updated: '2026-05-18' }, derived: [] };
@@ -42,18 +47,15 @@ test('corpusPlan: modern General Conference is fetched from the Church site', ()
   }
 });
 
-test('corpusPlan: early GC and Journal of Discourses follow the descriptor', () => {
+test('corpusPlan: early GC is fetched from BYU and Journal of Discourses is bundled', () => {
   for (const pack of [PUBLIC, PERSONAL]) {
-    for (const corpus of ['E', 'J']) {
-      assert.deepStrictEqual(talkSource.corpusPlan(pack, corpus), { text: 'bundled', target: 'citationSpan' },
-        `${pack.flavor} ${corpus}`);
-    }
+    assert.deepStrictEqual(talkSource.corpusPlan(pack, 'E'), { text: 'live-byu', target: 'citationSpan' }, pack.flavor);
+    assert.deepStrictEqual(talkSource.corpusPlan(pack, 'J'), { text: 'bundled', target: 'citationSpan' }, pack.flavor);
   }
 });
 
-test('corpusPlan: a corpus fetched from BYU keeps its text source', () => {
-  const pack = { ...PUBLIC, corpora: { ...CORPORA, E: { ...CORPORA.E, text: 'live-byu' } } };
-  assert.deepStrictEqual(talkSource.corpusPlan(pack, 'E'), { text: 'live-byu', target: 'citationSpan' });
+test('corpusPlan: a BYU talk needs no URL of its own', () => {
+  assert.deepStrictEqual(talkSource.corpusPlan(PUBLIC, 'E', { hasUrl: false }), { text: 'live-byu', target: 'citationSpan' });
 });
 
 test('corpusPlan: the personal pack plans STPJS to the body passage', () => {
@@ -75,22 +77,115 @@ test('corpusPlan: a live talk that ships no URL reads the bundle', () => {
   assert.deepStrictEqual(talkSource.corpusPlan(PUBLIC, 'J', { hasUrl: true }), { text: 'bundled', target: 'citationSpan' });
 });
 
-test('targetIds: a live paragraph anchor is tried before the citation span', () => {
-  const plan = talkSource.corpusPlan(PUBLIC, 'G');
-  assert.deepStrictEqual(talkSource.targetIds(plan, { citId: 7, anchor: 'p21' }, true), ['p21', '7']);
-  assert.deepStrictEqual(talkSource.targetIds(plan, { citId: 7, anchor: 'p21' }, false), ['7'],
-    'a live corpus read from the bundle has no paragraph ids to find');
-});
-
 test('targetIds: a Journal of Discourses cite falls back from its marker to its page anchor', () => {
   const plan = talkSource.corpusPlan(PUBLIC, 'J');
-  assert.deepStrictEqual(talkSource.targetIds(plan, { citId: '73652' }, false), ['73652']);
-  assert.deepStrictEqual(talkSource.targetIds(plan, { citId: '73653', anchor: 'jdp-12' }, false), ['73653', 'jdp-12']);
+  assert.deepStrictEqual(talkSource.targetIds(plan, { citId: '73652' }), ['73652']);
+  assert.deepStrictEqual(talkSource.targetIds(plan, { citId: '73653', anchor: 'jdp-12' }), ['73653', 'jdp-12']);
 });
 
-test('fullTalkUrl: a page anchor never deep-links a URL off the Church site', () => {
-  const permalink = 'https://en.wikisource.org/w/index.php?title=Journal_of_Discourses/Volume_1/Salvation&oldid=16217145';
-  assert.strictEqual(talkSource.fullTalkUrl(permalink, 'jdp-3'), permalink);
+test('targetIds: a modern talk\'s paragraph anchor is not a span fallback', () => {
+  const plan = talkSource.corpusPlan(PUBLIC, 'G');
+  assert.deepStrictEqual(talkSource.targetIds(plan, { citId: 7, anchor: 'p21' }), ['7'],
+    'its pN anchors are the live page\'s, tried before the span when the talk is live');
+});
+
+const PERMALINK = 'https://en.wikisource.org/w/index.php?title=Journal_of_Discourses/Volume_1/Salvation&oldid=16217145';
+
+test('talkCredit: a Wikisource talk credits its revision and links its permalink', () => {
+  assert.deepStrictEqual(talkSource.talkCredit(CORPORA.J, { c: 'J', url: PERMALINK }),
+    { text: 'Text: Wikisource, revision 16217145', href: PERMALINK });
+  assert.deepStrictEqual(talkSource.talkCredit(CORPORA.J, { c: 'J', url: 'https://en.wikisource.org/wiki/Journal_of_Discourses' }),
+    { text: 'Text: Wikisource', href: 'https://en.wikisource.org/wiki/Journal_of_Discourses' }, 'no revision, no number');
+  assert.strictEqual(talkSource.talkCredit(CORPORA.J, { c: 'J' }), null, 'nothing to link');
+});
+
+test('talkCredit: a BYU-fetched talk names the fetch; other corpora have no line', () => {
+  assert.deepStrictEqual(talkSource.talkCredit(CORPORA.E, { c: 'E' }), { text: 'Text fetched from scriptures.byu.edu' });
+  assert.strictEqual(talkSource.talkCredit(CORPORA.G, { c: 'G', url: NELSON }), null);
+  assert.strictEqual(talkSource.talkCredit(null, { c: 'T' }), null, 'a corpus the pack lacks');
+});
+
+test('readingDestination: a Journal of Discourses cite at its page anchor still opens the permalink', () => {
+  const plan = talkSource.corpusPlan(PUBLIC, 'J');
+  assert.deepStrictEqual(
+    talkSource.readingDestination(plan, { entry: { talkId: 10001, citId: 7, anchor: 'jdp-3' }, source: { c: 'J', url: PERMALINK } }),
+    { href: PERMALINK, label: 'Open on en.wikisource.org' },
+  );
+});
+
+// BYU's talk fragment and viewer (spec #69 "Reader"; research note
+// docs/research/early-conference-route.md on branch research/early-conference-route).
+test('byuTalkUrl: the talk fragment endpoint for a BYU talk id', () => {
+  assert.strictEqual(talkSource.byuTalkUrl(889), 'https://scriptures.byu.edu/content/talks_ajax/889');
+  assert.strictEqual(talkSource.byuTalkUrl('889'), 'https://scriptures.byu.edu/content/talks_ajax/889');
+});
+
+test('byuTalkUrl: an id that is not a BYU talk number has no URL', () => {
+  assert.strictEqual(talkSource.byuTalkUrl('gc/2026/10/12nelson'), null, 'a derived talk id');
+  assert.strictEqual(talkSource.byuTalkUrl(''), null);
+  assert.strictEqual(talkSource.byuTalkUrl(undefined), null);
+  assert.strictEqual(talkSource.byuTalkUrl('12/../x'), null);
+});
+
+// Owner-verified in a browser on October 5, 2026: #:t379$22657 opens talk 889
+// (J. Reuben Clark, April 1957) with cite 22657 highlighted.
+test('byuViewerUrl: the talk id in hex, then the citation-span id in decimal', () => {
+  assert.strictEqual(talkSource.byuViewerUrl(889, 22657), 'https://scriptures.byu.edu/#:t379$22657');
+  assert.strictEqual(talkSource.byuViewerUrl('889', '22657'), 'https://scriptures.byu.edu/#:t379$22657');
+});
+
+test('byuViewerUrl: no cite id opens the talk at its top; no BYU id, no viewer', () => {
+  assert.strictEqual(talkSource.byuViewerUrl(889, null), 'https://scriptures.byu.edu/#:t379');
+  assert.strictEqual(talkSource.byuViewerUrl('gc/2026/10/12nelson', 5), null);
+});
+
+// The reading destination: where the reader header's external link and the
+// error state send the reader, per corpus plan (spec #69 "Reader").
+const NELSON = `${ORIGIN}/study/general-conference/2019/10/12nelson?lang=eng`;
+
+test('readingDestination: modern General Conference goes to the Church page at its paragraph', () => {
+  const plan = talkSource.corpusPlan(PUBLIC, 'G');
+  assert.deepStrictEqual(
+    talkSource.readingDestination(plan, { entry: { talkId: 6141, citId: 1, anchor: 'p21' }, source: { c: 'G', url: NELSON } }),
+    { href: `${NELSON}&id=p21#p21`, label: 'Open on churchofjesuschrist.org' },
+  );
+});
+
+test('readingDestination: the effective URL of a repaired redirect wins over the stored one', () => {
+  const plan = talkSource.corpusPlan(PUBLIC, 'G');
+  const stored = `${ORIGIN}/study/ensign/2012/11/temple-standard?lang=eng`;
+  const landed = `${ORIGIN}/study/ensign/2012/11/sunday-morning-session/temple-standard?lang=eng`;
+  assert.deepStrictEqual(
+    talkSource.readingDestination(plan, { entry: { talkId: 1 }, source: { c: 'G', url: stored }, url: landed }),
+    { href: landed, label: 'Open on churchofjesuschrist.org' },
+  );
+});
+
+test('readingDestination: early General Conference goes to BYU\'s viewer at the cite', () => {
+  const plan = talkSource.corpusPlan(PUBLIC, 'E');
+  assert.deepStrictEqual(
+    talkSource.readingDestination(plan, { entry: { talkId: 889, citId: 22657 }, source: { c: 'E' } }),
+    { href: 'https://scriptures.byu.edu/#:t379$22657', label: 'Open on scriptures.byu.edu' },
+  );
+});
+
+test('readingDestination: a bundled talk with a URL goes to that page', () => {
+  const plan = talkSource.corpusPlan(PUBLIC, 'J');
+  const permalink = 'https://en.wikisource.org/w/index.php?title=Journal_of_Discourses/Volume_1/X&oldid=123';
+  assert.deepStrictEqual(
+    talkSource.readingDestination(plan, { entry: { talkId: 10001, citId: 7 }, source: { c: 'J', url: permalink } }),
+    { href: permalink, label: 'Open on en.wikisource.org' },
+  );
+});
+
+test('readingDestination: no URL and no fetch host, or no plan, means no destination', () => {
+  const entry = { talkId: 270163, citId: 9 };
+  assert.strictEqual(talkSource.readingDestination(talkSource.corpusPlan(PERSONAL, 'T'), { entry, source: { c: 'T' } }), null);
+  assert.strictEqual(talkSource.readingDestination(talkSource.corpusPlan(PUBLIC, 'T'), { entry, source: { c: 'T' } }), null);
+  assert.strictEqual(
+    talkSource.readingDestination(talkSource.corpusPlan(PUBLIC, 'E'), { entry: { talkId: 'gc/2026/10/x' }, source: { c: 'E' } }),
+    null, 'a talk BYU does not hold',
+  );
 });
 
 test('lastSlug: trailing slashes do not shift the slug', () => {
@@ -232,6 +327,160 @@ test('snippetMatches: ignores whitespace differences around inline markup', () =
   assert.strictEqual(talkSource.snippetMatches(para, null), false);
 });
 
+// load() through its public interface. The pack and the network are stubs:
+// citData hands back a descriptor, and fetch records each request and answers
+// from `respond(url)` once `gate()` lets it. Each test uses its own talk ids,
+// because the talk cache lives for the session (the module's lifetime).
+function stubReader(descriptor, { respond, gate } = {}) {
+  const log = { requests: [], bundleReads: 0, inFlight: 0, peak: {} };
+  globalThis.__BTX.citData = {
+    loadPack: async () => ({ dir: 'src/citations/data/', descriptor }),
+    loadTalkHtml: async () => { log.bundleReads++; return '<p>bundled</p>'; },
+  };
+  const inFlightBy = {};
+  globalThis.fetch = async (url, init) => {
+    const host = new URL(url).hostname;
+    log.requests.push({ url, init });
+    inFlightBy[host] = (inFlightBy[host] || 0) + 1;
+    log.peak[host] = Math.max(log.peak[host] || 0, inFlightBy[host]);
+    try {
+      if (gate) await gate();
+      const r = respond ? respond(url) : { html: `<div class="gcera">${url}</div>` };
+      if (r.error) throw new TypeError('Failed to fetch');
+      return { ok: r.status == null || r.status < 400, status: r.status || 200, url, text: async () => r.html };
+    } finally {
+      inFlightBy[host]--;
+    }
+  };
+  return log;
+}
+
+test('load: an early-conference talk is fetched from BYU, credentials omitted', async () => {
+  const log = stubReader(PUBLIC);
+  const r = await talkSource.load({ entry: { talkId: 889, citId: 22657 }, source: { c: 'E' } });
+  assert.deepStrictEqual(log.requests.map((q) => q.url), ['https://scriptures.byu.edu/content/talks_ajax/889']);
+  assert.strictEqual(log.requests[0].init.credentials, 'omit');
+  assert.strictEqual(r.html, '<div class="gcera">https://scriptures.byu.edu/content/talks_ajax/889</div>');
+  assert.deepStrictEqual(r.credit, { text: 'Text fetched from scriptures.byu.edu' });
+  assert.deepStrictEqual(r.destination, { href: 'https://scriptures.byu.edu/#:t379$22657', label: 'Open on scriptures.byu.edu' });
+  assert.strictEqual(log.bundleReads, 0);
+});
+
+test('load: a failed BYU fetch offers the viewer link, never the bundle', async () => {
+  for (const respond of [() => ({ error: true }), () => ({ status: 503, html: 'busy' })]) {
+    const log = stubReader(PUBLIC, { respond });
+    const r = await talkSource.load({ entry: { talkId: 890, citId: 5 }, source: { c: 'E' } });
+    assert.strictEqual(r.html, null);
+    assert.deepStrictEqual(r.destination, { href: 'https://scriptures.byu.edu/#:t37a$5', label: 'Open on scriptures.byu.edu' });
+    assert.strictEqual(log.bundleReads, 0);
+  }
+});
+
+test('destination: known before the talk loads, with no request', async () => {
+  const log = stubReader(PUBLIC);
+  assert.deepStrictEqual(
+    await talkSource.destination({ entry: { talkId: 889, citId: 22657 }, source: { c: 'E' } }),
+    { href: 'https://scriptures.byu.edu/#:t379$22657', label: 'Open on scriptures.byu.edu' },
+  );
+  assert.strictEqual(await talkSource.destination({ entry: { talkId: 1 }, source: { c: 'T' } }), null);
+  assert.strictEqual(log.requests.length, 0);
+});
+
+test('load: a bundled talk reads the pack and credits no fetch', async () => {
+  const log = stubReader(PUBLIC);
+  const r = await talkSource.load({ entry: { talkId: 10001, citId: 7 }, source: { c: 'J' } });
+  assert.strictEqual(r.html, '<p>bundled</p>');
+  assert.strictEqual(r.credit, null);
+  assert.strictEqual(r.destination, null);
+  assert.strictEqual(log.requests.length, 0);
+});
+
+test('load: a Journal of Discourses talk credits its Wikisource revision and opens the permalink', async () => {
+  const log = stubReader(PUBLIC);
+  const r = await talkSource.load({ entry: { talkId: 10001, citId: 7 }, source: { c: 'J', url: PERMALINK } });
+  assert.strictEqual(r.html, '<p>bundled</p>');
+  assert.deepStrictEqual(r.credit, { text: 'Text: Wikisource, revision 16217145', href: PERMALINK });
+  assert.deepStrictEqual(r.destination, { href: PERMALINK, label: 'Open on en.wikisource.org' });
+  assert.strictEqual(log.requests.length, 0, 'read from the bundle, offline');
+});
+
+test('load: a talk is fetched once per session, however often and however soon it opens again', async () => {
+  const log = stubReader(PUBLIC);
+  const open = (citId) => talkSource.load({ entry: { talkId: 900, citId }, source: { c: 'E' } });
+  const [a, b] = await Promise.all([open(1), open(2)]); // two views at once
+  const c = await open(3);                              // and a reopen later
+  assert.strictEqual(log.requests.length, 1);
+  assert.ok(a.html && a.html === b.html && b.html === c.html);
+  assert.strictEqual(c.destination.href, 'https://scriptures.byu.edu/#:t384$3', 'each cite keeps its own destination');
+});
+
+test('load: a modern talk is fetched once per session too', async () => {
+  const log = stubReader(PUBLIC);
+  const source = { c: 'G', url: NELSON };
+  await talkSource.load({ entry: { talkId: 6141, anchor: 'p2' }, source });
+  const r = await talkSource.load({ entry: { talkId: 6141, anchor: 'p9' }, source });
+  assert.strictEqual(log.requests.length, 1);
+  assert.strictEqual(r.destination.href, `${NELSON}&id=p9#p9`);
+});
+
+test('load: a failed fetch is not kept, so Try again asks the network again', async () => {
+  let fail = true;
+  const log = stubReader(PUBLIC, { respond: () => (fail ? { error: true } : { html: '<div>ok</div>' }) });
+  const open = () => talkSource.load({ entry: { talkId: 901, citId: 1 }, source: { c: 'E' } });
+  assert.strictEqual((await open()).html, null);
+  fail = false;
+  assert.strictEqual((await open()).html, '<div>ok</div>');
+  assert.strictEqual(log.requests.length, 2);
+});
+
+test('load: the session cache is bounded and lets the least recently opened talk go', async () => {
+  const max = talkSource.FETCH_POLICY.talkCache;
+  assert.ok(Number.isInteger(max) && max > 0);
+  const log = stubReader(PUBLIC);
+  const open = (talkId) => talkSource.load({ entry: { talkId, citId: 1 }, source: { c: 'E' } });
+  const ids = Array.from({ length: max }, (_, i) => 20000 + i);
+  for (const id of ids) await open(id);       // fills the cache
+  await open(ids[0]);                          // touched: now the most recent
+  await open(30000);                           // one more: ids[1] goes
+  assert.strictEqual(log.requests.length, max + 1);
+  await open(ids[0]);
+  assert.strictEqual(log.requests.length, max + 1, 'the touched talk stayed');
+  await open(ids[1]);
+  assert.strictEqual(log.requests.length, max + 2, 'the least recent one was let go');
+});
+
+const tick = () => new Promise((resolve) => setTimeout(resolve, 5));
+
+test('load: at most 2 requests are in flight to BYU, and every talk still arrives', async () => {
+  assert.strictEqual(talkSource.FETCH_POLICY.slots['scriptures.byu.edu'], 2);
+  const log = stubReader(PUBLIC, { gate: tick });
+  const ids = [40001, 40002, 40003, 40004, 40005];
+  const all = await Promise.all(ids.map((talkId) => talkSource.load({ entry: { talkId, citId: 1 }, source: { c: 'E' } })));
+  assert.strictEqual(log.peak['scriptures.byu.edu'], 2);
+  assert.ok(all.every((r) => r.html), 'every talk loaded');
+  assert.strictEqual(log.requests.length, 5);
+});
+
+test('load: at most 6 requests are in flight to the Church site', async () => {
+  assert.strictEqual(talkSource.FETCH_POLICY.slots['www.churchofjesuschrist.org'], 6);
+  const log = stubReader(PUBLIC, { gate: tick });
+  const ids = Array.from({ length: 9 }, (_, i) => 50000 + i);
+  const all = await Promise.all(ids.map((talkId) => talkSource.load({
+    entry: { talkId }, source: { c: 'G', url: `${ORIGIN}/study/general-conference/2019/10/t${talkId}?lang=eng` },
+  })));
+  assert.strictEqual(log.peak['www.churchofjesuschrist.org'], 6);
+  assert.ok(all.every((r) => r.html), 'every talk loaded');
+});
+
+test('load: a request that fails gives its slot back', async () => {
+  const log = stubReader(PUBLIC, { gate: tick, respond: (url) => (/4100[12]$/.test(url) ? { error: true } : { html: '<div/>' }) });
+  const open = (talkId) => talkSource.load({ entry: { talkId, citId: 1 }, source: { c: 'E' } });
+  await Promise.all([open(41001), open(41002)]);
+  const r = await open(41003);
+  assert.strictEqual(r.html, '<div/>');
+  assert.strictEqual(log.peak['scriptures.byu.edu'], 2);
+});
+
 test('refPunctuation: spells the class-encoded punctuation around an inserted reference', () => {
   const p = talkView.refPunctuation;
   assert.deepStrictEqual(p('ccontainer lparen rparendot'), { open: ' (', close: ').' });
@@ -246,4 +495,141 @@ test('refPunctuation: spells the class-encoded punctuation around an inserted re
 test('refPunctuation: an unknown token adds nothing rather than a guess', () => {
   assert.deepStrictEqual(talkView.refPunctuation('ccontainer lparen rparenwhatever'), { open: ' (', close: '' });
   assert.deepStrictEqual(talkView.refPunctuation(''), { open: '', close: '' });
+});
+
+// Spec #69: the BYU host permission ships in version 1 regardless (the content
+// script's fetch works by CORS today; a later relay must not disable installs).
+test('manifest: grants the BYU host permission', () => {
+  const manifest = require('../manifest.json');
+  assert.ok(manifest.host_permissions.includes('https://scriptures.byu.edu/*'));
+});
+
+// --- footnote locator ---------------------------------------------------------
+// Synthetic talks in the live site's markup: body paragraphs carry data-aid and
+// a pN id, footnote markers are a.note-ref[data-scroll-id], footnotes are
+// li[id^="note"], scripture links are a.scripture-ref.
+const SCRIPTURE = '/study/scriptures';
+const ref = (path, label) => `<a class="scripture-ref" href="${SCRIPTURE}/${path}">${label}</a>`;
+const marker = (n) => `<a class="note-ref" href="/study/x?lang=eng#note${n}" data-scroll-id="note${n}"><sup class="marker" data-value="${n}"></sup></a>`;
+const para = (id, inner) => `<p data-aid="${id.replace(/\D/g, '') || 0}" id="${id}">${inner}</p>`;
+const note = (n, inner) => `<li data-marker="${n}." id="note${n}"><p data-aid="9${n}" id="note${n}_p1">${inner}</p></li>`;
+const talk = (body, notes) =>
+  `<html><body><article><div class="body-block">${body.join('')}</div>` +
+  `<footer><ol>${(notes || []).join('')}</ol></footer></article></body></html>`;
+const locate = (html, cite) => talkSource.locateParagraph(html, Object.assign({ rank: 1 }, cite));
+
+test('locateParagraph: a footnote link places the cite at the paragraph holding its marker', () => {
+  const html = talk(
+    [para('p1', 'Opening.'), para('p2', `The Word.${marker(1)}`), para('p3', 'Close.')],
+    [note(1, ref('nt/john/1?lang=eng&amp;id=p1,3,14#p1', 'John 1:1, 3, 14'))],
+  );
+  assert.strictEqual(locate(html, { book: 'john', chapter: 1, verses: '1,3,14' }), 'p2');
+});
+
+test('locateParagraph: a link written in a body paragraph places the cite there', () => {
+  // Recent talks cite in the text, "(Alma 5:14)", with no footnote.
+  const html = talk([para('p1', 'Opening.'), para('p2', `Have ye (${ref('bofm/alma/5?lang=eng&amp;id=p14#p14', 'Alma 5:14')}).`)]);
+  assert.strictEqual(locate(html, { book: 'alma', chapter: 5, verses: '14' }), 'p2');
+});
+
+test('locateParagraph: the verse set must equal the cite’s, not overlap it', () => {
+  const html = talk([
+    para('p1', ref('nt/john/1?lang=eng&amp;id=p1,14#p1', 'John 1:1, 14')),
+    para('p2', ref('nt/john/1?lang=eng&amp;id=p1-p3#p1', 'John 1:1–3')),
+  ]);
+  assert.strictEqual(locate(html, { book: 'john', chapter: 1, verses: '1' }), null);
+  assert.strictEqual(locate(html, { book: 'john', chapter: 1, verses: '1-3' }), 'p2');
+  assert.strictEqual(locate(html, { book: 'john', chapter: 1, verses: '14,1' }), 'p1');
+});
+
+test('locateParagraph: another book or chapter never matches', () => {
+  const html = talk([
+    para('p1', ref('bofm/alma/6?lang=eng&amp;id=p14#p14', 'Alma 6:14')),
+    para('p2', ref('bofm/mosiah/5?lang=eng&amp;id=p14#p14', 'Mosiah 5:14')),
+  ]);
+  assert.strictEqual(locate(html, { book: 'alma', chapter: 5, verses: '14' }), null);
+});
+
+test('locateParagraph: the k-th match by the cite’s rank among same-reference cites', () => {
+  const html = talk(
+    [para('p1', `First.${marker(1)}`), para('p2', ref('bofm/1-ne/8?lang=eng&amp;id=p33#p33', '1 Nephi 8:33')), para('p3', `Third.${marker(2)}`)],
+    [note(1, ref('bofm/1-ne/8?lang=eng&amp;id=p33#p33', '1 Nephi 8:33')), note(2, ref('bofm/1-ne/8?lang=eng&amp;id=p33#p33', '1 Nephi 8:33'))],
+  );
+  const cite = { book: '1-ne', chapter: 8, verses: '33' };
+  assert.strictEqual(locate(html, Object.assign({}, cite, { rank: 1 })), 'p1');
+  assert.strictEqual(locate(html, Object.assign({}, cite, { rank: 2 })), 'p2');
+  assert.strictEqual(locate(html, Object.assign({}, cite, { rank: 3 })), 'p3');
+  assert.strictEqual(locate(html, Object.assign({}, cite, { rank: 4 })), 'p3', 'fewer matches than the rank: the last');
+});
+
+test('locateParagraph: reading order puts a footnote link at its marker, not at the note list', () => {
+  // Note 1's marker comes after the inline link, so the inline link is the first match.
+  const html = talk(
+    [para('p1', ref('nt/matt/11?lang=eng&amp;id=p28-p30#p28', 'Matthew 11:28–30')), para('p2', `Later.${marker(1)}`)],
+    [note(1, ref('nt/matt/11?lang=eng&amp;id=p28-p30#p28', 'Matthew 11:28–30'))],
+  );
+  const cite = { book: 'matt', chapter: 11, verses: '28-30' };
+  assert.strictEqual(locate(html, Object.assign({}, cite, { rank: 1 })), 'p1');
+  assert.strictEqual(locate(html, Object.assign({}, cite, { rank: 2 })), 'p2');
+});
+
+test('locateParagraph: a footnote sits at the paragraph holding its first marker', () => {
+  const html = talk(
+    [para('p1', 'No marker.'), para('p2', `First.${marker(4)}`), para('p3', `Again.${marker(4)}`)],
+    [note(4, ref('ot/ps/23?lang=eng&amp;id=p1#p1', 'Psalm 23:1'))],
+  );
+  assert.strictEqual(locate(html, { book: 'ps', chapter: 23, verses: '1' }), 'p2');
+});
+
+test('locateParagraph: a whole-chapter cite matches a chapter link or a chapter-span link', () => {
+  const span = talk([para('p1', 'Intro.'), para('p2', `As taught in ${ref('bofm/2-ne/31?lang=eng', '2 Nephi 31–32')}.`)]);
+  assert.strictEqual(locate(span, { book: '2-ne', chapter: 32, verses: '1-9' }), 'p2', 'the span covers chapter 32');
+  assert.strictEqual(locate(span, { book: '2-ne', chapter: 31, verses: '1-21' }), 'p2', 'and the linked chapter');
+  assert.strictEqual(locate(span, { book: '2-ne', chapter: 33, verses: '1-15' }), null, 'not a chapter past the span');
+  assert.strictEqual(locate(span, { book: '2-ne', chapter: 31, verses: '20' }), null, 'a verse cite needs its verses');
+
+  const chapterOnly = talk([para('p1', `See ${ref('pgp/moses/1?lang=eng', 'Moses 1')}.`)]);
+  assert.strictEqual(locate(chapterOnly, { book: 'moses', chapter: 1, verses: '1-42' }), 'p1');
+  // "Alma 5:3–4" with no id is not a span of chapters 3 to 4.
+  const versey = talk([para('p1', ref('bofm/alma/5?lang=eng', 'Alma 5:3–4'))]);
+  assert.strictEqual(locate(versey, { book: 'alma', chapter: 4, verses: '1-20' }), null);
+});
+
+test('locateParagraph: Joseph Smith Translation links never match', () => {
+  const html = talk(
+    [para('p1', `The Word.${marker(20)}`)],
+    [note(20, ref('jst/jst-john/1?lang=eng&amp;id=p1#p1', 'Joseph Smith Translation, John 1:1'))],
+  );
+  assert.strictEqual(locate(html, { book: 'john', chapter: 1, verses: '1' }), null);
+  assert.strictEqual(locate(html, { book: 'jst-john', chapter: 1, verses: '1' }), null);
+});
+
+test('locateParagraph: escaped copies in the page’s scripts and links outside paragraphs are ignored', () => {
+  const html = '<html><head><script>window.__STATE__={"body":"<p data-aid=\\"1\\" id=\\"p9\\"><a class=\\"scripture-ref\\" href=\\"/study/scriptures/nt/john/3?id=p16\\">John 3:16</a></p>"}</script></head>' +
+    `<body><nav>${ref('nt/john/3?lang=eng&amp;id=p16#p16', 'John 3:16')}</nav>${para('p1', 'Plain.')}${para('p2', ref('nt/john/3?lang=eng&amp;id=p16#p16', 'John 3:16'))}</body></html>`;
+  assert.strictEqual(locate(html, { book: 'john', chapter: 3, verses: '16' }), 'p2');
+});
+
+// One real talk per era (tools/fixtures/footnote-locator.json: the fetched
+// article with its words removed, each cite's ground-truth paragraphs from its
+// BYU snippet). Each must place at least the share of its cites that the
+// issue 66 research sample placed for that era.
+const RESEARCH_HIT_RATE = { '1971-2012': 0.908, '2013-19': 1, '2020+': 0.973 };
+for (const fixture of require('./fixtures/footnote-locator.json').talks) {
+  test(`locateParagraph: a ${fixture.era} talk (${fixture.talkId}) holds the research hit rate`, () => {
+    const off = fixture.cites
+      .map((c) => ({ c, got: talkSource.locateParagraph(fixture.html, c) }))
+      .filter(({ c, got }) => !c.paragraphs.includes(got));
+    const rate = 1 - off.length / fixture.cites.length;
+    assert.ok(rate >= RESEARCH_HIT_RATE[fixture.era],
+      `${(rate * 100).toFixed(1)}% placed; off: ${off.map(({ c, got }) => `${c.citId} ${c.book} ${c.chapter}:${c.verses} -> ${got}`).join('; ')}`);
+  });
+}
+
+test('locateParagraph: no match, no cite or no HTML yields null', () => {
+  const html = talk([para('p1', 'Nothing linked.')]);
+  assert.strictEqual(locate(html, { book: 'john', chapter: 3, verses: '16' }), null);
+  assert.strictEqual(locate('', { book: 'john', chapter: 3, verses: '16' }), null);
+  assert.strictEqual(talkSource.locateParagraph(html, null), null);
+  assert.strictEqual(locate(html, { book: 'john', chapter: 3, verses: '' }), null);
 });

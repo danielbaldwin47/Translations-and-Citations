@@ -471,7 +471,8 @@
   color: var(--btx-fg);
   background: color-mix(in srgb, var(--btx-accent) 20%, var(--btx-border));
 }
-#btx-root .btx-talk-chip[hidden] { display: none; }
+#btx-root .btx-talk-chip[hidden],
+#btx-root .btx-talk-ext[hidden] { display: none; }
 #btx-root .btx-talk-title {
   margin: 0;
   font-family: inherit;
@@ -496,6 +497,9 @@
   overflow-wrap: anywhere;
 }
 #btx-root .btx-talk-speaker { color: var(--btx-fg); font-weight: 600; }
+/* Whose text this is ("Text fetched from scriptures.byu.edu"; "Text:
+   Wikisource, revision N", linked to the permalink). */
+#btx-root .btx-talk-credit { margin-top: 2px; font-size: 12px; }
 #btx-root .btx-talk-credit-link { color: inherit; text-decoration: underline; text-underline-offset: 2px; }
 #btx-root .btx-talk-credit-link:hover { color: var(--btx-accent); }
 #btx-root .btx-talk-hint {

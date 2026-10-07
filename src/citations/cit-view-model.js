@@ -11,8 +11,7 @@
  * both citation-layout orderings, which groups start open, snippet cleaning and
  * quoting, every label (summary, counts, verse, range, screen-reader), and the
  * filter / collapse-all state transitions. It also owns the talk reader's
- * heading (talkHeading: title, byline, verse chip) and its credit line
- * (talkCredit: "Text: Wikisource, revision N"). cit-panel is a thin adapter from
+ * heading (talkHeading: title, byline, verse chip). cit-panel is a thin adapter from
  * these descriptors to elements, which keeps this module reachable from Node
  * (tools/validate-cit-view-model.js). The adapter owns only copy that depends
  * on no data: the loading line, the filter placeholder, the Clear filter
@@ -79,9 +78,6 @@
     return month ? `Citations through ${month} ${m[1]}` : null;
   }
 
-  // Up to this many talks on a chapter, every group starts open: the whole
-  // list fits on a screen or two, so making the reader click is pure cost.
-  const OPEN_ALL_MAX_TALKS = 12;
   // Below this many talks the filter box and Collapse all are noise.
   const TOOLS_MIN_TALKS = 4;
 
@@ -510,8 +506,12 @@
     }
 
     const talks = new Set(Object.values(data.entries).map(talkIdOf)).size;
+    // Groups start collapsed, whatever the chapter's size: opening a group is
+    // the reader's act, and it is what starts a fetched excerpt (spec #69).
+    // Only three things open on their own: the focus verse's group here, the
+    // source-type groups inside a verse group (verseGroups), and the groups a
+    // typed filter matches (filterPlan).
     const groups = layout === 'source' ? sourceGroups(data, types) : verseGroups(data, types, opts.focusVerse);
-    if (talks <= OPEN_ALL_MAX_TALKS) eachGroup(groups, (g) => { g.open = true; });
     const focused = groups.find((g) => g.focus);
 
     return {
@@ -657,28 +657,9 @@
     };
   }
 
-  // The talk reader's credit for where a bundled talk's text is from, read
-  // from the corpus's descriptor entry (`attribution`), or null:
-  //   text       the byline line ("Text: Wikisource, revision N"; N is the
-  //              revision the source record's permalink pins, `oldid`)
-  //   href       the source record's URL, which the line links
-  //   linkLabel  the header's external-link label for that URL
-  const CREDITS = { wikisource: { name: 'Wikisource', linkLabel: 'Open on Wikisource' } };
-  function talkCredit(source, corpus) {
-    const credit = corpus && CREDITS[corpus.attribution];
-    const url = source && source.url;
-    if (!credit || !url) return null;
-    const rev = /[?&]oldid=(\d+)/.exec(url);
-    return {
-      text: `Text: ${credit.name}` + (rev ? `, revision ${rev[1]}` : ''),
-      href: url,
-      linkLabel: credit.linkLabel,
-    };
-  }
-
   const VM = {
     formatVerses, verseLabel, anchorVerses, cleanSnippet, quoteSnippet, verseUid,
-    buildView, talkHeading, talkCredit,
+    buildView, talkHeading,
     initialState, filterPlan, applyPlan, collapseAllPlan, collapseLabel, allRows,
   };
 

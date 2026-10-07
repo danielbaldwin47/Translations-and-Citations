@@ -11,7 +11,9 @@ A **Manifest V3 Chrome extension** (personal, load-unpacked) that augments the
 reader on `churchofjesuschrist.org/study` for any standard-works chapter. One
 side panel, two modes:
 
-1. **Translation** — the same chapter in another version: on the Bible from
+1. **Translation** — the same chapter in another version: on the Bible the
+   bundled **World English Bible** (no key; the default while no api.bible
+   version is on) or
    **scripture.api.bible** with the user's own key (NIV, NKJV, …), and on any
    standard work in a **Church language** (Spanish, Japanese, …) fetched from
    the site's own content endpoint. A Church language is split into the page
@@ -39,8 +41,9 @@ ships, the pack in this repo is BYU-derived and is not published anywhere.
   `<script src>` first.
 - **No secrets/CORS in content scripts.** All api.bible calls go through the
   **service worker**. The citation feature and Church-language text are
-  content-script-only (static web-accessible data + same-origin site fetches,
-  `credentials: 'omit'`).
+  content-script-only (static web-accessible data, same-origin site fetches,
+  and BYU's talk fragments, which BYU serves to any origin by CORS; every
+  fetch `credentials: 'omit'`).
 - **Packaged code only** (Web Store remote-code rule): every script that runs
   ships in the zip. api.bible usage reporting is the worker's HTTP GET
   (`fums.js`), never a script on the page (`validate-service-worker.js`).
@@ -75,7 +78,7 @@ src/
   shared/books.js          __BTX.books     66 Bible (slug→USFM/name) + BoM/D&C/PGP registry
   background/
     service-worker.js      classic worker; importScripts; onMessage router (OPEN_OPTIONS {section} → storage.session); toolbar icon = TOGGLE_PANEL, else opens options; install opens options
-    api.js                 __BTX.api       api.bible fetch + JSON→IR (403 "Invalid API key" → INVALID_KEY; 429 → remote + retryAfterMs; partial version lists); bible-api.com fallback
+    api.js                 __BTX.api       api.bible fetch + JSON→IR (403 "Invalid API key" → INVALID_KEY; 429 → remote + retryAfterMs; partial version lists); fetchBundledChapter serves the World English Bible from src/bible/
     cache.js               __BTX.cache     chapter cache + LRU; version list keyed by a key fingerprint, 7-day TTL (storage.local; the options page reads it too)
     ratelimit.js           __BTX.rate      15/30s + 5000/day, persisted
     fums.js                __BTX.fums      api.bible usage report (FUMS v3 GET) on every api.bible display, cache hits too; device id minted on a successful Connect (storage.local), session id per worker lifetime
@@ -90,19 +93,20 @@ src/
     panel.css
     content.js             orchestrator: detect → worker/citations → panel content only (no panel state, no theme policy)
   citations/
-    cit-data.js            __BTX.citData   probes the pack once per session (personal dir, then public; pure pickPack) → loadPack() {dir,descriptor}; shards/sources/gunzip talks; chapterData(slug,chap) carries the descriptor as `pack` and clips each cite's verses to its own `v` (pure citedVerses/chapterIndex)
+    cit-data.js            __BTX.citData   probes the pack once per session (personal dir, then public; pure pickPack) → loadPack() {dir,descriptor}; shards/sources/gunzip talks; chapterData(slug,chap) carries the descriptor as `pack`, clips each cite's verses to its own `v` and ranks same-reference cites for the locator (pure citedVerses/chapterIndex/refRanks)
     cit-view-model.js      __BTX.citVM     PURE: chapter cites → descriptor tree; source types from the pack descriptor; every ordering/grouping/counting/label rule; vintage footer; toolbar state machine
     cit-panel.js           __BTX.citPanel  DOM adapter over citVM: render(host, opts) / refocus() / markVerse(v) / revealVerse(v); reads verse excerpts from the page (read-only)
     highlights.js          __BTX.highlights local select-to-highlight in the reader
-    talk-source.js         __BTX.talkSource load({entry,source}) → {html,url,corpus,findTarget}; pure corpusPlan(descriptor, corpus, {hasUrl}), targetIds (span, then a J cite's page anchor) + snippet fallback (snippetKey); pre-2013 GC URL repair; 15s live timeout
+    talk-source.js         __BTX.talkSource load({entry,source}) → {html,url,destination,credit,findTarget}; pure corpusPlan(descriptor, corpus, {hasUrl}), readingDestination, talkCredit (BYU fetch line; "Text: Wikisource, revision N"), BYU fragment/viewer URLs; footnote locator (locateParagraph, pure on fetched HTML), targetIds (span, then a J cite's page anchor) + snippet fallback (snippetKey); pre-2013 GC URL repair; FETCH_POLICY (per-host slots, session talk cache, 15s timeout)
     talk-view.js           __BTX.talkView  inline reader: sanitizer, render, highlights, sticky header; one Esc listener on #btx-root (highlight menu first, then Back)
     citations.css
-    data/                  GENERATED, committed, shipped: the public pack (~62 MB, ADR-0008): index.json (its `pack` is the pack descriptor), sources.json, citations/{slug}.json, talks/{talkId}.html.gz, jod-provenance.json
+    data/                  GENERATED, committed, shipped: the public pack (~34 MB, ADR-0008): index.json (its `pack` is the pack descriptor), sources.json, citations/{slug}.json (G/E cites: no snippet, an excerpt count `ec`), talks/{talkId}.html.gz (J only, Wikisource text), jod-provenance.json
     data-personal/         GITIGNORED: the personal pack, same layout, descriptor flavor `personal` (build --pack personal)
+  bible/engwebp/           GENERATED, committed, shipped: the World English Bible as IR, {USFM}.json per book + index.json (archive SHA-256, download date); C.BUNDLED_BIBLE names it
   options/                 options.html/js/css — three autosaving cards whose ids are C.OPTIONS_SECTIONS (bible / languages / reading); pure form core exported for Node
 icons/                     generated by tools/make-icons.js
-tools/                     build-citation-data.js, fetch-jod-wikisource.js + build-jod-talks.js (+ jod-patches.json), rederive-js-snippets.js, make-icons.js, validate-*.js, test-talk-source.js
-source-data/               GITIGNORED build input: the BYU DBs, the Wikisource snapshot (wikisource-jod.json), the J build (jod-talks/)
+tools/                     build-citation-data.js, fetch-jod-wikisource.js + build-jod-talks.js (+ jod-patches.json), build-bible-data.js, build-store-zip.js, rederive-js-snippets.js, make-icons.js, validate-*.js, test-talk-source.js; fixtures/base-talk-ids.json freezes base talk ids (A26)
+source-data/               GITIGNORED build input: the BYU DBs, engwebp_usfm.zip, the Wikisource snapshot (wikisource-jod.json), the J build (jod-talks/)
 ```
 
 ## BYU data facts
@@ -110,7 +114,7 @@ source-data/               GITIGNORED build input: the BYU DBs, the Wikisource s
 - The BYU DBs: `core.53.db` (~44 MB index) + `content.53.db` (~54 MB zlib
   HTML), joined on `TalkID`. Gitignored; in git/LFS history at the "Add BYU
   citation index databases" commit (retrieval recipe in `.gitignore`).
-- The build covers all five volumes: ~125.8k cites across 88 shards, verse-keyed
+- The build covers all five volumes: ~125.8k cites across 88 shards (114.5k in the public pack, which has no T), verse-keyed
   (ADR-0001) — the ~0.22% of cites with no verse row aren't shown.
 - Citation spans: `<span class="citation" id="{citId}">` in talk HTML;
   modern-GC paragraphs carry `uri=".../slug.p21"` deep-link anchors.
@@ -130,15 +134,22 @@ source-data/               GITIGNORED build input: the BYU DBs, the Wikisource s
   Malachi 4 and Revelation 22), labelled "Note".
 - DB `book.Abbr` == our slug after space→hyphen; the one alias is D&C `sec` →
   `dc` (`ABBR_ALIAS` in the build).
-- GC URL transform: `lds.org/ensign/...` →
+- GC URL transform (`toChurchUrl`): `lds.org/ensign/...` →
   `churchofjesuschrist.org/study/ensign/...`; modern entries already store
-  full church URLs.
+  full church URLs. The 30 April 2019 talks are stored as
+  `lds.org/study/ensign/2019/05/{session}/{slug}` and become
+  `.../study/ensign/2019/05/{slug}` (the session path redirects).
+- The excerpt character count (`ec`, `excerptChars`) is measured from
+  `content.53.db`: the text of the paragraph holding the citation span, with
+  BYU's insertions (`ccontainer` labels, modern `sup.noteMarker` footnotes)
+  dropped, unless the paragraph is only a reference. Talk 2723 (1975) has no
+  citation spans, so its cites carry no count.
 
 ## Build / test / verify
 
 - **Load:** `chrome://extensions` → Developer mode → Load unpacked → repo root.
-- **Translation:** on a fresh profile `nt/john/3` opens on Citations; its
-  Translation tab shows the setup card. Paste an api.bible key under Bible
+- **Translation:** on a fresh profile `nt/john/3` opens in Translation with
+  the World English Bible and its public-domain line. Paste an api.bible key under Bible
   translations in settings — it connects itself, turns on the versions added
   to the key, NIV default. Church languages: Add Español from the setup card
   on `bofm/alma/5` (or check it in settings) — the page splits (columns once
@@ -158,8 +169,20 @@ source-data/               GITIGNORED build input: the BYU DBs, the Wikisource s
   node tools/validate-citations.js && node tools/validate-jod.js
   ```
   The J build feeds both packs. Then the public pack, then the personal pack (see
-  "Pack descriptor" below). `--inspect` first if DB formats may have changed. STPJS snippets alone (no
-  DBs): `node tools/rederive-js-snippets.js`.
+  "Pack descriptor" below); `validate-citations` checks each pack present
+  against its own descriptor. `--inclusion E=all,J=all` sets a corpus's
+  inclusion rule (only `all` builds until #72). `--inspect` first if DB
+  formats may have changed. STPJS snippets alone (no DBs, personal pack):
+  `node tools/rederive-js-snippets.js`.
+- **Store zip** (the Chrome Web Store upload, from the commit, never the
+  working tree): commit, then `node tools/build-store-zip.js` writes
+  `dist/translations-and-citations-{version}.zip`; `.gitattributes`
+  `export-ignore` decides what is left out, and `validate-store-zip` checks it.
+- **Regenerate the bundled Bible** (`source-data/engwebp_usfm.zip` from
+  ebible.org; the tool prints the download command when it is missing):
+  `node tools/build-bible-data.js` then `node tools/validate-bible-data.js`,
+  whose unaltered-text check runs only with the archive present. The text is
+  never edited: changing it forfeits the name "World English Bible".
 - **Checks — run all before finishing:** every `node tools/validate-*.js`
   plus `node --test tools/test-talk-source.js` (node:test, no deps); syntax:
   `node --check <file>`. Each validator names the module it covers.
@@ -291,9 +314,13 @@ validators — go there before changing behaviour.
   `btxk-`-prefixed, footnotes carry `data-btx-footnum`, and the article's
   `textContent` stays exactly the source text (display additions are CSS
   generated content or wrapper spans; the byline and highlight hint sit
-  outside the article). Every corpus falls back to the paragraph holding the
-  cite's snippet when its plan's target is missing. The STPJS body-passage
-  rule is stated twice (build vs reader) on purpose — ADR-0006.
+  outside the article). A live GC cite with no paragraph anchor goes to the
+  paragraph `locateParagraph` names: it reads the fetched HTML string, since
+  the sanitizer unwraps the links it needs, and returns an id. Every corpus
+  then falls back to the paragraph holding the cite's snippet, if it bundles
+  one. The target order is stated once, in `talk-source.js`'s header. The
+  STPJS body-passage rule is stated twice (build vs reader) on purpose —
+  ADR-0006.
 
 ## Gotchas
 

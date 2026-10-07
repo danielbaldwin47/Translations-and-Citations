@@ -230,7 +230,8 @@
 
   // The setup card, for a chapter no enabled text offers. `bible` is null off
   // the Bible, else what the api.bible path is missing: 'nokey' (no key yet)
-  // or 'noversions' (none turned on).
+  // or 'noversions' (none turned on). The World English Bible ships with the
+  // extension, so on the Bible api.bible offers *more* translations.
   function setupCopy(o) {
     const chapter = (o && o.chapter) || 'this chapter';
     const bible = o && o.bible;
@@ -242,8 +243,8 @@
       // The in-product disclosures (C.DISCLOSURE), beside the action they consent to.
       languagesDisclosure: C.DISCLOSURE.churchLanguage,
       bible: !bible ? null : Object.assign(bible === 'noversions'
-        ? { text: 'No Bible translations are turned on yet.', button: 'Choose Bible translations' }
-        : { text: 'Bible translations such as NIV and NKJV need a free api.bible key.', button: 'Set up Bible translations' },
+        ? { text: 'Turn on more Bible translations from your api.bible key.', button: 'Choose Bible translations' }
+        : { text: 'More Bible translations, such as NIV and NKJV, need a free api.bible key.', button: 'Set up more translations' },
       { disclosure: C.DISCLOSURE.apiBible }),
       talks: `See the talks that cite ${chapter}`,
     };
