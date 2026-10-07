@@ -36,6 +36,7 @@ const DATA = path.join(ROOT, 'src', 'citations', 'data');
 const DIR_ARG = (() => { const i = process.argv.indexOf('--dir'); return i >= 0 ? process.argv[i + 1] : null; })();
 const citData = require(path.join(ROOT, 'src', 'citations', 'cit-data.js'));
 const build = require(path.join(ROOT, 'tools', 'build-citation-data.js'));
+const derive = require(path.join(ROOT, 'tools', 'derive-conference.js'));
 let failures = 0;
 const check = (cond, msg) => { if (!cond) { console.error('  ✗ ' + msg); failures++; } };
 const eq = (a, b, msg) => check(a === b, `${msg} (got ${JSON.stringify(a)}, want ${JSON.stringify(b)})`);
@@ -289,6 +290,66 @@ function descriptorChecks() {
     deep([pub.corpora.G, pub.corpora.E, pub.corpora.J, per.corpora.T].map(build.bundlesTalks), [false, false, true, true],
       'talk files are written only for corpora whose text is bundled');
   }
+  console.log('Derived cites from conference inputs (fixtures):');
+  {
+    const input = {
+      conference: '2026-10', source: 'church',
+      talks: [
+        { id: 'gc/2026/10/12gong', url: 'https://www.churchofjesuschrist.org/study/general-conference/2026/10/12gong?lang=eng',
+          sp: 'Gerrit W. Gong', ti: 'A Title', d: '2026-10', lbl: 'October 2026 General Conference', rev: '1',
+          cites: [
+            { id: 20261000001, book: 'moses', chapter: 1, v: '39', a: 'p_oTBi9', ec: 127 },
+            { id: 20261000002, book: 'dc', chapter: 132, v: '7,18-19', a: 'p_d5rju', ec: 369 },
+            { id: 20261000003, book: 'nowhere', chapter: 1, v: '1', a: 'p_x', ec: 5 },
+          ] },
+        { id: 'gc/2026/10/31sustaining', url: 'u', sp: 'S', ti: 'T', d: '2026-10', lbl: 'October 2026 General Conference', rev: '1', cites: [] },
+      ],
+    };
+    const base = { updated: '2026-05-18', conferences: new Set(['2026-04', '2025-10']) };
+    const got = build.derivedCites([input], pub.corpora.G, { books: new Set(['moses', 'dc']), base });
+    deep(got.errors, [], 'a conference newer than the base stamp derives without error');
+    deep(got.conferences, ['2026-10'], 'the derived conferences are listed');
+    deep(got.sources, { 'gc/2026/10/12gong': { c: 'G', sp: 'Gerrit W. Gong', ti: 'A Title', d: '2026-10', lbl: 'October 2026 General Conference',
+      url: 'https://www.churchofjesuschrist.org/study/general-conference/2026/10/12gong?lang=eng' } },
+    'a talk with cites becomes a G source under its derived id; a talk with none adds no source');
+    deep(got.shards.dc, { cites: { 20261000002: { t: 'gc/2026/10/12gong', v: '7,18-19', a: 'p_d5rju', ec: 369 } },
+      index: { 132: { 7: [20261000002], 18: [20261000002], 19: [20261000002] } } },
+    'a derived cite is a references-only record with its anchor and count, filed under each verse it names');
+    check(!('nowhere' in got.shards), 'a cite into a book the pack lacks is dropped');
+    const covered = build.derivedCites([Object.assign({}, input, { conference: '2026-04' })], pub.corpora.G, { books: new Set(['moses']), base });
+    check(covered.errors.length === 1 && /2026-04/.test(covered.errors[0]), `a conference the base covers is refused (${covered.errors})`);
+    const old = build.derivedCites([Object.assign({}, input, { conference: '2025-04' })], pub.corpora.G,
+      { books: new Set(['moses']), base: { updated: '2026-05-18', conferences: new Set() } });
+    check(old.errors.length === 1, 'a conference older than the base stamp is refused even when the base has no talk of it');
+  }
+  console.log('Diff report (fixtures):');
+  {
+    const before = {
+      sources: { 1: { c: 'G' }, 2: { c: 'G' }, 3: { c: 'J' } },
+      shards: [{ cites: { 10: { t: 1 }, 11: { t: 2 }, 12: { t: 3 } } }, { cites: { 13: { t: 1 } } }],
+    };
+    const after = {
+      sources: { 1: { c: 'G' }, 3: { c: 'J' }, 'gc/2026/10/12gong': { c: 'G' }, 'gc/2026/10/11a': { c: 'G' } },
+      shards: [{ cites: { 10: { t: 1 }, 12: { t: 3 }, 20261000001: { t: 'gc/2026/10/12gong' } } },
+        { cites: { 13: { t: 1 }, 20261000002: { t: 'gc/2026/10/11a' }, 20261000003: { t: 'gc/2026/10/11a' } } }],
+    };
+    const descriptor = { flavor: 'public', vintage: '2026-10', base: { db: 'core.53.db', updated: '2026-05-18' }, derived: ['2026-10'] };
+    eq(build.diffReport(build.tallyPack(before), build.tallyPack(after), descriptor, '2026-04'), [
+      '### Pack diff: public pack',
+      '',
+      'Vintage 2026-04 -> 2026-10. Base: core.53.db, updated 2026-05-18. Derived conferences: 2026-10.',
+      '',
+      '| Corpus | Talks before | Talks after | Added | Removed | Cites before | Cites after |',
+      '| --- | ---: | ---: | ---: | ---: | ---: | ---: |',
+      '| G | 2 | 3 | 2 | 1 | 3 | 5 |',
+      '| J | 1 | 1 | 0 | 0 | 1 | 1 |',
+      '',
+      'Added (G): gc/2026/10/11a, gc/2026/10/12gong',
+      'Removed (G): 2',
+    ].join('\n'), 'talks added and removed and cites before and after, per corpus, with the base stamp and derived conferences');
+    eq(build.diffReport(build.tallyPack(null), build.tallyPack(after), descriptor, '').split('\n')[2],
+      'Vintage (none) -> 2026-10. Base: core.53.db, updated 2026-05-18. Derived conferences: 2026-10.', 'a first build reports from nothing');
+  }
   eq(build.conferenceOf('2026-04'), '2026-04', 'an April session belongs to the April conference');
   eq(build.conferenceOf('2023-09'), '2023-10', 'a September session belongs to the October conference');
   eq(build.conferenceOf('2016-03'), '2016-04', 'a March session belongs to the April conference');
@@ -358,6 +419,27 @@ function checkPack(dir, expectFlavor) {
   check(badIds === 0, `${where}: base talks keep today's ids, derived talks carry gc/YYYY/MM/slug ids ` +
     `(${badIds} not: ${badIdSamples.join('; ')})`);
 
+  // Derived cites (spec #69 check A4): a derived talk is any talk not in the
+  // base; its conference is newer than the base stamp, the base has no talk of
+  // it, and the descriptor lists it; every listed conference has derived
+  // talks; a derived talk's id is the slug of its own Church URL (A26).
+  console.log(`Derived conferences (${where}):`);
+  const baseConfs = new Set();
+  const derivedConfs = {};
+  let badDerivedIds = 0;
+  for (const [id, s] of Object.entries(sources)) {
+    if (BASE_IDS.has(id)) { if (s.d) baseConfs.add(build.conferenceOf(s.d)); continue; }
+    const conf = build.conferenceOf(s.d);
+    derivedConfs[conf] = (derivedConfs[conf] || 0) + 1;
+    if (derive.derivedTalkId(s.url) !== id || !id.startsWith(`gc/${conf.replace('-', '/')}/`)) badDerivedIds++;
+  }
+  const listed = d.derived || [];
+  const stamp = String(d.base && d.base.updated || '').slice(0, 7);
+  deep(Object.keys(derivedConfs).sort(), listed.slice().sort(), `${where}: the descriptor's derived conferences are exactly those of its derived talks`);
+  const early = listed.filter((c) => !(c > stamp) || baseConfs.has(c));
+  deep(early, [], `${where}: derived conferences are newer than the base stamp (${d.base && d.base.updated}) and the base has no talk of them`);
+  eq(badDerivedIds, 0, `${where}: each derived talk's id is its Church URL's slug, gc/YYYY/MM/{slug}, in its own conference`);
+
   console.log(`Shards (${where}):`);
   let totalCites = 0;
   let badUrls = 0;
@@ -365,12 +447,14 @@ function checkPack(dir, expectFlavor) {
   const uncounted = {};     // talk of a fetched-excerpt corpus -> its cites with no count
   const counted = new Set(); // talks of a fetched-excerpt corpus with a counted cite
   const cited = new Set();
+  const unanchored = [];     // derived cites with no paragraph anchor
   for (const b of index.books) {
     const shard = readJSON(`citations/${b.slug}.json`);
     for (const [citId, c] of Object.entries(shard.cites)) {
       const src = sources[c.t];
       if (!src) { check(false, `${b.slug} cite ${citId} -> talk ${c.t} not in sources`); continue; }
       cited.add(String(c.t));
+      if (!BASE_IDS.has(String(c.t)) && !c.a) unanchored.push(citId);
       const entry = corpora[src.c];
       if (!entry) continue; // reported above, per source
       if (entry.excerpt === 'fetched') {
@@ -390,6 +474,7 @@ function checkPack(dir, expectFlavor) {
     }
   }
   check(totalCites > floor.walked, `walked citations, over ${floor.walked} (${totalCites})`);
+  deep(unanchored.slice(0, 5), [], `${where}: every derived cite carries its paragraph anchor (${unanchored.length} do not)`);
   deep(snippets, {}, `${where}: no cite of a references-only corpus carries a snippet (count per corpus)`);
   // A cite has no count only when BYU's copy of its talk carries no citation
   // span to measure from, so no cite of that talk has one (talk 2723, 1975).

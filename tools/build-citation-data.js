@@ -9,7 +9,7 @@
  * commit that added them.
  *
  * Run (Node 22+, built-in SQLite + zlib — no npm install):
- *   node --experimental-sqlite tools/build-citation-data.js [--pack public|personal] [--inclusion E=all,J=all]
+ *   node --experimental-sqlite tools/build-citation-data.js [--pack public|personal] [--inclusion E=all,J=all] [--derived DIR] [--report FILE]
  *   (defaults: --pack public --core ./source-data/core.53.db --content ./source-data/content.53.db
  *    --scripture ./source-data/scripture
  *    --out ./src/citations/data for public, ./src/citations/data-personal for personal)
@@ -22,6 +22,18 @@
  * (excerptChars) when it is fetched, talk files only when its text is
  * bundled. G and E are references-only in both modes. The build rewrites the
  * pack's shards and talk files whole.
+ *
+ * Derived cites (GLOSSARY.md): every conference newer than the BYU base comes
+ * from the derivation run's inputs, --derived DIR (default
+ * ./source-data/derived, files gc-YYYY-MM.json written by
+ * tools/derive-conference.js); derivedCites merges them as G cites under
+ * gc/YYYY/MM/{slug} talk ids and lists their conferences in the descriptor's
+ * `derived`. An input for a conference the base covers stops the build.
+ *
+ * Diff report: every build prints, after the pack is written, talks added and
+ * removed and cites before and after per corpus, the base stamp and the
+ * derived conferences, as Markdown for the refresh PR (--report FILE also
+ * writes it to FILE).
  *
  * --inclusion: the per-corpus inclusion rule (GLOSSARY.md "Inclusion rule"),
  * a build input recorded in the descriptor: `all` keeps every BYU cite;
@@ -57,7 +69,7 @@
  * real talk.URL formats and talk HTML markup:
  *   node --experimental-sqlite tools/build-citation-data.js --inspect
  *
- * Output layout (a talk id is BYU's numeric talk.ID; a derived talk's will be gc/YYYY/MM/{slug}):
+ * Output layout (a talk id is BYU's numeric talk.ID; a derived talk's is gc/YYYY/MM/{slug}):
  *   data/index.json            { builtAt, dbUpdated, pack, books:[{slug,fullName,bookId,citations}], counts }
  *                              pack = the pack descriptor (packDescriptor)
  *   data/sources.json          { [talkId]: { c, sp, ti, d, lbl, url? } }   // one entry per cited talk
@@ -92,6 +104,8 @@ const OUT = arg('--out', PACK_OUT[PACK]);
 const SCRIPTURE = arg('--scripture', path.resolve(__dirname, '..', 'source-data', 'scripture'));
 const JOD = arg('--jod', path.resolve(__dirname, '..', 'source-data', 'jod-talks'));
 const INSPECT = process.argv.includes('--inspect');
+const DERIVED = arg('--derived', path.resolve(__dirname, '..', 'source-data', 'derived'));
+const REPORT = arg('--report');
 
 // ---- pack descriptor ----
 // What each corpus is to the reader (GLOSSARY.md "Pack descriptor"); the
@@ -170,6 +184,98 @@ function conferenceOf(d) {
   const m = /^(\d{4})-(\d{2})/.exec(String(d || ''));
   if (!m) return '';
   return `${m[1]}-${Number(m[2]) <= 6 ? '04' : '10'}`;
+}
+
+// '7,18-19' -> [7, 18, 19]
+function versesOf(v) {
+  const out = [];
+  for (const part of String(v).split(',')) {
+    const m = /^\s*(\d+)(?:-(\d+))?\s*$/.exec(part);
+    if (m) for (let n = Number(m[1]); n <= Number(m[2] || m[1]); n++) out.push(n);
+  }
+  return out;
+}
+
+// Derived cites (GLOSSARY.md "Derived cite"): the derivation run's inputs
+// (tools/derive-conference.js, source-data/derived/gc-YYYY-MM.json) -> what
+// they add to the pack. Their provenance is the Church's talk page; a cite is
+// derived exactly when its talk id is a gc/YYYY/MM/{slug} path, and its
+// conference is listed in the descriptor's `derived`.
+//   inputs  [{ conference, talks:[{ id, url, sp, ti, d, lbl, cites:[{ id, book, chapter, v, a, ec }] }] }]
+//   corpus  the G descriptor entry (citeRecord shapes each cite by it)
+//   opts    { books: Set of the pack's slugs, base: { updated:'YYYY-MM-DD', conferences: Set of 'YYYY-MM' } }
+//   -> { sources: { [talkId]: source }, shards: { [slug]: { cites, index } }, conferences: ['YYYY-MM'], errors: [msg] }
+// A conference the base covers, or one not newer than the base stamp, is
+// refused whole (an error, nothing added): the BYU base is frozen and its
+// conferences carry no derived cites. A cite into a book the pack lacks is dropped.
+function derivedCites(inputs, corpus, opts) {
+  const out = { sources: {}, shards: {}, conferences: [], errors: [] };
+  const stamp = String(opts.base.updated || '').slice(0, 7);
+  for (const input of inputs.slice().sort((a, b) => (a.conference < b.conference ? -1 : 1))) {
+    const conf = input.conference;
+    if (opts.base.conferences.has(conf) || !(conf > stamp)) {
+      out.errors.push(`derived input for ${conf}: the BYU base (updated ${opts.base.updated}) covers it; derived cites are only for later conferences`);
+      continue;
+    }
+    out.conferences.push(conf);
+    for (const talk of input.talks) {
+      for (const c of talk.cites) {
+        if (!opts.books.has(c.book)) continue;
+        const shard = out.shards[c.book] = out.shards[c.book] || { cites: {}, index: {} };
+        shard.cites[c.id] = citeRecord(corpus, { t: talk.id, v: c.v, a: c.a, ec: c.ec });
+        const chap = shard.index[c.chapter] = shard.index[c.chapter] || {};
+        for (const v of versesOf(c.v)) (chap[v] = chap[v] || []).push(c.id);
+        out.sources[talk.id] = { c: 'G', sp: talk.sp, ti: talk.ti, d: talk.d, lbl: talk.lbl, url: talk.url };
+      }
+    }
+  }
+  return out;
+}
+
+// A pack's contents per corpus, for the diff report.
+//   pack { sources, shards: iterable of { cites } } | null -> { [corpus]: { talks: Set, cites: n } }
+function tallyPack(pack) {
+  const out = {};
+  if (!pack) return out;
+  const of = (c) => (out[c] = out[c] || { talks: new Set(), cites: 0 });
+  for (const [id, s] of Object.entries(pack.sources || {})) of(s.c).talks.add(String(id));
+  for (const shard of pack.shards || []) {
+    for (const c of Object.values(shard.cites || {})) {
+      const s = pack.sources[c.t];
+      if (s) of(s.c).cites++;
+    }
+  }
+  return out;
+}
+
+// The refresh PR's diff report (spec #69): per corpus, talks before and
+// after, added and removed, cites before and after; the base stamp and the
+// derived conferences. Markdown, printed by the build.
+function diffReport(before, after, descriptor, vintageBefore) {
+  const corpora = [...new Set([...Object.keys(before), ...Object.keys(after)])].sort();
+  const empty = { talks: new Set(), cites: 0 };
+  const lines = [
+    `### Pack diff: ${descriptor.flavor} pack`,
+    '',
+    `Vintage ${vintageBefore || '(none)'} -> ${descriptor.vintage}. Base: ${descriptor.base.db}, updated ${descriptor.base.updated}. ` +
+      `Derived conferences: ${descriptor.derived.length ? descriptor.derived.join(', ') : 'none'}.`,
+    '',
+    '| Corpus | Talks before | Talks after | Added | Removed | Cites before | Cites after |',
+    '| --- | ---: | ---: | ---: | ---: | ---: | ---: |',
+  ];
+  const changes = [];
+  for (const c of corpora) {
+    const b = before[c] || empty;
+    const a = after[c] || empty;
+    const added = [...a.talks].filter((t) => !b.talks.has(t)).sort();
+    const removed = [...b.talks].filter((t) => !a.talks.has(t)).sort();
+    lines.push(`| ${c} | ${b.talks.size} | ${a.talks.size} | ${added.length} | ${removed.length} | ${b.cites} | ${a.cites} |`);
+    const list = (ids) => (ids.length > 40 ? `${ids.slice(0, 40).join(', ')} and ${ids.length - 40} more` : ids.join(', '));
+    if (added.length) changes.push(`Added (${c}): ${list(added)}`);
+    if (removed.length) changes.push(`Removed (${c}): ${list(removed)}`);
+  }
+  if (changes.length) lines.push('', ...changes);
+  return lines.join('\n');
 }
 
 // Volumes: 1=OT, 2=NT, 3=Book of Mormon, 4=D&C, 5=Pearl of Great Price.
@@ -477,6 +583,26 @@ function verbatimCiteIds(core, content, bookMap, corpusList) {
 }
 
 // ---- build ----
+// The pack now in `dir` (for the diff report's "before"), or null.
+function readPack(dir) {
+  const file = (p) => path.join(dir, p);
+  if (!fs.existsSync(file('index.json'))) return null;
+  try {
+    const index = JSON.parse(fs.readFileSync(file('index.json'), 'utf8'));
+    const sources = JSON.parse(fs.readFileSync(file('sources.json'), 'utf8'));
+    const shards = (index.books || []).filter((b) => fs.existsSync(file(`citations/${b.slug}.json`)))
+      .map((b) => JSON.parse(fs.readFileSync(file(`citations/${b.slug}.json`), 'utf8')));
+    return { vintage: index.pack && index.pack.vintage, sources, shards };
+  } catch (e) { return null; }
+}
+
+// The derivation run's inputs in `dir` (gc-YYYY-MM.json), oldest first.
+function readDerived(dir) {
+  if (!fs.existsSync(dir)) return [];
+  return fs.readdirSync(dir).filter((f) => /^gc-\d{4}-\d{2}\.json$/.test(f)).sort()
+    .map((f) => JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8')));
+}
+
 function build(core, content, inclusion) {
   // The Journal of Discourses build (tools/build-jod-talks.js): talk HTML,
   // snippets, page anchors and permalinks from Wikisource. Read before the
@@ -493,6 +619,7 @@ function build(core, content, inclusion) {
     return jod[talkId];
   };
   const jodCite = (talkId, citId) => jodTalk(talkId).cites[citId] || { sn: '' };
+  const before = readPack(OUT);
 
   // What each corpus is in this pack; a corpus it lacks is not built at all.
   const corpora = packDescriptor(PACK, {}, inclusion).corpora;
@@ -500,6 +627,20 @@ function build(core, content, inclusion) {
   const bookMap = buildBookMap(core);
   const slugs = Object.keys(bookMap);
   console.log(`Mapped ${slugs.length} standard-works books.`);
+
+  // Derived cites: every conference newer than the frozen base, from the
+  // derivation run's inputs. A conference the base covers stops the build.
+  let dbUpdated = '';
+  try { dbUpdated = String(Object.values(core.prepare('SELECT * FROM updated LIMIT 1').get() || {})[0] || ''); } catch (e) {}
+  const baseConferences = new Set(core.prepare("SELECT DISTINCT substr(Date, 1, 7) AS d FROM talk WHERE Corpus IN ('G', 'E')")
+    .all().map((r) => conferenceOf(r.d)));
+  const derived = derivedCites(readDerived(DERIVED), corpora.G,
+    { books: new Set(slugs), base: { updated: dbUpdated.slice(0, 10), conferences: baseConferences } });
+  if (derived.errors.length) {
+    for (const e of derived.errors) console.error(`ERROR: ${e}`);
+    process.exit(2);
+  }
+  console.log(`Derived conferences: ${derived.conferences.join(', ') || 'none'} (inputs in ${DERIVED}).`);
 
   // Inclusion rule verbatim: a corpus under it keeps only re-derived cites.
   const verbatim = Object.keys(corpora).filter((c) => corpora[c].inclusion === 'verbatim');
@@ -614,6 +755,17 @@ function build(core, content, inclusion) {
       }
     }
 
+    // This book's derived cites, after the base's.
+    const extra = derived.shards[slug];
+    if (extra) {
+      Object.assign(cites, extra.cites);
+      count += Object.keys(extra.cites).length;
+      for (const [ch, verses] of Object.entries(extra.index)) {
+        const chap = index[ch] = index[ch] || {};
+        for (const [v, ids] of Object.entries(verses)) chap[v] = (chap[v] || []).concat(ids);
+      }
+    }
+
     writeJSON(path.join(OUT, 'citations', `${slug}.json`), { book: slug, fullName: book.fullName, cites, index });
     totalCitations += count;
     bookCounts.push({ slug, fullName: book.fullName, bookId: book.bookId, citations: count });
@@ -621,10 +773,9 @@ function build(core, content, inclusion) {
     for (const k of Object.keys(talkHtmlCache)) delete talkHtmlCache[k];
   }
 
+  Object.assign(sources, derived.sources);
   writeJSON(path.join(OUT, 'sources.json'), sources);
   fs.copyFileSync(path.join(JOD, 'provenance.json'), path.join(OUT, 'jod-provenance.json'));
-  let dbUpdated = '';
-  try { dbUpdated = String(core.prepare('SELECT * FROM updated LIMIT 1').get() && Object.values(core.prepare('SELECT * FROM updated LIMIT 1').get())[0] || ''); } catch (e) {}
   let vintage = '';
   for (const s of Object.values(sources)) {
     if (CORPORA[s.c] && CORPORA[s.c].sourceType === 'General Conference') {
@@ -635,7 +786,7 @@ function build(core, content, inclusion) {
   const pack = packDescriptor(PACK, {
     vintage,
     base: { db: path.basename(CORE), updated: dbUpdated.slice(0, 10) },
-    derived: [],
+    derived: derived.conferences,
   }, inclusion);
   writeJSON(path.join(OUT, 'index.json'), {
     builtAt: new Date().toISOString(),
@@ -653,6 +804,11 @@ function build(core, content, inclusion) {
     console.log(`Inclusion verbatim, ${c}: kept ${cov.kept.size} of the ${cov.all.size} cites the all build holds (${pct}%).`);
   }
   console.log(`Output: ${OUT}`);
+
+  // The diff report for the refresh PR (also written to --report FILE).
+  const report = diffReport(tallyPack(before), tallyPack(readPack(OUT)), pack, before && before.vintage);
+  console.log(`\n${report}`);
+  if (REPORT) { fs.writeFileSync(REPORT, report + '\n'); console.log(`\nDiff report written to ${REPORT}`); }
 }
 
 // Reused by tools/rederive-js-snippets.js (which has no DBs but the shipped talk
@@ -661,6 +817,7 @@ function build(core, content, inclusion) {
 module.exports = {
   extractCitation, stpjsBodyPassage, decompressTalk, stripTags, decodeEntities, toChurchUrl, excerptChars,
   packDescriptor, parseInclusion, citeRecord, bundlesTalks, conferenceOf, PACK_CORPORA,
+  buildBookMap, derivedCites, tallyPack, diffReport,
 };
 
 // ---- main ----
