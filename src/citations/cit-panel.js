@@ -139,8 +139,8 @@
   // never intersect). Each row asks the talk source once, with a claim that
   // says where the row is now; the talk source's slot policy decides which
   // waiting fetch a free slot goes to. The observer and every row's state
-  // live with the list's own element (excerptState), so the view host's
-  // re-mount keeps them; a detached list's rows count as gone.
+  // are held by the observer's own callback, not by the list, so the view
+  // host's re-mount keeps them; a detached list's rows count as gone.
   const FILLER = 'the word was with god and all things were made by him in the beginning of the ' +
     'light that shines in darkness which comprehended it not there was a man sent from ';
   const FULL_RESERVE_CHARS = 600; // more than three lines at the widest panel
@@ -162,15 +162,12 @@
     return slot;
   }
 
-  const excerptState = new WeakMap(); // list element -> { body, observer, inBand, asked }
-
   function watchExcerpts(wrap, rowsByNode) {
     if (!rowsByNode.size) return;
     const body = wrap.closest('.btx-body');
     if (!body) return;
     const st = { body, rows: rowsByNode, inBand: new Set(), asked: new WeakSet(), observer: null, band: -1 };
     observeRows(st);
-    excerptState.set(wrap, st);
   }
 
   // (Re)build the observer at half the body's current height: the band is

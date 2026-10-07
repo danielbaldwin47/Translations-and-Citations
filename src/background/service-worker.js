@@ -77,15 +77,15 @@ async function handleListBibles(msg) {
   // The options page names the key it is connecting; with none, the stored key.
   const s = await SETTINGS.get();
   const key = msg.key || s.apiKey;
-  if (!msg.refresh) {
-    const cached = await CACHE.getBibles(key);
-    if (cached) {
-      if (msg.key) await FUMS.connected();
-      return { bibles: cached };
-    }
+  const cached = msg.refresh ? null : await CACHE.getBibles(key);
+  let result;
+  if (cached) {
+    result = { bibles: cached };
+  } else {
+    result = await API.listBibles(key);
+    if (!result.error && result.bibles && !result.partial) await CACHE.setBibles(result.bibles, key);
   }
-  const result = await API.listBibles(key);
-  if (!result.error && result.bibles && !result.partial) await CACHE.setBibles(result.bibles, key);
+  // A Connect that succeeded (the options page named its key), cached or not.
   if (!result.error && msg.key) await FUMS.connected();
   return result;
 }
