@@ -5,9 +5,10 @@
  *     viewer hash, the per-corpus reading destination, the pre-2013 General
  *     Conference URL repair, the footnote locator (synthetic talks, then one
  *     real talk per era from tools/fixtures/footnote-locator.json), the
- *     snippet fallback for finding a cite, and load()'s fetch policy (one
- *     fetch per talk per session, a bounded cache, per-host slots) over a
- *     stubbed fetch and pack;
+ *     snippet fallback for finding a cite, the fetch scheduler's slot policy
+ *     (slotPolicy, pure), and the fetch policy through load() and excerpt()
+ *     (one fetch per talk per session, a bounded cache, per-host slots, rows
+ *     out of view never fetched) over a stubbed fetch and pack;
  *   src/citations/talk-view.js   — the punctuation of BYU's inserted references.
  *
  * Run: node --test tools/test-talk-source.js
@@ -433,6 +434,112 @@ test('load: a request that fails gives its slot back', async () => {
   await Promise.all([open(41001), open(41002)]);
   const r = await open(41003);
   assert.strictEqual(r.html, '<div/>');
+  assert.strictEqual(log.peak['scriptures.byu.edu'], 2);
+});
+
+// The fetch scheduler's slot policy (spec #69 "Reader", excerpts): given the
+// free slots on one host and the requests waiting for them, which start now.
+// Each waiting request carries the rows that want it, each row on screen
+// ('visible'), in the look-ahead band ('ahead') or scrolled away ('gone'),
+// with `top` its distance in pixels from the top of the visible area.
+const slotPolicy = talkSource.slotPolicy;
+const waiting = (id, rows, urgent) => ({ id, urgent: !!urgent, rows });
+
+test('slotPolicy: on-screen rows go before look-ahead rows, nearest the top first', () => {
+  const picks = slotPolicy({ free: 6, waiting: [
+    waiting('below-band', [{ zone: 'ahead', top: 900 }]),
+    waiting('screen-low', [{ zone: 'visible', top: 500 }]),
+    waiting('above-band', [{ zone: 'ahead', top: -120 }]),
+    waiting('screen-high', [{ zone: 'visible', top: 40 }]),
+  ] });
+  assert.deepStrictEqual(picks, ['screen-high', 'screen-low', 'above-band', 'below-band']);
+});
+
+test('slotPolicy: only as many start as there are free slots', () => {
+  const rows = (top) => [{ zone: 'visible', top }];
+  const all = [waiting('a', rows(10)), waiting('b', rows(20)), waiting('c', rows(30))];
+  assert.deepStrictEqual(slotPolicy({ free: 2, waiting: all }), ['a', 'b']);
+  assert.deepStrictEqual(slotPolicy({ free: 0, waiting: all }), []);
+  assert.deepStrictEqual(slotPolicy({ free: -1, waiting: all }), []);
+});
+
+test('slotPolicy: a row scrolled past before its turn is not fetched unless it returns', () => {
+  const passed = waiting('passed', [{ zone: 'gone', top: -3000 }]);
+  const onScreen = waiting('here', [{ zone: 'visible', top: 0 }]);
+  assert.deepStrictEqual(slotPolicy({ free: 6, waiting: [passed, onScreen] }), ['here']);
+  assert.deepStrictEqual(slotPolicy({ free: 6, waiting: [passed] }), [], 'a free slot does not go to it either');
+  const returned = waiting('passed', [{ zone: 'ahead', top: -200 }]);
+  assert.deepStrictEqual(slotPolicy({ free: 6, waiting: [returned] }), ['passed']);
+});
+
+test('slotPolicy: a talk listed at several rows ranks by its best row', () => {
+  const picks = slotPolicy({ free: 1, waiting: [
+    waiting('ahead-only', [{ zone: 'ahead', top: 610 }]),
+    waiting('twice', [{ zone: 'gone', top: -4000 }, { zone: 'visible', top: 300 }]),
+  ] });
+  assert.deepStrictEqual(picks, ['twice']);
+});
+
+test('slotPolicy: a talk the reader opens goes first, rows or none', () => {
+  const picks = slotPolicy({ free: 2, waiting: [
+    waiting('row', [{ zone: 'visible', top: 0 }]),
+    waiting('opened', [], true),
+    waiting('opened-after-scrolling-past', [{ zone: 'gone', top: -900 }], true),
+  ] });
+  assert.deepStrictEqual(picks, ['opened', 'opened-after-scrolling-past']);
+});
+
+test('slotPolicy: equals keep their arrival order', () => {
+  const same = [{ zone: 'visible', top: 100 }];
+  assert.deepStrictEqual(slotPolicy({ free: 3, waiting: [waiting('x', same), waiting('y', same), waiting('z', same)] }),
+    ['x', 'y', 'z']);
+});
+
+// excerpt() through the same stubs: a row's claim says where it is when a
+// slot frees. (No DOMParser in Node, so the text itself is the browser's
+// check; these watch the requests.)
+const FETCHED_PACK = { ...PUBLIC, corpora: {
+  ...CORPORA, G: { ...CORPORA.G, excerpt: 'fetched' }, E: { ...CORPORA.E, excerpt: 'fetched' },
+} };
+const settle = () => new Promise((resolve) => setTimeout(resolve, 20));
+const rowAt = (zone, top = 0) => ({ zone, top, where() { return { zone: this.zone, top: this.top }; } });
+
+test('excerpt: a row scrolled away before its turn is never fetched, until it returns', async () => {
+  const log = stubReader(FETCHED_PACK);
+  const row = rowAt('gone', -2000);
+  const pending = talkSource.excerpt({ entry: { talkId: 60001, citId: 9 }, source: { c: 'E' } }, row);
+  await settle();
+  assert.strictEqual(log.requests.length, 0, 'no request for a row out of view');
+  row.zone = 'ahead';
+  talkSource.reschedule();
+  await pending;
+  assert.deepStrictEqual(log.requests.map((q) => q.url), ['https://scriptures.byu.edu/content/talks_ajax/60001']);
+});
+
+test('excerpt: opening the talk fetches a waiting excerpt\'s talk once, for both', async () => {
+  const log = stubReader(FETCHED_PACK);
+  const entry = { talkId: 60002, citId: 9 };
+  const pending = talkSource.excerpt({ entry, source: { c: 'E' } }, rowAt('gone', -2000));
+  await settle();
+  assert.strictEqual(log.requests.length, 0);
+  const r = await talkSource.load({ entry, source: { c: 'E' } });
+  await pending;
+  assert.ok(r.html);
+  assert.strictEqual(log.requests.length, 1, 'the reader and the row share one request');
+});
+
+test('excerpt: once the slots are busy, rows on screen go before the look-ahead band, nearest the top first', async () => {
+  const log = stubReader(FETCHED_PACK, { gate: tick });
+  const open = (talkId) => talkSource.load({ entry: { talkId, citId: 1 }, source: { c: 'E' } });
+  const ask = (talkId, row) => talkSource.excerpt({ entry: { talkId, citId: 1 }, source: { c: 'E' } }, row);
+  const busy = [open(60010), open(60011)]; // the reader holds both BYU slots
+  const rows = [
+    ask(60021, rowAt('ahead', 700)), ask(60022, rowAt('ahead', -650)),
+    ask(60023, rowAt('visible', 300)), ask(60024, rowAt('visible', 20)),
+  ];
+  await Promise.all(busy.concat(rows));
+  const order = log.requests.map((q) => Number(q.url.split('/').pop()));
+  assert.deepStrictEqual(order, [60010, 60011, 60024, 60023, 60022, 60021]);
   assert.strictEqual(log.peak['scriptures.byu.edu'], 2);
 });
 

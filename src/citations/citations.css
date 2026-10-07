@@ -366,6 +366,33 @@
   overflow: hidden;
 }
 
+/* A fetched excerpt (cit-panel.js "fetched excerpts"). Pending: the box holds
+   invisible filler of the excerpt's length, so it is as tall as the text will
+   be; transparent text hides the clamp's "…" too. The filler is painted as
+   one faint pulsing bar per line, each as long as that line will be. */
+#btx-root .btx-cit-pending { color: transparent; user-select: none; }
+#btx-root .btx-cit-filler {
+  background: color-mix(in srgb, var(--btx-fg) 9%, transparent);
+  border-radius: 3px;
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+  animation: btx-cit-pulse 1.6s ease-in-out infinite;
+}
+@keyframes btx-cit-pulse { 50% { opacity: 0.5; } }
+/* Arrival fades in once (cit-panel removes the class after FADE_MS). */
+#btx-root .btx-cit-arrive { animation: btx-cit-fadein 240ms ease-out; }
+@keyframes btx-cit-fadein { from { opacity: 0; } }
+/* A miss eases its reserve away (MISS_MS); cit-panel pins the start height. */
+#btx-root .btx-cit-snippet.btx-cit-miss {
+  height: 0 !important;
+  margin-top: 0;
+  padding-top: 0;
+  border-top-width: 0;
+  opacity: 0;
+  transition: height 160ms ease-out, margin 160ms ease-out, padding 160ms ease-out,
+    border-width 160ms ease-out, opacity 120ms;
+}
+
 /* ---- Source strips ----
  * Whichever <details> represents a source type (.btx-cit-cgroup in by verse,
  * .btx-cit-vgroup in by source — cit-panel puts btx-grp-* on both) carries a

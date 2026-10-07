@@ -34,8 +34,10 @@
  *
  * By verse fills group.children (verse -> source-type group -> rows); by
  * source hangs rows straight off one group per source type. Only groups are
- * collapsible; rows never are. `row.snippet` is display-ready (cleaned and
- * quoted); `row.entry` is the representative cite the talk reader opens.
+ * collapsible; rows never are. `row.snippet` is the row's excerpt source
+ * (excerptSource: display-ready text for a bundled corpus, a fetch marker
+ * for a fetched one); `row.entry` is the representative cite the talk
+ * reader opens and the excerpt is fetched for.
  *
  * IIFE -> __BTX.citVM (+ module.exports for the Node validator).
  */
@@ -63,8 +65,9 @@
       const label = entry && entry.sourceType;
       if (!label) continue;
       let t = types.find((x) => x.label === label);
-      if (!t) types.push(t = { key: HUE_KEYS[label] || slugOf(label), label, corpora: [] });
+      if (!t) types.push(t = { key: HUE_KEYS[label] || slugOf(label), label, corpora: [], fetched: [] });
       t.corpora.push(corpus);
+      if (entry.excerpt === 'fetched') t.fetched.push(corpus);
     }
     return types;
   }
@@ -296,6 +299,34 @@
     return /^[“"‘']/.test(text) ? text : `“${text}”`;
   }
 
+  // --- excerpt source ---------------------------------------------------------
+  // A row's excerpt, per the descriptor's `excerpt` for its corpus:
+  //   { text }               bundled: the cleaned, quoted snippet
+  //   { fetch: true, chars } fetched: the talk source fetches the paragraph
+  //                          when the row comes into view; `chars` is how many
+  //                          characters of filler hold its place (the cite's
+  //                          excerpt count plus the two quote marks), null to
+  //                          reserve the full three lines
+  //   null                   no excerpt (a bundled cite with no snippet)
+  const QUOTE_MARKS = 2;
+  function excerptSource(entry, fetched) {
+    if (fetched) {
+      const n = entry.excerptChars;
+      return { fetch: true, chars: Number.isFinite(n) && n > 0 ? n + QUOTE_MARKS : null };
+    }
+    const text = quoteSnippet(cleanSnippet(entry.snippet));
+    return text ? { text } : null;
+  }
+
+  // A fetched paragraph's text as the row shows it: whitespace collapsed,
+  // quoted like a snippet. The build counted the same text (excerpt count),
+  // so nothing else is cut or cleaned here; the three-line clamp is CSS.
+  // null for blank text (the row then keeps its reference line only).
+  function excerptText(raw) {
+    const t = String(raw == null ? '' : raw).replace(/\s+/g, ' ').trim();
+    return t ? quoteSnippet(t) : null;
+  }
+
   // --- ordering --------------------------------------------------------------
 
   // Newest-first by source date ("YYYY-MM"); undated entries sort last.
@@ -368,14 +399,18 @@
   // --- descriptors ---------------------------------------------------------
 
   // rangeVerses: the verses to badge, or null for no badge.
-  function rowDesc(talk, uidPrefix, i, rangeVerses) {
+  // The filter haystack holds snippet text only for a bundled corpus: a
+  // fetched excerpt depends on what has scrolled into view, and filtering
+  // must not.
+  function rowDesc(talk, type, uidPrefix, i, rangeVerses) {
     const entry = talk.entry;
     const s = entry.source || {};
     const where = shortLabel(s);
     const speaker = s.sp || 'Unknown speaker';
     const title = titleOf(s);
-    const snippet = cleanSnippet(entry.snippet);
-    const haystack = [s.sp, title, s.lbl, where].concat(talk.cites.map((c) => cleanSnippet(c.snippet)));
+    const fetched = type.fetched.includes(corpusOf(entry));
+    const haystack = [s.sp, title, s.lbl, where]
+      .concat(fetched ? [] : talk.cites.map((c) => cleanSnippet(c.snippet)));
     return {
       uid: `${uidPrefix}/${i}:${entry.citId}`,
       citId: entry.citId,
@@ -383,7 +418,7 @@
       speaker,
       rangeLabel: rangeVerses ? verseLabel(rangeVerses) : null,
       sub: [title, where].filter(Boolean).join(' · ') || null,
-      snippet: quoteSnippet(snippet),
+      snippet: excerptSource(entry, fetched),
       a11yLabel: [speaker, title, where, rangeVerses && spokenVerses(rangeVerses)].filter(Boolean).join(', '),
       search: haystack.filter(Boolean).join(' ').toLowerCase(),
       entry,
@@ -434,7 +469,7 @@
           count: talks.length,
           countClass: `btx-grp-${t.key}`,
           open: true,
-          rows: talks.map((talk, i) => rowDesc(talk, childUid, i, talk.verses.length > 1 ? talk.verses : null)),
+          rows: talks.map((talk, i) => rowDesc(talk, t, childUid, i, talk.verses.length > 1 ? talk.verses : null)),
         }));
       }
 
@@ -458,7 +493,7 @@
       groups.push(groupDesc({
         uid, kind: 'sourceType', key: t.key, label: t.label,
         count: talks.length, countClass: `btx-grp-${t.key}`,
-        rows: talks.map((talk, i) => rowDesc(talk, uid, i, talk.verses)),
+        rows: talks.map((talk, i) => rowDesc(talk, t, uid, i, talk.verses)),
       }));
     }
     return groups;
@@ -658,7 +693,7 @@
   }
 
   const VM = {
-    formatVerses, verseLabel, anchorVerses, cleanSnippet, quoteSnippet, verseUid,
+    formatVerses, verseLabel, anchorVerses, cleanSnippet, quoteSnippet, excerptText, verseUid,
     buildView, talkHeading,
     initialState, filterPlan, applyPlan, collapseAllPlan, collapseLabel, allRows,
   };

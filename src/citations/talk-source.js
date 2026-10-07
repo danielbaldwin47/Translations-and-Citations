@@ -6,17 +6,27 @@
  *     destination({ entry, source }) -> { href, label } | null
  *
  * "give me displayable HTML for this cite, plus how to find its target once
- * that HTML is rendered, where to read it on the web, and whose text it is".
- * Corpus differences (Church fetch vs BYU fetch vs bundled gzip, paragraph
- * anchor vs citation span vs STPJS body passage, Church page vs BYU viewer)
- * are decided by the corpus plan; talk-view renders and scrolls, and decides
- * nothing per corpus.
+ * that HTML is rendered, where to read it on the web, and whose text it is" —
+ * and the same for a citation row's excerpt:
+ *
+ *     excerpt({ entry, source }, claim) -> Promise<paragraph text | null>
+ *     reschedule()   rows moved: hand free request slots out again
+ *
+ * excerpt() is the text of the paragraph load()'s findTarget lands on, from
+ * the same fetch and cache; `claim` is the row asking ({ where() -> { zone,
+ * top } }, see slotPolicy). Corpus differences (Church fetch vs BYU fetch vs
+ * bundled gzip, paragraph anchor vs citation span vs STPJS body passage,
+ * Church page vs BYU viewer) are decided by the corpus plan; talk-view and
+ * cit-panel render, and decide nothing per corpus.
  *
  * Fetch policy (FETCH_POLICY, this module's alone): per-host request slots
- * (6 to the Church site, 2 to BYU), one session-only talk cache shared by
- * every view of a talk (bounded LRU, in memory, never persisted), and the
- * 15-second timeout. No prefetch. Row excerpts (#76) are to share the cache
- * and the slots through cachedTalk and request.
+ * (6 to the Church site, 2 to BYU; a request holds its slot until it ends,
+ * so no host ever has more in flight), one session-only talk cache shared by
+ * the reader and row excerpts (bounded LRU, in memory, never persisted), and
+ * the 15-second timeout. A talk is fetched only for the reader or for an
+ * excerpt row in view. A free slot goes where slotPolicy (pure) says: the
+ * reader's open first, then rows on screen, then the look-ahead band,
+ * nearest the top; a row scrolled away waits until it returns.
  *
  * Descriptor contract: the corpus plan is a pure function of the pack
  * descriptor (citData.loadPack().descriptor, written by
@@ -35,7 +45,7 @@
  * (snippetKey / snippetMatches).
  *
  * The DOM-free half (corpusPlan, readingDestination, the BYU URL builders,
- * the pre-2013 URL repair, locateParagraph, snippetKey, snippetMatches) is
+ * the pre-2013 URL repair, locateParagraph, slotPolicy, snippetKey, snippetMatches) is
  * exported for Node, and load() runs there over a stubbed fetch and citData:
  * `node --test tools/test-talk-source.js`.
  *
@@ -195,27 +205,91 @@
     return out;
   }
 
+  // The slot policy (pure): which waiting requests start now on one host.
+  //   slotPolicy({ free, waiting: [{ id, urgent, rows: [{ zone, top }] }] }) -> [id]
+  // `free` is the host's slots not in flight; `waiting` is in arrival order.
+  // A request is urgent when the reader opened its talk; otherwise it serves
+  // excerpt rows, each 'visible' (on screen), 'ahead' (within the look-ahead
+  // band) or 'gone' (scrolled away, or its list is no longer shown), `top`
+  // its distance in pixels from the top of the visible area. Urgent requests
+  // go first, in arrival order; then requests with a row on screen, then
+  // those with a row in the band, each nearest the top first (a talk at
+  // several rows ranks by its best one). A request whose rows are all gone
+  // waits, so a row scrolled past before its turn costs nothing unless it
+  // returns.
+  const ZONE_RANK = { visible: 0, ahead: 1 };
+  function slotPolicy({ free, waiting }) {
+    if (!(free > 0)) return [];
+    const ranked = [];
+    (waiting || []).forEach((w, order) => {
+      let best = null;
+      for (const r of w.rows || []) {
+        if (!(r.zone in ZONE_RANK)) continue;
+        const rank = [ZONE_RANK[r.zone], Math.abs(Number(r.top) || 0)];
+        if (!best || rank[0] < best[0] || (rank[0] === best[0] && rank[1] < best[1])) best = rank;
+      }
+      if (w.urgent) ranked.push({ id: w.id, key: [-1, 0], order });
+      else if (best) ranked.push({ id: w.id, key: best, order });
+    });
+    ranked.sort((a, b) => a.key[0] - b.key[0] || a.key[1] - b.key[1] || a.order - b.order);
+    return ranked.slice(0, free).map((r) => r.id);
+  }
+
   // Per-host request slots (FETCH_POLICY.slots; a host not listed gets one).
-  // A request waits its turn in arrival order; a finished one hands its slot
-  // straight to the next waiter.
-  const slotState = new Map(); // host -> { busy, waiting: [wake] }
-  async function withSlot(host, task) {
-    let s = slotState.get(host);
-    if (!s) slotState.set(host, (s = { busy: 0, waiting: [] }));
-    if (s.busy >= (FETCH_POLICY.slots[host] || 1)) await new Promise((wake) => s.waiting.push(wake));
-    else s.busy++;
-    try { return await task(); }
-    finally {
-      const next = s.waiting.shift();
-      if (next) next(); else s.busy--;
+  // A request holds its slot while in flight, so a host never has more in
+  // flight than its slots (spec A16) — a request whose rows have all left
+  // view still finishes, into the cache, and its slot frees when it does.
+  // Which waiting request a free slot goes to is slotPolicy's call, re-asked
+  // whenever a request ends or rows move (reschedule).
+  const slotState = new Map(); // host -> { busy, waiting: [{ id, demand, start }] }
+  let requestSeq = 0;
+
+  // A talk's demand: who wants its fetch. `urgent` once the reader opens
+  // it; `claims` are the excerpt rows that want it, each { where() -> { zone,
+  // top } }, read at decision time. A request with no demand is urgent.
+  const rowsOf = (demand) => (demand ? Array.from(demand.claims, (c) => c.where()) : []);
+
+  function pump() {
+    for (const [host, s] of slotState) {
+      if (!s.waiting.length) continue;
+      const free = (FETCH_POLICY.slots[host] || 1) - s.busy;
+      const ids = slotPolicy({
+        free,
+        waiting: s.waiting.map((w) => ({ id: w.id, urgent: !w.demand || w.demand.urgent, rows: rowsOf(w.demand) })),
+      });
+      for (const id of ids) {
+        const i = s.waiting.findIndex((w) => w.id === id);
+        const [w] = s.waiting.splice(i, 1);
+        s.busy++;
+        w.start();
+      }
     }
   }
+
+  function withSlot(host, demand, task) {
+    let s = slotState.get(host);
+    if (!s) slotState.set(host, (s = { busy: 0, waiting: [] }));
+    return new Promise((resolve) => {
+      s.waiting.push({
+        id: ++requestSeq,
+        demand,
+        start: () => {
+          task().then(resolve, () => resolve(null)).finally(() => { s.busy--; pump(); });
+        },
+      });
+      pump();
+    });
+  }
+
+  // Public: rows moved (in or out of view, or the list scrolled); hand any
+  // free slots out again.
+  function reschedule() { pump(); }
 
   // One GET under its host's slot, held until the body has arrived (the body
   // can still fail or time out after the headers). Never throws:
   // -> { ok, url, html }; ok false and url null when the request itself failed.
-  function request(url) {
-    return withSlot(new URL(url).hostname, async () => {
+  function request(url, demand) {
+    return withSlot(new URL(url).hostname, demand, async () => {
       let res;
       try { res = await liveFetch(url); } catch (e) { return { ok: false, url: null, html: null }; }
       let html = null;
@@ -227,9 +301,9 @@
   // Fetch a live church talk, recovering from the pre-2013 session-less redirect.
   // Returns { html, url }: html is the talk's HTML (null if it couldn't be loaded),
   // url is the effective talk URL (resolved when a redirect was repaired). Never throws.
-  async function fetchLiveTalk(originalUrl) {
+  async function fetchLiveTalk(originalUrl, demand) {
     const target = resolvedUrlCache.get(originalUrl) || originalUrl;
-    const r = await request(target);
+    const r = await request(target, demand);
     if (!r.ok) return { html: null, url: r.url || originalUrl };
 
     // Common case (post-2013, or an already-resolved cache hit): not bounced.
@@ -249,7 +323,7 @@
     } catch (e) { /* fall through */ }
     if (!realUrl) return { html: null, url: r.url }; // couldn't resolve -> error state
 
-    const r2 = await request(realUrl);
+    const r2 = await request(realUrl, demand);
     if (!r2.ok) return { html: null, url: r2.url || realUrl };
     if (r2.html != null) resolvedUrlCache.set(originalUrl, realUrl);
     return { html: r2.html, url: r2.url };
@@ -258,11 +332,11 @@
   /* ------------------------------------------------------------ fetch policy */
 
   // The session talk cache: one fetch per talk per session, shared by every
-  // view of the talk (the reader now, row excerpts later). It holds the
-  // promise, so views that ask at once share one request; it keeps only
-  // successes (a failure is dropped, so Try again asks the network again);
-  // it is bounded, evicting the least recently used talk; and it lives in
-  // this module's memory only, never in storage, so a reload empties it.
+  // view of the talk (the reader and row excerpts). It holds the promise, so
+  // views that ask at once share one request; it keeps only successes (a
+  // failure is dropped, so Try again asks the network again); it is bounded,
+  // evicting the least recently used talk; and it lives in this module's
+  // memory only, never in storage, so a reload empties it.
   const TALK_CACHE_MAX = FETCH_POLICY.talkCache;
 
   function lruCache(max) {
@@ -287,14 +361,27 @@
 
   const talkCache = lruCache(TALK_CACHE_MAX);
 
-  // `fetcher()` -> Promise<{ html, url }> (never rejects), once per talk.
-  function cachedTalk(talkId, fetcher) {
+  // `fetcher(demand)` -> Promise<{ html, url }> (never rejects), once per
+  // talk. `claim` is an excerpt row asking (see rowsOf); no claim is the
+  // reader asking, which makes a fetch still waiting for a slot urgent.
+  const demands = new Map(); // talk key -> its demand, until its fetch settles
+  function cachedTalk(talkId, fetcher, claim) {
     const key = String(talkId);
     let p = talkCache.get(key);
     if (!p) {
-      p = fetcher();
+      const demand = { urgent: false, claims: new Set() };
+      demands.set(key, demand);
+      p = fetcher(demand);
       talkCache.set(key, p);
-      p.then((r) => { if ((!r || r.html == null) && talkCache.peek(key) === p) talkCache.delete(key); });
+      p.then((r) => {
+        if (demands.get(key) === demand) demands.delete(key);
+        if ((!r || r.html == null) && talkCache.peek(key) === p) talkCache.delete(key);
+      });
+    }
+    const demand = demands.get(key);
+    if (demand) {
+      if (claim) demand.claims.add(claim); else demand.urgent = true;
+      pump();
     }
     return p;
   }
@@ -305,9 +392,9 @@
   // Fetch an early-conference talk's fragment from BYU -> its HTML, or null.
   // Never throws. The fragment wraps the talk's div.gcera in viewer chrome;
   // talk-view renders only the content root, so the chrome never shows.
-  async function fetchByuTalk(talkId) {
+  async function fetchByuTalk(talkId, demand) {
     const url = byuTalkUrl(talkId);
-    return url ? (await request(url)).html : null;
+    return url ? (await request(url, demand)).html : null;
   }
 
   /* --------------------------------------------------------- footnote locator */
@@ -571,23 +658,28 @@
   //   credit       a byline line naming where fetched text came from, or null
   // A live talk whose fetch failed has no html: it never falls back to the
   // pack, whose talk files are only the bundled corpora's.
+  // A talk's HTML per its plan, through the session cache for a fetched
+  // one -> { html, url }; html null when it could not be had. `claim`: as
+  // cachedTalk's (none for the reader).
+  async function talkHtml(plan, entry, src, claim) {
+    if (plan.text === 'live-church') {
+      const r = await cachedTalk(entry.talkId, (d) => fetchLiveTalk(src.url, d), claim);
+      return { html: r.html, url: r.url || src.url || null };
+    }
+    if (plan.text === 'live-byu') {
+      const r = await cachedTalk(entry.talkId, async (d) => ({ html: await fetchByuTalk(entry.talkId, d), url: null }), claim);
+      return { html: r.html, url: src.url || null };
+    }
+    let html = null;
+    try { html = await citData().loadTalkHtml(entry.talkId); } catch (e) { html = null; }
+    return { html, url: src.url || null };
+  }
+
   async function load({ entry, source }) {
     const src = source || {};
     const plan = await planFor(src);
     if (!plan) return { html: null, url: null, destination: null, credit: null, findTarget: () => null };
-    let html = null;
-    let url = src.url || null;
-
-    if (plan.text === 'live-church') {
-      const r = await cachedTalk(entry.talkId, () => fetchLiveTalk(src.url));
-      html = r.html;
-      url = r.url || src.url;
-    } else if (plan.text === 'live-byu') {
-      html = (await cachedTalk(entry.talkId, async () => ({ html: await fetchByuTalk(entry.talkId), url: null }))).html;
-    } else {
-      try { html = await citData().loadTalkHtml(entry.talkId); }
-      catch (e) { html = null; }
-    }
+    const { html, url } = await talkHtml(plan, entry, src);
     const live = html != null && plan.text !== 'bundled';
 
     return {
@@ -599,8 +691,44 @@
     };
   }
 
+  // BYU's insertions into a talk's prose (its citation-span labels and the
+  // footnotes it inlines into modern talks); the publishing site's paragraph
+  // has none, and the build's excerpt count leaves them out too
+  // (tools/build-citation-data.js BYU_INSERTION).
+  const BYU_INSERTIONS = 'span[class^="ccontainer"], span.citation, sup.noteMarker';
+  const EXCERPT_BLOCK = 'p, li, blockquote, h1, h2, h3, h4, h5, h6';
+
+  // The text of the paragraph a target sits in, as the build counted it:
+  // BYU's insertions dropped, unless nothing else is left (a paragraph that is
+  // only a reference).
+  function paragraphText(target) {
+    const block = target.matches(EXCERPT_BLOCK) ? target : target.closest('p, div') || target;
+    const copy = block.cloneNode(true);
+    for (const n of copy.querySelectorAll(BYU_INSERTIONS)) n.remove();
+    const squashed = (s) => String(s || '').replace(/\s+/g, ' ').trim();
+    return squashed(copy.textContent) || squashed(block.textContent) || null;
+  }
+
+  // Public: the text of the paragraph the reader would scroll to for this
+  // cite -> Promise<string | null> (null: no plan, the fetch failed, or the
+  // target is missing). It shares the reader's fetch, cache and findTarget.
+  // `claim` ({ where() -> { zone, top } }) is the row asking: its fetch
+  // waits for a slot under slotPolicy, and never starts while every row
+  // asking is gone. Call reschedule() when rows move.
+  async function excerpt({ entry, source }, claim) {
+    const src = source || {};
+    const plan = await planFor(src);
+    if (!plan) return null;
+    const { html } = await talkHtml(plan, entry, src, claim);
+    if (html == null) return null;
+    let doc;
+    try { doc = new DOMParser().parseFromString(html, 'text/html'); } catch (e) { return null; }
+    const target = findTarget(doc, { plan, entry, live: plan.text !== 'bundled', html });
+    return target ? paragraphText(target) : null;
+  }
+
   const API = {
-    load, destination, corpusPlan, fullTalkUrl, pickSessionUrl, bouncedToConference, lastSlug,
+    load, destination, excerpt, reschedule, slotPolicy, corpusPlan, fullTalkUrl, pickSessionUrl, bouncedToConference, lastSlug,
     snippetKey, snippetMatches, locateParagraph, byuTalkUrl, byuViewerUrl, readingDestination, FETCH_POLICY,
   };
 
