@@ -45,6 +45,12 @@
  * study helps) and chapters the book lacks are ignored. The same reference
  * twice at one anchor is one cite. Body prose is not read for references.
  * The pure core is exported for tools/validate-derivation.js.
+ *
+ * The page reading is the reader's (src/citations/talk-source.js, required
+ * here): its tag scanner (scanTalk), entity decoding, verse-id parsing and
+ * scripture-link parsing (scriptureLink). Where a link's chapter span covers
+ * more than its chapter, the derivation applies linkChapters' 'derive' rule,
+ * the footnote locator its 'locate' rule; talk-source states both together.
  */
 'use strict';
 
@@ -54,32 +60,9 @@ const BOOKS = require('../src/shared/books.js');
 
 // ---- talk HTML ----
 
-const VOID_TAGS = new Set(['area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 'link', 'meta', 'source', 'track', 'wbr']);
-const RAW_TEXT = /<(script|style|template|noscript|textarea|title)\b[^>]*>[\s\S]*?<\/\1\s*>|<!--[\s\S]*?-->/gi;
-const TAG = /<(\/?)([a-zA-Z][\w:-]*)((?:[^>"']|"[^"]*"|'[^']*')*)>/g;
-const ATTR = /([^\s"'>\/=]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'>]+)))?/g;
-const BODY_PARAGRAPH = /^(?:p|h[1-6])$/;
-
-const ENTITIES = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ', ndash: '–', mdash: '—', rsquo: '’', lsquo: '‘', ldquo: '“', rdquo: '”', hellip: '…' };
-function decodeEntities(s) {
-  return String(s).replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (m, e) => {
-    if (e[0] === '#') {
-      const n = e[1] === 'x' || e[1] === 'X' ? parseInt(e.slice(2), 16) : parseInt(e.slice(1), 10);
-      return Number.isFinite(n) ? String.fromCodePoint(n) : m;
-    }
-    return ENTITIES[e.toLowerCase()] || m;
-  });
-}
-function attrsOf(s) {
-  const out = {};
-  ATTR.lastIndex = 0;
-  for (let m; (m = ATTR.exec(s));) out[m[1].toLowerCase()] = decodeEntities(m[2] != null ? m[2] : m[3] != null ? m[3] : m[4] || '');
-  return out;
-}
-const hasClass = (attrs, name) => String(attrs.class || '').split(/\s+/).includes(name);
-// An element's text as the reader's textContent shows it: tags removed,
-// entities decoded, whitespace runs collapsed.
-const textOf = (html) => decodeEntities(String(html).replace(/<[^>]*>/g, '')).replace(/\s+/g, ' ').trim();
+// The reader's talk-page reading, shared (talk-source's "HTML scanning").
+const { decodeEntities, attrsOf, textOf, withoutRawText, scanTalk, scriptureLink, linkChapters } =
+  require('../src/citations/talk-source.js');
 
 // The content endpoint's JSON -> one talk page as HTML: the body, then each
 // footnote as <li id="noteN"> (the shape a saved page has).
@@ -117,7 +100,7 @@ function speakerOf(byline) {
 // talk record, or null when the page is not a talk of `conference` ('YYYY-MM').
 //   { id, url, sp, ti, d, lbl, rev, cites:[{ book, chapter, v, a, ec }] }
 function talkRecord(html, conference, ctx) {
-  const page = String(html || '').replace(RAW_TEXT, '');
+  const page = withoutRawText(html);
   const art = /<article\b((?:[^>"']|"[^"]*"|'[^']*')*)>/i.exec(page);
   const attrs = art ? attrsOf(art[1]) : {};
   const [y, mo] = String(conference).split('-');
@@ -139,81 +122,20 @@ function talkRecord(html, conference, ctx) {
   };
 }
 
-// One pass over a talk page: body paragraphs (text, id), each note's first
-// marker paragraph, and every scripture link with where it sits.
+// One pass over a talk page (talk-source's scanTalk): body paragraphs' text
+// by id, each note's first marker paragraph, every scripture link with where
+// it sits, and each footnote's text.
 function scan(html) {
-  const text = String(html || '').replace(RAW_TEXT, '');
-  const stack = [];
-  const paras = {};          // id -> { start, end } of its inner HTML
-  const markerAt = {};       // note id -> paragraph id of its first body marker
-  const links = [];          // { href, label, para?, note? }
-  const notes = {};          // note id -> { start, end } of its inner HTML
-  let link = null;
-  let last = 0;
-  const innermost = (key) => {
-    for (let i = stack.length - 1; i >= 0; i--) if (stack[i][key]) return stack[i][key];
-    return null;
-  };
-  TAG.lastIndex = 0;
-  for (let m; (m = TAG.exec(text));) {
-    if (link) link.label += text.slice(last, m.index);
-    last = TAG.lastIndex;
-    const tag = m[2].toLowerCase();
-    if (m[1]) {
-      if (tag === 'a' && link) { links.push(link); link = null; }
-      for (let i = stack.length - 1; i >= 0; i--) {
-        if (stack[i].tag !== tag) continue;
-        for (const f of stack.slice(i)) {
-          if (f.para) paras[f.para].end = m.index;
-          if (f.ownNote) notes[f.ownNote].end = m.index;
-        }
-        stack.length = i;
-        break;
-      }
-      continue;
-    }
-    const attrs = attrsOf(m[3]);
-    const id = attrs.id || '';
-    const frame = { tag };
-    if (BODY_PARAGRAPH.test(tag) && 'data-aid' in attrs && id && !innermost('note')) {
-      frame.para = id;
-      paras[id] = { start: TAG.lastIndex, end: text.length };
-    }
-    if (tag === 'li' && /^note/.test(id)) {
-      frame.note = frame.ownNote = id;
-      notes[id] = { start: TAG.lastIndex, end: text.length };
-    }
-    if (tag === 'a' && hasClass(attrs, 'note-ref')) {
-      const noteId = attrs['data-scroll-id'] || (/#(note[^#]*)$/.exec(attrs.href || '') || [])[1];
-      const para = innermost('para');
-      if (noteId && para && !innermost('note') && !markerAt[noteId]) markerAt[noteId] = para;
-    }
-    if (tag === 'a' && hasClass(attrs, 'scripture-ref')) {
-      if (link) links.push(link);
-      link = { href: attrs.href || '', label: '', note: innermost('note'), para: innermost('para') };
-    }
-    if (!VOID_TAGS.has(tag) && !/\/\s*$/.test(m[3])) stack.push(frame);
-  }
-  if (link) links.push(link);
+  const { text, paras, notes, markerAt, links } = scanTalk(html);
   const paraText = {};
   for (const [id, p] of Object.entries(paras)) paraText[id] = textOf(text.slice(p.start, p.end));
   const noteText = {};
   for (const [id, n] of Object.entries(notes)) noteText[id] = textOf(text.slice(n.start, n.end).replace(/<[^>]*>/g, ' '));
-  return { paraText, markerAt, links, noteText };
+  const paraOfNote = {};
+  for (const [id, at] of Object.entries(markerAt)) paraOfNote[id] = at.para;
+  return { paraText, markerAt: paraOfNote, links, noteText };
 }
 
-// '1-3,14' / 'p1-p3,p14' -> sorted verse numbers.
-function verseList(s) {
-  const out = new Set();
-  for (const part of String(s == null ? '' : s).split(',')) {
-    const m = /^\s*p?(\d+)(?:\s*[-–]\s*p?(\d+))?\s*$/.exec(part);
-    if (!m) continue;
-    const from = Number(m[1]);
-    const to = m[2] ? Number(m[2]) : from;
-    for (let n = from; n <= to && n - from < 500; n++) out.add(n);
-  }
-  return [...out].sort((a, b) => a - b);
-}
 // Sorted verse numbers -> the shard's form, '1-3,14'.
 function verseForm(list) {
   const parts = [];
@@ -228,21 +150,16 @@ function verseForm(list) {
 
 // A scripture link -> [{ book, chapter, verses:[...] | null (whole chapter) }]
 // for a book the pack carries, else [] (the Joseph Smith Translation, the
-// Topical Guide). A chapter link whose label ends in a chapter span
-// ("3 Nephi 11–26", a bare "6–9") is every chapter of the span.
+// Topical Guide). A chapter link whose label ends in a chapter span starting
+// at its chapter ("3 Nephi 11–26") is every chapter of the span
+// (linkChapters' 'derive' rule).
 function linkRefs(href, label) {
-  let u;
-  try { u = new URL(href, 'https://www.churchofjesuschrist.org'); } catch (e) { return []; }
-  const m = /^\/study\/scriptures\/([^/]+)\/([^/]+)\/(\d+)\/?$/.exec(u.pathname);
-  if (!m || !BOOKS.isKnownBook(m[1], m[2])) return [];
-  const chapter = Number(m[3]);
-  const id = u.searchParams.get('id');
-  if (id) return [{ book: m[2], chapter, verses: verseList(id) }];
-  const span = /(?:^|[^:\d])(\d+)\s*[–—-]\s*(\d+)\s*$/.exec(textOf(label || ''));
-  const [from, to] = span && Number(span[1]) === chapter && Number(span[2]) > chapter && Number(span[2]) - chapter < 200
-    ? [chapter, Number(span[2])] : [chapter, chapter];
+  const t = scriptureLink(href, label);
+  if (!t || !BOOKS.isKnownBook(t.volume, t.book)) return [];
+  if (t.verses) return [{ book: t.book, chapter: t.chapter, verses: t.verses }];
+  const [from, to] = linkChapters(t, 'derive');
   const out = [];
-  for (let c = from; c <= to; c++) out.push({ book: m[2], chapter: c, verses: null });
+  for (let c = from; c <= to; c++) out.push({ book: t.book, chapter: c, verses: null });
   return out;
 }
 

@@ -64,6 +64,7 @@ function words(text) {
 
 // ---- scripture inputs ----
 const BOOKS = require('../src/shared/books.js');
+const { decodeEntities } = require('../src/citations/talk-source.js');
 const OT_NT = Object.keys(BOOKS.LDS_TO_USFM); // canonical KJV order
 const BOM = ['1-ne', '2-ne', 'jacob', 'enos', 'jarom', 'omni', 'w-of-m', 'mosiah', 'alma', 'hel', '3-ne', '4-ne', 'morm', 'ether', 'moro'];
 
@@ -299,18 +300,6 @@ function dropInsertions(html) {
     i = end;
   }
   return out;
-}
-
-const ENTITIES = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ', mdash: '—', ndash: '–', rsquo: '’', lsquo: '‘', ldquo: '“', rdquo: '”', hellip: '…' };
-function decodeEntities(s) {
-  return s.replace(/&(#x?[0-9a-f]+|[a-z]+);/gi, (m, code) => {
-    if (code[0] === '#') {
-      const n = code[1] === 'x' || code[1] === 'X' ? parseInt(code.slice(2), 16) : parseInt(code.slice(1), 10);
-      return Number.isFinite(n) ? String.fromCodePoint(n) : m;
-    }
-    const k = code.toLowerCase();
-    return Object.prototype.hasOwnProperty.call(ENTITIES, k) ? ENTITIES[k] : ' ';
-  });
 }
 
 // ---- matching ----

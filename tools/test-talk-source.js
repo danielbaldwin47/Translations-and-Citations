@@ -702,6 +702,25 @@ test('locateParagraph: a whole-chapter cite matches a chapter link or a chapter-
   assert.strictEqual(locate(versey, { book: 'alma', chapter: 4, verses: '1-20' }), null);
 });
 
+// The shared link parser and the two span rules (the locator's and the
+// derivation run's), side by side.
+test('linkChapters: the locator takes any span holding the chapter; the derivation only one starting there', () => {
+  const at = (path, label) => talkSource.scriptureLink(`${SCRIPTURE}/${path}`, label);
+  const from31 = at('bofm/2-ne/31?lang=eng', '2 Nephi 31–32');
+  assert.deepStrictEqual(talkSource.linkChapters(from31, 'locate'), [31, 32]);
+  assert.deepStrictEqual(talkSource.linkChapters(from31, 'derive'), [31, 32]);
+  const from32 = at('bofm/2-ne/32?lang=eng', '2 Nephi 31–32');
+  assert.deepStrictEqual(talkSource.linkChapters(from32, 'locate'), [31, 32], 'recall: the span still holds 32');
+  assert.deepStrictEqual(talkSource.linkChapters(from32, 'derive'), [32, 32], 'precision: no cite for 31 from a link to 32');
+  const versed = at('bofm/alma/5?lang=eng&id=p3-p4#p3', 'Alma 5:3–4');
+  assert.deepStrictEqual([versed.verses, versed.span], [[3, 4], null], 'a verse id is not a chapter span');
+  assert.strictEqual(at('jst/jst-john/1?lang=eng&id=p1#p1', 'JST, John 1:1'), null, 'the JST is no one\'s link');
+});
+
+test('decodeEntities: numeric references in full, known names, an unknown name as written', () => {
+  assert.strictEqual(talkSource.decodeEntities('D&amp;C &#8217;&#x2014; &rsquo;&eacute; &c;'), 'D&C ’— ’é &c;');
+});
+
 test('locateParagraph: Joseph Smith Translation links never match', () => {
   const html = talk(
     [para('p1', `The Word.${marker(20)}`)],

@@ -87,6 +87,9 @@ const fs = require('fs');
 const path = require('path');
 const zlib = require('node:zlib');
 const BOOKS = require('../src/shared/books.js'); // { LDS_TO_USFM, BIBLE_NAMES, ... }
+// The reader's entity decoding (talk-source's "HTML scanning") and `v` parser.
+const { decodeEntities } = require('../src/citations/talk-source.js');
+const { citedVerses } = require('../src/citations/cit-data.js');
 
 // ---- args ----
 function arg(name, def) {
@@ -186,16 +189,6 @@ function conferenceOf(d) {
   return `${m[1]}-${Number(m[2]) <= 6 ? '04' : '10'}`;
 }
 
-// '7,18-19' -> [7, 18, 19]
-function versesOf(v) {
-  const out = [];
-  for (const part of String(v).split(',')) {
-    const m = /^\s*(\d+)(?:-(\d+))?\s*$/.exec(part);
-    if (m) for (let n = Number(m[1]); n <= Number(m[2] || m[1]); n++) out.push(n);
-  }
-  return out;
-}
-
 // Derived cites (GLOSSARY.md "Derived cite"): the derivation run's inputs
 // (tools/derive-conference.js, source-data/derived/gc-YYYY-MM.json) -> what
 // they add to the pack. Their provenance is the Church's talk page; a cite is
@@ -224,7 +217,7 @@ function derivedCites(inputs, corpusEntry, opts) {
         const shard = out.shards[c.book] = out.shards[c.book] || { cites: {}, index: {} };
         shard.cites[c.id] = citeRecord(corpusEntry, { t: talk.id, v: c.v, a: c.a, ec: c.ec });
         const chap = shard.index[c.chapter] = shard.index[c.chapter] || {};
-        for (const v of versesOf(c.v)) (chap[v] = chap[v] || []).push(c.id);
+        for (const v of citedVerses(c.v)) (chap[v] = chap[v] || []).push(c.id);
         out.sources[talk.id] = { c: 'G', sp: talk.sp, ti: talk.ti, d: talk.d, lbl: talk.lbl, url: talk.url };
       }
     }
@@ -282,17 +275,6 @@ function diffReport(before, after, descriptor, vintageBefore) {
 const ALL_VOLUMES = new Set([1, 2, 3, 4, 5]);
 
 // ---- helpers ----
-const ENTITIES = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ', eacute: 'é', egrave: 'è', uuml: 'ü', ouml: 'ö', auml: 'ä', ccedil: 'ç', ntilde: 'ñ', uacute: 'ú', iacute: 'í', oacute: 'ó', aacute: 'á', agrave: 'à', mdash: '—', ndash: '–', rsquo: '’', lsquo: '‘', ldquo: '“', rdquo: '”', hellip: '…' };
-function decodeEntities(s) {
-  if (!s) return '';
-  return String(s).replace(/&(#x?[0-9a-f]+|[a-z]+);/gi, (m, code) => {
-    if (code[0] === '#') {
-      const n = code[1] === 'x' || code[1] === 'X' ? parseInt(code.slice(2), 16) : parseInt(code.slice(1), 10);
-      return Number.isFinite(n) ? String.fromCodePoint(n) : m;
-    }
-    return Object.prototype.hasOwnProperty.call(ENTITIES, code.toLowerCase()) ? ENTITIES[code.toLowerCase()] : m;
-  });
-}
 function stripTags(html) {
   return decodeEntities(String(html).replace(/<[^>]*>/g, ' ')).replace(/\s+/g, ' ').trim();
 }
@@ -546,7 +528,6 @@ function inspect(core, content) {
 // shard record's `v` is.
 function verbatimCiteIds(core, content, bookMap, corpusList) {
   const matcher = require('./verbatim-matcher.js');
-  const { citedVerses } = require('../src/citations/cit-data.js');
   const started = Date.now();
   const scripture = matcher.scriptureIndex(matcher.loadScripture(SCRIPTURE));
   const slugOf = {};
@@ -815,7 +796,7 @@ function build(core, content, inclusion) {
 // HTML); decodeEntities and decompressTalk by tools/build-jod-talks.js; the
 // pure rest by tools/validate-citations.js.
 module.exports = {
-  extractCitation, stpjsBodyPassage, decompressTalk, stripTags, decodeEntities, toChurchUrl, excerptChars,
+  extractCitation, stpjsBodyPassage, decompressTalk, stripTags, toChurchUrl, excerptChars,
   packDescriptor, parseInclusion, citeRecord, bundlesTalks, conferenceOf, PACK_CORPORA,
   buildBookMap, derivedCites, tallyPack, diffReport,
 };

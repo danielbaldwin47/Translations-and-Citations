@@ -54,7 +54,9 @@
  * The DOM-free half (corpusPlan, readingDestination, talkCredit, the BYU URL
  * builders, the pre-2013 URL repair, locateParagraph, slotPolicy,
  * snippetKey, snippetMatches) is exported for Node, and load() runs there over a stubbed
- * fetch and citData: `node --test tools/test-talk-source.js`.
+ * fetch and citData: `node --test tools/test-talk-source.js`. So is the HTML
+ * scanning the build tools share with the reader (decodeEntities, textOf,
+ * verseList, scanTalk, scriptureLink, linkChapters; see that section).
  *
  * IIFE -> __BTX.talkSource (+ module.exports for the Node tests).
  */
@@ -420,31 +422,14 @@
     return url ? (await request(url, demand)).html : null;
   }
 
-  /* --------------------------------------------------------- footnote locator */
+  /* ------------------------------------------------------------ HTML scanning */
 
-  // Where an unanchored modern cite sits, read from the talk's own scripture
-  // links (research: docs/research/issue-66-footnote-locator.md on
-  // research/footnote-locator, 90.8% / 100% / 97.3% hits by era).
-  //
-  //   locateParagraph(html, { book, chapter, verses, rank }) -> paragraph id | null
-  //
-  // `html` is the fetched talk page as a string; `book` is the URL slug
-  // ('alma', '1-ne', 'dc'), `verses` the cite's `v` ('1-3,14'), `rank` the
-  // cite's 1-based rank by cite id among the talk's cites of the same book,
-  // chapter and verses (citData.chapterData's refRank).
-  //
-  // Candidates are every a.scripture-ref in reading order: a link inside a
-  // footnote li[id^="note"] sits at the body paragraph holding that note's
-  // first a.note-ref marker, a link inside a body paragraph sits there. A
-  // candidate matches when it links the cite's book and chapter with a verse
-  // set equal to the cite's, or, for a whole-chapter cite (v '1-N'), when it
-  // links the chapter with no verses (its label may name a chapter span,
-  // "2 Nephi 31–32"). Joseph Smith Translation links never match. The rank-th
-  // match wins, or the last when there are fewer.
-  //
-  // It reads the HTML before sanitizing because talk-view unwraps every link;
-  // the paragraph ids it returns survive sanitizing. No DOM: a small tag
-  // scanner, so it runs in Node too.
+  // A small tag scanner over a talk's HTML as a string — no DOM, so what reads
+  // it runs in Node too. The reader's footnote locator and the build tools
+  // share it: tools/derive-conference.js (a talk page's paragraphs, notes and
+  // scripture links), tools/build-citation-data.js and tools/verbatim-matcher.js
+  // (entity decoding) require these from module.exports, so a talk page reads
+  // the same at build time and in the reader.
 
   const VOID_TAGS = new Set(['area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 'link',
     'meta', 'source', 'track', 'wbr']);
@@ -454,15 +439,25 @@
   const TAG = /<(\/?)([a-zA-Z][\w:-]*)((?:[^>"']|"[^"]*"|'[^']*')*)>/g;
   const ATTR = /([^\s"'>\/=]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'>]+)))?/g;
   const BODY_PARAGRAPH = /^(?:p|h[1-6])$/;
+  const withoutRawText = (html) => String(html == null ? '' : html).replace(RAW_TEXT, '');
 
-  const ENTITIES = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ', ndash: '–', mdash: '—' };
+  // The named entities talk markup uses (BYU's databases use only amp and gt,
+  // the Church site amp and quot), plus common punctuation and Latin letters.
+  // Numeric references decode in full; an unknown name stays as written.
+  const ENTITIES = {
+    amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ', ndash: '–', mdash: '—',
+    rsquo: '’', lsquo: '‘', ldquo: '“', rdquo: '”', hellip: '…',
+    eacute: 'é', egrave: 'è', uuml: 'ü', ouml: 'ö', auml: 'ä', ccedil: 'ç', ntilde: 'ñ',
+    uacute: 'ú', iacute: 'í', oacute: 'ó', aacute: 'á', agrave: 'à',
+  };
   function decodeEntities(s) {
-    return String(s).replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (m, e) => {
+    return String(s == null ? '' : s).replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (m, e) => {
       if (e[0] === '#') {
         const n = e[1] === 'x' || e[1] === 'X' ? parseInt(e.slice(2), 16) : parseInt(e.slice(1), 10);
         return Number.isFinite(n) ? String.fromCodePoint(n) : m;
       }
-      return ENTITIES[e.toLowerCase()] || m;
+      const k = e.toLowerCase();
+      return Object.prototype.hasOwnProperty.call(ENTITIES, k) ? ENTITIES[k] : m;
     });
   }
 
@@ -476,7 +471,14 @@
   }
   const hasClass = (attrs, name) => String(attrs.class || '').split(/\s+/).includes(name);
 
-  // '1-3,14' or 'p1-p3,p14' -> sorted verse numbers; [] when nothing parses.
+  // An HTML fragment's text as an element's textContent reads it — tags
+  // removed without a space, entities decoded — with whitespace runs collapsed.
+  const textOf = (html) => decodeEntities(String(html == null ? '' : html).replace(/<[^>]*>/g, '')).replace(/\s+/g, ' ').trim();
+
+  // A cite's `v` ('1-3,14') or a scripture link's verse id ('p1-p3,p14') ->
+  // sorted verse numbers; [] when nothing parses. The reader's other `v`
+  // parser, citData.citedVerses (a Set), reads a `v` the same way; it stays
+  // separate because cit-data loads first and this module's Node tests stub it.
   function verseList(s) {
     const out = new Set();
     for (const part of String(s == null ? '' : s).split(',')) {
@@ -489,12 +491,25 @@
     return [...out].sort((a, b) => a - b);
   }
 
-  // Every scripture link with the paragraph it sits at, in reading order.
-  function scriptureLinks(html) {
-    const text = String(html || '').replace(RAW_TEXT, '');
-    const stack = [];           // open elements: { tag, para?, note? }
-    const markerAt = {};        // note id -> { para, pos } of its first body marker
-    const links = [];           // { pos, href, label, para?, note? }
+  // One pass over a talk page in the Church site's markup: body paragraphs are
+  // p / h1–h6 with data-aid and an id, outside any footnote; footnotes are
+  // li[id^="note"]; a.note-ref is a footnote marker, a.scripture-ref a
+  // scripture link.
+  //   scanTalk(html) -> { text, paras, notes, markerAt, links }
+  //     text      html without raw-text elements and comments; offsets below are into it
+  //     paras     { [id]: { start, end } }  a body paragraph's inner HTML
+  //     notes     { [id]: { start, end } }  a footnote's inner HTML
+  //     markerAt  { [note id]: { para, pos } }  the body paragraph holding the note's first marker
+  //     links     [{ pos, href, label, para, note }]  every scripture link in
+  //               document order, `label` its raw text (entities not decoded),
+  //               `para` / `note` the body paragraph or footnote it sits in, or null
+  function scanTalk(html) {
+    const text = withoutRawText(html);
+    const stack = [];           // open elements: { tag, para?, note?, ownNote? }
+    const paras = {};
+    const notes = {};
+    const markerAt = {};
+    const links = [];
     let link = null;            // the scripture link being read
     let last = 0;
     const innermost = (key) => {
@@ -509,15 +524,27 @@
       if (m[1]) { // closing tag: pop to the matching element, if it is open
         if (tag === 'a' && link) { links.push(link); link = null; }
         for (let i = stack.length - 1; i >= 0; i--) {
-          if (stack[i].tag === tag) { stack.length = i; break; }
+          if (stack[i].tag !== tag) continue;
+          for (const f of stack.slice(i)) {
+            if (f.para) paras[f.para].end = m.index;
+            if (f.ownNote) notes[f.ownNote].end = m.index;
+          }
+          stack.length = i;
+          break;
         }
         continue;
       }
       const attrs = attrsOf(m[3]);
       const id = attrs.id || '';
       const frame = { tag };
-      if (BODY_PARAGRAPH.test(tag) && 'data-aid' in attrs && id && !id.startsWith('note')) frame.para = id;
-      if (tag === 'li' && id.startsWith('note')) frame.note = id;
+      if (BODY_PARAGRAPH.test(tag) && 'data-aid' in attrs && id && !id.startsWith('note') && !innermost('note')) {
+        frame.para = id;
+        paras[id] = { start: TAG.lastIndex, end: text.length };
+      }
+      if (tag === 'li' && id.startsWith('note')) {
+        frame.note = frame.ownNote = id;
+        notes[id] = { start: TAG.lastIndex, end: text.length };
+      }
       if (tag === 'a' && hasClass(attrs, 'note-ref')) {
         const noteId = attrs['data-scroll-id'] || (/#(note[^#]*)$/.exec(attrs.href || '') || [])[1];
         const para = innermost('para');
@@ -530,31 +557,85 @@
       if (!VOID_TAGS.has(tag) && !/\/\s*$/.test(m[3])) stack.push(frame);
     }
     if (link) links.push(link);
-
-    const placed = [];
-    for (const l of links) {
-      const at = l.note ? markerAt[l.note] : l.para ? { para: l.para, pos: l.pos } : null;
-      if (at) placed.push({ para: at.para, key: at.pos, pos: l.pos, href: l.href, label: decodeEntities(l.label) });
-    }
-    return placed.sort((a, b) => a.key - b.key || a.pos - b.pos);
+    return { text, paras, notes, markerAt, links };
   }
 
-  // A scripture link's target: { book, chapter, verses:[...] | null (whole
-  // chapter), chapters:[from, to] } or null (not a chapter link, or the JST).
-  function parseScriptureLink(href, label) {
+  // A scripture link's target, before any reader's rule:
+  //   { volume, book, chapter, verses, span } | null
+  //     verses  the verse id's numbers ('p1-p3,p14' -> [1, 2, 3, 14]), or null
+  //             for a chapter link (no id)
+  //     span    for a chapter link whose label ends in a chapter span
+  //             ("2 Nephi 31–32", a bare "6–9"), that span as printed
+  //             [from, to]; else null
+  // null for anything that is not a chapter of scripture, and for the Joseph
+  // Smith Translation (no pack holds it).
+  function scriptureLink(href, label) {
     let u;
     try { u = new URL(href, 'https://www.churchofjesuschrist.org'); } catch (e) { return null; }
     const m = /^\/study\/scriptures\/([^/]+)\/([^/]+)\/(\d+)\/?$/.exec(u.pathname);
     if (!m || m[1] === 'jst' || /^jst-/.test(m[2])) return null;
     const chapter = Number(m[3]);
     const id = u.searchParams.get('id');
-    if (id) return { book: m[2], chapter, verses: verseList(id), chapters: [chapter, chapter] };
-    // A chapter link whose label ends in a chapter span ("2 Nephi 31–32",
-    // a bare "6–9") covers every chapter of the span.
-    const span = /(?:^|[^:\d])(\d+)\s*[–—-]\s*(\d+)\s*$/.exec(String(label || '').trim());
-    const chapters = span && Number(span[1]) <= chapter && chapter <= Number(span[2])
-      ? [Number(span[1]), Number(span[2])] : [chapter, chapter];
-    return { book: m[2], chapter, verses: null, chapters };
+    if (id) return { volume: m[1], book: m[2], chapter, verses: verseList(id), span: null };
+    const s = /(?:^|[^:\d])(\d+)\s*[–—-]\s*(\d+)\s*$/.exec(textOf(label));
+    return { volume: m[1], book: m[2], chapter, verses: null, span: s ? [Number(s[1]), Number(s[2])] : null };
+  }
+
+  // The chapters a chapter link covers, [from, to]. The two readers of
+  // scripture links take a label's chapter span differently, on purpose, and
+  // this is the one place the difference lives:
+  //   'locate'  the footnote locator (locateParagraph) looks for the paragraph
+  //             of a cite it already has, so recall wins: a span holding the
+  //             linked chapter anywhere covers the whole span.
+  //   'derive'  the derivation run (tools/derive-conference.js) makes a cite
+  //             per covered chapter, so precision wins: only a span that
+  //             starts at the linked chapter and runs on past it, under 200
+  //             chapters.
+  // Book rules: both drop the Joseph Smith Translation (scriptureLink is
+  // null). The derivation run also drops books the pack lacks
+  // (BOOKS.isKnownBook: study helps), which the locator needs no rule for —
+  // it compares the link's book with the cite's.
+  function linkChapters(link, rule) {
+    const c = link.chapter;
+    const s = link.span;
+    if (!s) return [c, c];
+    if (rule === 'derive') return s[0] === c && s[1] > c && s[1] - c < 200 ? [c, s[1]] : [c, c];
+    return s[0] <= c && c <= s[1] ? s : [c, c];
+  }
+
+  /* --------------------------------------------------------- footnote locator */
+
+  // Where an unanchored modern cite sits, read from the talk's own scripture
+  // links (research: docs/research/issue-66-footnote-locator.md on
+  // research/footnote-locator, 90.8% / 100% / 97.3% hits by era).
+  //
+  //   locateParagraph(html, { book, chapter, verses, rank }) -> paragraph id | null
+  //
+  // `html` is the fetched talk page as a string; `book` is the URL slug
+  // ('alma', '1-ne', 'dc'), `verses` the cite's `v` ('1-3,14'), `rank` the
+  // cite's 1-based rank by cite id among the talk's cites of the same book,
+  // chapter and verses (citData.chapterData's refRank).
+  //
+  // Candidates are every a.scripture-ref in reading order (scanTalk): a link
+  // inside a footnote sits at the body paragraph holding that note's first
+  // marker, a link inside a body paragraph sits there. A candidate matches
+  // when it links the cite's book and chapter with a verse set equal to the
+  // cite's, or, for a whole-chapter cite (v '1-N'), when it links the chapter
+  // with no verses (linkChapters' 'locate' rule). Joseph Smith Translation
+  // links never match. The rank-th match wins, or the last when there are fewer.
+  //
+  // It reads the HTML before sanitizing because talk-view unwraps every link;
+  // the paragraph ids it returns survive sanitizing.
+
+  // Every scripture link with the paragraph it sits at, in reading order.
+  function scriptureLinks(html) {
+    const { markerAt, links } = scanTalk(html);
+    const placed = [];
+    for (const l of links) {
+      const at = l.note ? markerAt[l.note] : l.para ? { para: l.para, pos: l.pos } : null;
+      if (at) placed.push({ para: at.para, key: at.pos, pos: l.pos, href: l.href, label: l.label });
+    }
+    return placed.sort((a, b) => a.key - b.key || a.pos - b.pos);
   }
 
   function locateParagraph(html, cite) {
@@ -566,10 +647,11 @@
     const wanted = want.join(',');
     const matches = [];
     for (const l of scriptureLinks(html)) {
-      const t = parseScriptureLink(l.href, l.label);
+      const t = scriptureLink(l.href, l.label);
       if (!t || t.book !== c.book) continue;
       const exact = t.verses && t.chapter === chapter && t.verses.join(',') === wanted;
-      const whole = wholeChapter && !t.verses && t.chapters[0] <= chapter && chapter <= t.chapters[1];
+      const [from, to] = linkChapters(t, 'locate');
+      const whole = wholeChapter && !t.verses && from <= chapter && chapter <= to;
       if (exact || whole) matches.push(l.para);
     }
     if (!matches.length) return null;
@@ -772,6 +854,8 @@
   const API = {
     load, destination, excerpt, reschedule, slotPolicy, corpusPlan, targetIds, talkCredit, fullTalkUrl, pickSessionUrl, bouncedToConference, lastSlug,
     snippetKey, snippetMatches, locateParagraph, byuTalkUrl, byuViewerUrl, readingDestination, FETCH_POLICY,
+    // HTML scanning, shared with the build tools (see that section).
+    decodeEntities, attrsOf, textOf, withoutRawText, verseList, scanTalk, scriptureLink, linkChapters,
   };
 
   if (typeof module !== 'undefined' && module.exports) module.exports = API;
