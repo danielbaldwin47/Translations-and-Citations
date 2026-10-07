@@ -397,15 +397,15 @@
   const BYU_CREDIT = 'Text fetched from scriptures.byu.edu';
 
   // The reader's credit line for a loaded talk, from its corpus's descriptor
-  // entry. Pure. -> { text, href? } | null
+  // entry (`corpusEntry`, descriptor.corpora[letter]). Pure. -> { text, href? } | null
   //   text 'live-byu'            the BYU fetch line
   //   attribution 'wikisource'   "Text: Wikisource, revision N" linking the
   //                              source's URL, the permalink whose `oldid` is N
-  function talkCredit(corpus, source) {
-    if (!corpus) return null;
-    if (corpus.text === 'live-byu') return { text: BYU_CREDIT };
+  function talkCredit(corpusEntry, source) {
+    if (!corpusEntry) return null;
+    if (corpusEntry.text === 'live-byu') return { text: BYU_CREDIT };
     const url = source && source.url;
-    if (corpus.attribution === 'wikisource' && url) {
+    if (corpusEntry.attribution === 'wikisource' && url) {
       const rev = /[?&]oldid=(\d+)/.exec(url);
       return { text: 'Text: Wikisource' + (rev ? `, revision ${rev[1]}` : ''), href: url };
     }
@@ -674,14 +674,14 @@
 
   /* -------------------------------------------------------------------- load */
 
-  // The talk's corpus plan and its descriptor entry -> { plan, corpus } (both
-  // null for a corpus the pack lacks).
+  // The talk's corpus plan and its descriptor entry -> { plan, corpusEntry }
+  // (both null for a corpus the pack lacks). `src.c` is the corpus letter.
   async function corpusFor(src) {
     let pack = null;
     try { pack = await citData().loadPack(); } catch (e) { pack = null; }
     const descriptor = pack && pack.descriptor;
     const plan = corpusPlan(descriptor, src.c, { hasUrl: !!src.url });
-    return { plan, corpus: plan ? descriptor.corpora[src.c] : null };
+    return { plan, corpusEntry: plan ? descriptor.corpora[src.c] : null };
   }
 
   // Public: the cite's reading destination before its talk loads (the header
@@ -719,7 +719,7 @@
   // pack, whose talk files are only the bundled corpora's.
   async function load({ entry, source }) {
     const src = source || {};
-    const { plan, corpus } = await corpusFor(src);
+    const { plan, corpusEntry } = await corpusFor(src);
     if (!plan) return { html: null, url: null, destination: null, credit: null, findTarget: () => null };
     const { html, url } = await talkHtml(plan, entry, src);
     const live = html != null && plan.text !== 'bundled';
@@ -728,7 +728,7 @@
       html,
       url,
       destination: readingDestination(plan, { entry, source: src, url }),
-      credit: html != null ? talkCredit(corpus, src) : null,
+      credit: html != null ? talkCredit(corpusEntry, src) : null,
       findTarget: (container) => findTarget(container, { plan, entry, live, html }),
     };
   }

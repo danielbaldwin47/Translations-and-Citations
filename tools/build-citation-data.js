@@ -162,18 +162,18 @@ function parseInclusion(value) {
   return { rules };
 }
 
-// Whether a corpus ships talks/{talkId}.html.gz files.
-function bundlesTalks(corpus) {
-  return corpus.text === 'bundled';
+// Whether a corpus ships talks/{talkId}.html.gz files, from its descriptor entry.
+function bundlesTalks(corpusEntry) {
+  return corpusEntry.text === 'bundled';
 }
 
-// One cite's shard record, shaped by its corpus's descriptor entry:
+// One cite's shard record, shaped by its corpus's descriptor entry (corpusEntry):
 //   facts { t, v, sn, a, ec } -> { t, v, sn? (bundled excerpt), a? (anchor), ec? (fetched excerpt's count) }
-function citeRecord(corpus, facts) {
+function citeRecord(corpusEntry, facts) {
   const rec = { t: facts.t, v: facts.v };
-  if (corpus.excerpt === 'bundled') rec.sn = facts.sn;
+  if (corpusEntry.excerpt === 'bundled') rec.sn = facts.sn;
   if (facts.a) rec.a = facts.a; // G: paragraph anchor for a live deep-link; J: an unplaced cite's page anchor
-  if (corpus.excerpt === 'fetched' && Number.isInteger(facts.ec)) rec.ec = facts.ec;
+  if (corpusEntry.excerpt === 'fetched' && Number.isInteger(facts.ec)) rec.ec = facts.ec;
   return rec;
 }
 
@@ -202,13 +202,13 @@ function versesOf(v) {
 // derived exactly when its talk id is a gc/YYYY/MM/{slug} path, and its
 // conference is listed in the descriptor's `derived`.
 //   inputs  [{ conference, talks:[{ id, url, sp, ti, d, lbl, cites:[{ id, book, chapter, v, a, ec }] }] }]
-//   corpus  the G descriptor entry (citeRecord shapes each cite by it)
+//   corpusEntry  the G descriptor entry (citeRecord shapes each cite by it)
 //   opts    { books: Set of the pack's slugs, base: { updated:'YYYY-MM-DD', conferences: Set of 'YYYY-MM' } }
 //   -> { sources: { [talkId]: source }, shards: { [slug]: { cites, index } }, conferences: ['YYYY-MM'], errors: [msg] }
 // A conference the base covers, or one not newer than the base stamp, is
 // refused whole (an error, nothing added): the BYU base is frozen and its
 // conferences carry no derived cites. A cite into a book the pack lacks is dropped.
-function derivedCites(inputs, corpus, opts) {
+function derivedCites(inputs, corpusEntry, opts) {
   const out = { sources: {}, shards: {}, conferences: [], errors: [] };
   const stamp = String(opts.base.updated || '').slice(0, 7);
   for (const input of inputs.slice().sort((a, b) => (a.conference < b.conference ? -1 : 1))) {
@@ -222,7 +222,7 @@ function derivedCites(inputs, corpus, opts) {
       for (const c of talk.cites) {
         if (!opts.books.has(c.book)) continue;
         const shard = out.shards[c.book] = out.shards[c.book] || { cites: {}, index: {} };
-        shard.cites[c.id] = citeRecord(corpus, { t: talk.id, v: c.v, a: c.a, ec: c.ec });
+        shard.cites[c.id] = citeRecord(corpusEntry, { t: talk.id, v: c.v, a: c.a, ec: c.ec });
         const chap = shard.index[c.chapter] = shard.index[c.chapter] || {};
         for (const v of versesOf(c.v)) (chap[v] = chap[v] || []).push(c.id);
         out.sources[talk.id] = { c: 'G', sp: talk.sp, ti: talk.ti, d: talk.d, lbl: talk.lbl, url: talk.url };
@@ -693,9 +693,9 @@ function build(core, content, inclusion) {
     let count = 0;
 
     for (const r of rows) {
-      const corpus = corpora[r.corpus];
-      if (!corpus) { skipped++; continue; } // not in this pack (the public pack's T)
-      if (corpus.inclusion === 'verbatim') {
+      const corpusEntry = corpora[r.corpus];
+      if (!corpusEntry) { skipped++; continue; } // not in this pack (the public pack's T)
+      if (corpusEntry.inclusion === 'verbatim') {
         const cov = coverage[r.corpus] || (coverage[r.corpus] = { all: new Set(), kept: new Set() });
         cov.all.add(r.citId);
         if (!rederived.has(r.citId)) continue;
@@ -712,19 +712,19 @@ function build(core, content, inclusion) {
           // Journal of Discourses: the snippet and the page-anchor fallback come
           // from the Wikisource build, never from BYU's HTML.
           const jc = jodCite(r.talkId, r.citId);
-          cites[r.citId] = citeRecord(corpus, { t: r.talkId, v: r.verses || vs, sn: jc.sn, a: jc.a });
+          cites[r.citId] = citeRecord(corpusEntry, { t: r.talkId, v: r.verses || vs, sn: jc.sn, a: jc.a });
         } else {
           const html = getTalkHtml(r.talkId);
           const { snippet, anchor } = extractCitation(html, r.citId);
-          const ec = corpus.excerpt === 'fetched' ? excerptChars(html, r.citId) : null;
-          if (corpus.excerpt === 'fetched' && ec === null) uncounted++;
-          cites[r.citId] = citeRecord(corpus, { t: r.talkId, v: r.verses || vs, sn: snippet, a: anchor, ec });
+          const ec = corpusEntry.excerpt === 'fetched' ? excerptChars(html, r.citId) : null;
+          if (corpusEntry.excerpt === 'fetched' && ec === null) uncounted++;
+          cites[r.citId] = citeRecord(corpusEntry, { t: r.talkId, v: r.verses || vs, sn: snippet, a: anchor, ec });
         }
         count++;
       }
 
       if (!(r.talkId in sources)) {
-        const url = corpus.text === 'live-church' ? toChurchUrl(r.url) : r.corpus === 'J' ? jodTalk(r.talkId).url : null;
+        const url = corpusEntry.text === 'live-church' ? toChurchUrl(r.url) : r.corpus === 'J' ? jodTalk(r.talkId).url : null;
         sources[r.talkId] = {
           c: r.corpus,
           sp: decodeEntities([r.given, r.last].filter(Boolean).join(' ')) || 'Unknown',
@@ -746,7 +746,7 @@ function build(core, content, inclusion) {
       }
       // Talk files only for a corpus whose text is bundled; a references-only
       // corpus ships none.
-      if (bundlesTalks(corpus) && !bundledTalks.has(r.talkId)) {
+      if (bundlesTalks(corpusEntry) && !bundledTalks.has(r.talkId)) {
         const html = getTalkHtml(r.talkId);
         if (html) {
           fs.writeFileSync(path.join(OUT, 'talks', `${r.talkId}.html.gz`), zlib.gzipSync(Buffer.from(html, 'utf8')));
