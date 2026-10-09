@@ -71,9 +71,12 @@ one is loaded.
 Copyrighted translations can't be bundled, so the extension reads them from
 **[api.bible](https://api.bible/sign-up)** with your own free key:
 
-1. Create a free account at <https://api.bible/sign-up> and add the
-   translations you want to your key (NIV, NKJV and NIrV, for example).
-2. Open the extension's settings (the gear in the panel, or the toolbar icon on
+1. Create a free account at <https://api.bible/sign-up>. Sign-up asks about
+   your app, such as what it's for and how many people use it, and your
+   organisation. Pick up to 3 Bibles, such as NIV, on the free plan. Bibles
+   can be added later from your [api.bible dashboard](https://api.bible/team):
+   Plan, then Edit Plan, then Edit Bible Licenses.
+2. Copy the key from the top right of the dashboard. Open the extension's settings (the gear in the panel, or the toolbar icon on
    any page that isn't showing a chapter) and paste the key under **Bible
    translations**. Connecting sends the chapters you open, your key, and an
    anonymous usage report to API.Bible (the sentence beside Connect says so;

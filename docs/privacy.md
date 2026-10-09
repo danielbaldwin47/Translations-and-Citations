@@ -74,9 +74,9 @@ and no identity.
 
 Bible translations beyond the built-in World English Bible come from
 api.bible with your own free key, which you create at api.bible
-(<https://api.bible/sign-up>) and paste into settings. The sentence beside Connect says what connecting
-sends; clicking Connect is your consent. Until you connect, no request goes
-to api.bible.
+(<https://api.bible/sign-up>) and paste into settings. The sentence beside
+Connect says what connecting sends; clicking Connect is your consent. Until
+you connect, no request goes to api.bible.
 
 - When you connect or check for new translations: your key, to list the
   translations it unlocks.

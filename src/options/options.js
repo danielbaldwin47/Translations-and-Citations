@@ -269,15 +269,20 @@
     return `${count}: ${list.map((t) => t.abbr || t.name).join(', ')}`;
   }
 
-  // The note under "Your translations": a list the worker couldn't fully
-  // check is a guess, and says so; an empty group says how to fill it.
+  // The note under "Your translations", as linked text (strings, and
+  // { text, href } for a link; [] is no note): a list the worker couldn't
+  // fully check is a guess, and says so; an empty group links the api.bible
+  // dashboard that fills it.
   function yoursNote({ partial, yours }) {
-    if (partial) return 'Couldn’t check which translations are yours. Try Connect again later.';
+    if (partial) return ['Couldn’t check which translations are yours. Try Connect again later.'];
     if (!yours) {
-      return 'This key has no NIV, NKJV or other copyrighted translations yet. Add them at scripture.api.bible, '
-        + 'then choose Check for new translations — or turn on a free one below.';
+      return [
+        'This key has no NIV, NKJV or other copyrighted translations yet. Add them in your ',
+        { text: 'api.bible dashboard', href: C.API_BIBLE_PAGES.dashboard },
+        ' (Plan, then Edit Plan, then Edit Bible Licenses), then choose Check for new translations — or turn on a free one below.',
+      ];
     }
-    return '';
+    return [];
   }
 
   // A failed connect, in words that say what to do. api.bible answers a
@@ -522,6 +527,19 @@
     return n;
   }
 
+  // Fills `node` with linked text from the pure core: a string is a text
+  // node, a { text, href } part a link that opens in a new tab.
+  function linkedText(node, parts) {
+    node.replaceChildren(...parts.map((part) => {
+      if (typeof part === 'string') return document.createTextNode(part);
+      const a = el('a', null, part.text);
+      a.href = part.href;
+      a.target = '_blank';
+      a.rel = 'noopener';
+      return a;
+    }));
+  }
+
   // ---- Autosave ----
 
   const queued = new Set();
@@ -694,8 +712,8 @@
     for (const t of more) els.moreRows.appendChild(versionRow(t, on.has(t.id)));
     els.versions.hidden = !available.length;
     const note = yoursNote({ partial: listPartial, yours: yours.length });
-    els.yoursNote.textContent = note;
-    els.yoursNote.hidden = !note;
+    linkedText(els.yoursNote, note);
+    els.yoursNote.hidden = !note.length;
     els.yoursNote.classList.toggle('warn', listPartial);
     els.moreVersions.hidden = !more.length;
     els.moreSummary.textContent = moreLabel(more.length);

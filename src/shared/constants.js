@@ -21,6 +21,13 @@
     PROVIDER_APIBIBLE: 'api.bible',
     PROVIDER_BUNDLED: 'bundled', // packaged with the extension: no key, no rate limit, no reporting
 
+    // --- api.bible's own pages, linked from settings (verified 2026-10-09) ---
+    // `signUp` makes the free account; `dashboard` shows the key (top right)
+    // and the Bibles on it (Plan, then Edit Plan, then Edit Bible Licenses).
+    // options.html's setup steps carry the same addresses
+    // (tools/validate-options-form.js).
+    API_BIBLE_PAGES: { signUp: 'https://api.bible/sign-up', dashboard: 'https://api.bible/team' },
+
     // --- The bundled Bible: the World English Bible (ebible.org `engwebp`) ---
     // Its `enabledTranslations` row ({ id, abbr, name, provider }, guaranteed by
     // __BTX.settings) and the copyright line shown under every chapter: the
@@ -159,6 +166,9 @@
     // "Check for new translations" refreshes on demand).
     BIBLES_TTL_MS: 7 * 24 * 60 * 60 * 1000, // 7 days
     CACHE_MAX_ENTRIES: 500,
+    // api.bible's terms: a cache holds fewer than 500 verses of its text
+    // (cache.js dropKeys evicts the least recently read chapters to stay under).
+    CACHE_MAX_VERSES: 500,
 
     // --- Rate limits (api.bible) ---
     RATE_WINDOW_MS: 30 * 1000,

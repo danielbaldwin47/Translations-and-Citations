@@ -254,6 +254,11 @@ input:focus-visible, select:focus-visible { outline-offset: 1px; }
 .rows { display: flex; flex-direction: column; }
 .checklist .hint { margin: 0 0 8px; }
 .hint.warn { color: var(--warn); }
+/* The api.bible setup: the numbered steps are what a new reader follows, so
+   they take the body colour; the lines around them stay hint-grey. */
+.setup p { margin: 0; }
+.setup ol { margin: 8px 0; padding-left: 22px; color: var(--fg); font-size: 14px; }
+.setup li + li { margin-top: 4px; }
 
 /* Disclosure groups: "more free translations", the language groups. */
 details > summary {
