@@ -96,8 +96,9 @@
     // OPEN_OPTIONS may carry `section`, one of OPTIONS_SECTIONS (the options
     // page's card ids). The worker parks it in chrome.storage.session under
     // OPTIONS_FOCUS_KEY before opening the page; the page reads it, clears it,
-    // and scrolls that card into view.
-    OPTIONS_SECTIONS: ['bible', 'languages', 'reading', 'about'],
+    // and scrolls that card into view. The ids are stable (a deep link names
+    // one); their order here is the order of the cards on the page.
+    OPTIONS_SECTIONS: ['languages', 'bible', 'reading', 'about'], // the page's card order
     OPTIONS_FOCUS_KEY: 'btxOptionsFocus',
 
     // --- chrome.storage.local key prefixes (cache + rate limiting) ---
