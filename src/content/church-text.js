@@ -11,11 +11,16 @@
  *       A Church row is { id:'church:spa', provider:'church', lang, abbr, name }
  *       so it rides the same dropdown and view key as an api.bible version.
  *       A page read in another language (`pageLang` given and not 'eng')
- *       also offers English, last and once, ticked or not: the options
- *       checklist can't tick English. From there it is an ordinary Church
- *       row (the chapter check, pick memory, pageLanguage): on Spanish
- *       Alma 5 with no other language picked, English holds the page, and
- *       the split pairs it by element id with the Spanish article.
+ *       also offers English, last and once: the options checklist can't
+ *       tick English, so its row carries `onRequest: true`. The reader
+ *       didn't add it, so it is neither fetched nor the page's language
+ *       until chosen: picked from the dropdown, or shown by the Translation
+ *       tab (the panel's arrangement `chooses` it and the orchestrator
+ *       remembers it). Until then pageLanguage passes it over and
+ *       chapterOffer's `unchecked` leaves it out; the Translation tab's
+ *       walk still reaches it. Once in the pick memory it is any Church
+ *       row: on Spanish Alma 5 it holds the page, and the split pairs it
+ *       by element id with the Spanish article.
  *     pickText(list, preferredIds) -> id | null
  *       the first preferred id the list offers, else the list's first row.
  *       The caller's preference is never rewritten by a fallback, which is
@@ -35,14 +40,16 @@
  *       marks the row `failed`. `pick` / `next` are firstOffered's.
  *       `offered` and `translatable` are true / false / null (null = not
  *       checked yet). `unchecked`: every language not checked yet, which the
- *       background check asks once the Translation tab settles
+ *       background check asks once the Translation tab settles (a row on
+ *       request only once in `preferredIds`)
  *     pageLanguage({ texts, picks, layout }) -> { id, next }
  *       the page split's language (GLOSSARY: Page split), while `layout` is
  *       'columns' | 'interlinear': the first Church language in `picks` that
  *       offers the chapter; failing that, the row the Translation tab selects
  *       (firstOffered over every row), only when it is a Church row. A
- *       `failed` row never holds the page. `next`: an unchecked language in
- *       the way (check it, then ask again; `id` is null meanwhile)
+ *       `failed` row never holds the page, nor does a row on request not in
+ *       `picks`. `next`: an unchecked language in the way (check it, then
+ *       ask again; `id` is null meanwhile)
  *     mruFrom(stored) / rememberPick(mru, id) -> [id]
  *       the preference itself: the reader's picks, newest first (MRU_MAX),
  *       migrated from the single id older versions stored.
@@ -159,7 +166,7 @@
     const english = o.pageLang && o.pageLang !== ENGLISH && ticked.indexOf(ENGLISH) < 0 ? [ENGLISH] : [];
     const church = ticked.concat(english)
       .filter((code) => code !== o.pageLang)
-      .map(rowFor)
+      .map((code) => (english.indexOf(code) >= 0 ? Object.assign(rowFor(code), { onRequest: true }) : rowFor(code)))
       .filter((row) => row && publishes(row.lang, o.collection));
     return bible.concat(church);
   }
@@ -224,7 +231,10 @@
     const next = walk.next;
     const translatable = texts.some((t) => t.offered === true) ? true
       : (texts.some((t) => t.offered === null) ? null : false);
-    const unchecked = texts.filter((t) => t.offered === null).map((t) => t.lang);
+    // A row on request is asked only once chosen (a pick, or the walk
+    // reaching it when the Translation tab opens on it), never in the background.
+    const chosen = (t) => !t.onRequest || (o.preferredIds || []).indexOf(t.id) >= 0;
+    const unchecked = texts.filter((t) => t.offered === null && chosen(t)).map((t) => t.lang);
     return { texts, pick, next, translatable, unchecked };
   }
 
@@ -243,8 +253,10 @@
     const none = { id: null, next: null };
     if (o.layout !== 'columns' && o.layout !== 'interlinear') return none;
     const picks = Array.isArray(o.picks) ? o.picks : [];
-    // A failed check offers the panel's text (its error card), never the page.
+    // A failed check offers the panel's text (its error card), never the
+    // page; a row on request holds it only once the reader chose it.
     const rows = (Array.isArray(o.texts) ? o.texts : []).filter(Boolean)
+      .filter((row) => !row.onRequest || picks.indexOf(row.id) >= 0)
       .map((row) => (row.failed ? Object.assign({}, row, { offered: false }) : row));
     const named = firstOffered(rows.filter((row) => row.provider === PROVIDER && picks.indexOf(row.id) >= 0), picks);
     if (named.row || named.next) return { id: named.row ? named.row.id : null, next: named.next };

@@ -71,6 +71,7 @@ const WEB = { id: 'engwebp', provider: 'bundled', offered: true };
 const NIV = { id: 'niv', provider: 'apibible', offered: true };
 const church = (lang, offered) => ({ id: 'church:' + lang, provider: 'church', lang, offered });
 const failed = (row) => Object.assign(row, { failed: true }); // chapterOffer's mark: the check hit a network error
+const engAsked = (offered) => Object.assign(church('eng', offered), { onRequest: true }); // English, unticked, on a page read in another language
 // A chapter as content.js describes it to the panel.
 const chapter = (key, texts, languages, more) => Object.assign({ key, texts, picks: [], languages, layout: 'columns' }, more);
 const MOSIAH3 = chapter('bofm/mosiah/3', [], []); // no Church language on: nothing offers it
@@ -299,6 +300,36 @@ const ARRANGEMENT_CASES = [
     [{ pick: 'church:pon' }, { body: 'loading' }],
     [{ chapter: chapter('dc-testament/dc/84', [church('pon', false)], ['pon'], { picks: ['church:pon'] }) },
       { mode: 'citations', note: 'no-translation', noteLang: 'pon' }],
+  ] },
+  // English on a page read in Spanish is on request (#119, churchText
+  // textsFor): offered in the dropdown, but neither fetched nor set into the
+  // page until the reader chooses it — a pick, or opening Translation where
+  // it is the text the tab shows. That arrangement `chooses` it: content.js
+  // remembers it (the pick memory) and arranges again, and from then on it is
+  // any language's (split by the layout, beside card, In the panel).
+  { name: 'Spanish Alma 5, nothing ticked: English waits in Citations, Translation chooses it', init: {}, steps: [
+    [{ chapter: chapter('bofm/alma/5', [engAsked(null)], []) },
+      { mode: 'citations', body: 'citations', page: null, pageNext: null, chooses: null }],
+    [{ click: 'translation' }, { mode: 'translation', body: 'loading', page: null, pageNext: null, chooses: null }],
+    [{ chapter: chapter('bofm/alma/5', [engAsked(true)], []) },
+      { mode: 'translation', body: 'beside', text: 'church:eng', page: 'church:eng', chooses: 'church:eng' }],
+    [{ chapter: chapter('bofm/alma/5', [engAsked(true)], [], { picks: ['church:eng'] }) },
+      { mode: 'translation', body: 'beside', text: 'church:eng', page: 'church:eng', chooses: null }],
+    [{ click: 'citations' }, { mode: 'citations', page: 'church:eng', chooses: null }],
+  ] },
+  { name: 'Spanish Alma 5, In the panel: Translation chooses English and shows it in the panel', init: { mode: 'translation' }, steps: [
+    [{ chapter: chapter('bofm/alma/5', [engAsked(true)], [], { layout: 'panel' }) },
+      { body: 'text', text: 'church:eng', page: null, chooses: 'church:eng' }],
+    [{ chapter: chapter('bofm/alma/5', [engAsked(true)], [], { layout: 'panel', picks: ['church:eng'] }) },
+      { body: 'text', text: 'church:eng', page: null, chooses: null }],
+    [{ layout: 'columns' }, { body: 'beside', text: 'church:eng', page: 'church:eng', layout: 'columns' }],
+  ] },
+  { name: 'Spanish John 3, nothing ticked: the Bible shows, English waits in the dropdown', init: { mode: 'translation' }, steps: [
+    [{ chapter: chapter('nt/john/3', [WEB, engAsked(null)], []) },
+      { body: 'text', text: 'engwebp', page: null, pageNext: null, chooses: null }],
+    [{ pick: 'church:eng' }, { body: 'loading', chooses: null }],
+    [{ chapter: chapter('nt/john/3', [WEB, engAsked(true)], [], { picks: ['church:eng'] }) },
+      { body: 'beside', text: 'church:eng', page: 'church:eng', chooses: null }],
   ] },
   { name: 'before any chapter: the stored mode, Translation as its loading state', init: { mode: 'translation' }, steps: [
     [{}, { mode: 'translation', body: 'loading', saved: 'translation' }],

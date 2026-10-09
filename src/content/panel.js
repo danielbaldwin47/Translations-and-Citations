@@ -220,6 +220,8 @@
   //     noteLang: Church code | null     the language the line names
   //     page:  Church row id | null      the page split's language, in either mode
   //     pageNext: lang | null            a language the check must ask before `page` is known
+  //     chooses: row id | null           a row on request the Translation tab shows,
+  //                                      so the reader chose it: remember it (pick memory)
   //   }
   // Inputs, from content.js except the last three (the panel's own state):
   //   texts      the rows that may sit beside this chapter, each with
@@ -247,25 +249,32 @@
   // language is churchText.pageLanguage, whatever the mode; the text it
   // names shows as the beside card ('beside' means text === page), any other
   // text in the panel (NIV beside Español on the page), with the
-  // beside-the-page line naming the page's language.
+  // beside-the-page line naming the page's language. A row on request
+  // (churchText.textsFor: English on a page read in another language) is
+  // never the page's language until chosen; the Translation tab showing it
+  // chooses it (`chooses`), so it takes the page at once, as a pick would.
   function arrangement(input) {
     const o = input || {};
     const click = o.click === 'translation' || o.click === 'citations' ? o.click : null;
     const stored = o.mode === 'translation' ? 'translation' : 'citations';
     const mode = click || stored;
     const saves = click && click !== stored ? click : null;
+    const ct = churchText();
+    const walk = mode === 'translation' && Array.isArray(o.texts) ? ct.firstOffered(o.texts, o.picks) : null;
+    // A row on request (English on a page read in another language) the
+    // Translation tab shows is chosen by that: it counts as the newest pick
+    // here, and `chooses` asks the caller to remember it.
+    const picks = Array.isArray(o.picks) ? o.picks : [];
+    const chooses = walk && walk.row && walk.row.onRequest && picks.indexOf(walk.row.id) < 0 ? walk.row.id : null;
     // The page's language is the same in either mode (the split stays on the
     // page in Citations).
-    const ct = churchText();
-    const page = ct.pageLanguage({ texts: o.texts, picks: o.picks, layout: o.layout });
+    const page = ct.pageLanguage({ texts: o.texts, picks: chooses ? [chooses].concat(picks) : picks, layout: o.layout });
     const show = (m, body, text, note, noteLang) => ({
       mode: m, body, text: text || null, saves, note: note || null, noteLang: noteLang || null,
-      page: page.id, pageNext: page.next,
+      page: page.id, pageNext: page.next, chooses,
     });
     if (mode !== 'translation') return show('citations', 'citations');
-    if (!Array.isArray(o.texts)) return show('translation', 'loading');
-    const walk = ct.firstOffered(o.texts, o.picks);
-    if (walk.next) return show('translation', 'loading');
+    if (!walk || walk.next) return show('translation', 'loading');
     const row = walk.row;
     if (row) {
       // This visit's dropdown pick lacks the chapter: the line says so above
