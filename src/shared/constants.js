@@ -92,6 +92,11 @@
       supportUrl: 'https://github.com/danielbaldwin47/Translations-and-Citations/issues',
     },
 
+    // --- First run ---
+    // Where a fresh install lands: Alma 5 in English, a chapter where Citations
+    // and every Church language have something to show.
+    FIRST_RUN_URL: 'https://www.churchofjesuschrist.org/study/scriptures/bofm/alma/5?lang=eng',
+
     // --- Options deep links ---
     // OPEN_OPTIONS may carry `section`, one of OPTIONS_SECTIONS (the options
     // page's card ids). The worker parks it in chrome.storage.session under
