@@ -84,7 +84,7 @@ src/
     fums.js                __BTX.fums      api.bible usage report (FUMS v3 GET) on every api.bible display, cache hits too; device id minted on a successful Connect (storage.local), session id per worker lifetime
   content/
     church-text.js         __BTX.churchText which texts a chapter offers + which shows (textsFor/pickText); dropdown rows (labelFor/menuFor); setup-card list (languagesToAdd); pick memory (mruFrom/rememberPick); same-origin Church-language chapter → IR with element ids (chapterFrom; its block walk blockElements also reads the English side for the split)
-    page-split.js/.css     __BTX.pageSplit show/hide the page split (columns | interlinear), paired by element id; pure cores wantsSplit / fitWidth / effectiveLayout / groupRows / soloIds / rowRules / readingRight / collapseFits
+    page-split.js/.css     __BTX.pageSplit show/hide the page split (columns | interlinear), paired by element id; pure cores wantsSplit / fitWidth / effectiveLayout / groupRows / soloIds / rowRules / readingRight / readingEdges / collapseFits
     detect.js              __BTX.detect    URL parse (all standard works, isBible) + SPA nav
     page-hook.js           page-world history patch, injected via web-accessible <script src>
     theme.js               __BTX.theme     mirror(resolveTarget) → {refresh}: site colors/fonts/header onto the panel; pure policies nextAlignDelay / dominantTextStyle / sameVars
