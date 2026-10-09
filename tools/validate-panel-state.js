@@ -178,6 +178,50 @@ const ARRANGEMENT_CASES = [
     [{ chapter: DC76_GIL }, { mode: 'citations', body: 'citations', note: 'no-translation', saved: 'translation' }],
     [{ click: 'citations' }, { mode: 'citations', body: 'citations', note: null, saved: 'citations' }],
   ] },
+  // The page's language (#109): the first Church language in pick order that
+  // offers the chapter, while the split layout is in-page — whatever the
+  // panel shows. `pageNext` is the language the chapter check must ask first.
+  { name: 'Spanish picked, side by side, mode Citations: the page holds Spanish', init: {}, steps: [
+    [{ chapter: chapter('bofm/alma/5', [church('spa', true)], ['spa'], { picks: ['church:spa'] }) },
+      { mode: 'citations', body: 'citations', page: 'church:spa', pageNext: null, saved: 'citations' }],
+  ] },
+  { name: 'Spanish side by side, then a Citations click: Spanish stays on the page', init: { mode: 'translation' }, steps: [
+    [{ chapter: chapter('bofm/alma/5', [church('spa', true)], ['spa'], { picks: ['church:spa'] }) },
+      { mode: 'translation', body: 'beside', text: 'church:spa', page: 'church:spa', saved: 'translation' }],
+    [{ click: 'citations' }, { mode: 'citations', body: 'citations', text: null, page: 'church:spa', saved: 'citations' }],
+    [{ click: 'translation' }, { mode: 'translation', body: 'beside', text: 'church:spa', page: 'church:spa', saved: 'translation' }],
+  ] },
+  { name: 'layout panel: no page language, in either mode', init: { mode: 'translation' }, steps: [
+    [{ chapter: chapter('bofm/alma/5', [church('spa', true)], ['spa'], { picks: ['church:spa'], layout: 'panel' }) },
+      { mode: 'translation', body: 'text', text: 'church:spa', page: null, pageNext: null, saved: 'translation' }],
+    [{ click: 'citations' }, { mode: 'citations', body: 'citations', page: null, pageNext: null, saved: 'citations' }],
+  ] },
+  { name: 'Citations, the page\'s language not checked yet: Citations at once, the check asks for it', init: {}, steps: [
+    [{ chapter: chapter('bofm/alma/5', [church('spa', null)], ['spa'], { picks: ['church:spa'] }) },
+      { mode: 'citations', body: 'citations', page: null, pageNext: 'spa', saved: 'citations' }],
+    [{ chapter: chapter('bofm/alma/5', [church('spa', true)], ['spa'], { picks: ['church:spa'] }) },
+      { mode: 'citations', body: 'citations', page: 'church:spa', pageNext: null, saved: 'citations' }],
+  ] },
+  { name: 'the next chapter lacks the page\'s language: the next offering pick holds the page, or none', init: {}, steps: [
+    [{ chapter: chapter('dc-testament/dc/83', [church('pon', true), church('spa', true)], ['pon', 'spa'], { picks: ['church:pon', 'church:spa'] }) },
+      { mode: 'citations', page: 'church:pon', pageNext: null }],
+    [{ chapter: chapter('dc-testament/dc/84', [church('pon', false), church('spa', null)], ['pon', 'spa'], { picks: ['church:pon', 'church:spa'] }) },
+      { mode: 'citations', page: null, pageNext: 'spa' }],
+    [{ chapter: chapter('dc-testament/dc/84', [church('pon', false), church('spa', true)], ['pon', 'spa'], { picks: ['church:pon', 'church:spa'] }) },
+      { mode: 'citations', page: 'church:spa', pageNext: null }],
+    [{ chapter: chapter('dc-testament/dc/84', [church('pon', false)], ['pon'], { picks: ['church:pon'] }) },
+      { mode: 'citations', page: null, pageNext: null }],
+  ] },
+  { name: 'John 3, Spanish on the page, NIV selected: NIV in the panel, Spanish stays on the page', init: { mode: 'translation' }, steps: [
+    [{ chapter: chapter('nt/john/3', [WEB, NIV, church('spa', true)], ['spa'], { picks: ['niv', 'church:spa'] }) },
+      { mode: 'translation', body: 'text', text: 'niv', page: 'church:spa', saved: 'translation' }],
+    [{ chapter: chapter('nt/john/3', [WEB, NIV, church('spa', true)], ['spa'], { picks: ['church:spa', 'niv'] }) },
+      { mode: 'translation', body: 'beside', text: 'church:spa', page: 'church:spa', saved: 'translation' }],
+  ] },
+  { name: 'John 3, NIV selected, Spanish not checked yet: NIV shows at once, the check asks for the page', init: { mode: 'translation' }, steps: [
+    [{ chapter: chapter('nt/john/3', [WEB, NIV, church('spa', null)], ['spa'], { picks: ['niv', 'church:spa'] }) },
+      { mode: 'translation', body: 'text', text: 'niv', page: null, pageNext: 'spa', saved: 'translation' }],
+  ] },
   { name: 'before any chapter: the stored mode, Translation as its loading state', init: { mode: 'translation' }, steps: [
     [{}, { mode: 'translation', body: 'loading', saved: 'translation' }],
   ] },
@@ -904,9 +948,9 @@ for (const fn of ['readingParagraph', 'splitAnchor']) {
   const src = (contentSrc.match(new RegExp(`function ${fn}\\(\\) \\{[\\s\\S]*?\\n {2}\\}\\n`)) || [''])[0];
   check(/const article = chapterArticle\(\);/.test(src), `${fn} reads only the chapter being rendered`);
 }
-// ...and read before the split goes, which reflows the page.
+// ...and read before the split comes or goes, which reflows the page.
 check(/const paragraph = readingParagraph\(\);\s*syncSplit\(\{ anchor: splitAnchor\(\) \}\)/.test(contentSrc),
-  'Citations reads the verse being read before the split is taken away, which keeps the paragraph on screen in place');
+  'Citations reads the verse being read before the split comes or goes, which keeps the paragraph on screen in place');
 check(/typeof citPanel\.revealVerse === 'function'/.test(contentSrc), 'citPanel.revealVerse is called only where it exists');
 // The retry rule is the panel's pure retryWait, not a copy of it here.
 check(/panel\.retryWait\(error, retries\.n\)/.test(contentSrc) && !/MAX_WAIT_MS/.test(contentSrc),

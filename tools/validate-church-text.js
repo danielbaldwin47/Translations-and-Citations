@@ -163,6 +163,38 @@ console.log('chapterOffer:');
   eq([o.next, o.pick, o.translatable, o.texts], [null, null, false, []], 'no inputs, nothing offered');
 }
 
+console.log('pageLanguage (the page\'s language, from the pick memory):');
+{
+  // The rows as the chapter check marks them: { id, provider, lang, offered }.
+  const SPA = (offered) => Object.assign({}, T.rowFor('spa'), { offered });
+  const JPN = (offered) => Object.assign({}, T.rowFor('jpn'), { offered });
+  const NIV_ROW = (offered) => Object.assign({}, NIV, { offered });
+  const page = (texts, picks, layout) => T.pageLanguage({ texts, picks, layout });
+
+  eq(page([SPA(true)], ['church:spa'], 'columns'), { id: 'church:spa', next: null },
+    'Alma 5, Español picked and found, side by side: Español holds the page');
+  eq(page([SPA(true)], ['church:spa'], 'interlinear'), { id: 'church:spa', next: null }, '...under each verse too');
+  eq(page([SPA(true)], ['church:spa'], 'panel'), { id: null, next: null }, '...in the panel: no page language, nothing to check');
+  eq(page([SPA(true)], ['church:spa'], undefined), { id: null, next: null }, 'an unknown layout holds nothing');
+
+  eq(page([NIV_ROW(true), SPA(true)], ['niv', 'church:spa'], 'columns'), { id: 'church:spa', next: null },
+    'John 3, NIV picked last: Español still holds the page (a Bible version never does)');
+  eq(page([NIV_ROW(true), SPA(null)], ['niv', 'church:spa'], 'columns'), { id: null, next: 'spa' },
+    '...Español not checked yet: check it (the panel\'s NIV needed no check)');
+
+  eq(page([SPA(true), JPN(true)], ['church:jpn', 'church:spa'], 'columns'), { id: 'church:jpn', next: null },
+    'two languages found: the one picked last holds the page');
+  eq(page([SPA(true), JPN(false)], ['church:jpn', 'church:spa'], 'columns'), { id: 'church:spa', next: null },
+    'the next chapter lacks Japanese: Español, the next pick that offers it, takes its place');
+  eq(page([SPA(null), JPN(false)], ['church:jpn', 'church:spa'], 'columns'), { id: null, next: 'spa' },
+    '...Español not checked yet: check it next');
+  eq(page([SPA(false), JPN(false)], ['church:jpn', 'church:spa'], 'columns'), { id: null, next: null },
+    '...neither offers it: no page language');
+  eq(page([SPA(true), JPN(true)], [], 'columns'), { id: 'church:spa', next: null },
+    'no pick names a language: the first enabled language that offers the chapter (pickText\'s fallback)');
+  eq(page(undefined, ['church:spa'], 'columns'), { id: null, next: null }, 'nothing known: no page language');
+}
+
 console.log('mruFrom / rememberPick:');
 eq(T.mruFrom('niv'), ['niv'], 'a single stored id (before the list existed) becomes a one-item list');
 eq(T.mruFrom(['church:spa', 'niv', 'church:spa', '', 7]), ['church:spa', 'niv'], 'duplicates and non-ids are dropped');

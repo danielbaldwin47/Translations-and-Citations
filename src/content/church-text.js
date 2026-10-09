@@ -26,6 +26,12 @@
  *       first offered row (`pick`) or the first unchecked one (`next`, the
  *       language to fetch, then ask again). `offered` and `translatable` are
  *       true / false / null (null = not checked yet).
+ *     pageLanguage({ texts, picks, layout }) -> { id, next }
+ *       the page split's language (GLOSSARY: Page split): the first Church
+ *       row in pick order that offers the chapter (chapterOffer's rows),
+ *       while `layout` is 'columns' | 'interlinear'; Bible rows never hold
+ *       the page. `next`: an unchecked language in the way (check it, then
+ *       ask again; `id` is null meanwhile)
  *     mruFrom(stored) / rememberPick(mru, id) -> [id]
  *       the preference itself: the reader's picks, newest first (MRU_MAX),
  *       migrated from the single id older versions stored.
@@ -189,6 +195,26 @@
     const translatable = texts.some((t) => t.offered === true) ? true
       : (texts.some((t) => t.offered === null) ? null : false);
     return { texts, pick, next, translatable };
+  }
+
+  // ---- Which language holds the page ----------------------------------------
+  // The page split's language (GLOSSARY: Page split): the first Church row in
+  // pick order whose chapter the check found, while the split layout is
+  // in-page ('columns' | 'interlinear'). A Bible version never holds the
+  // page, so the walk skips Bible rows: on John 3 NIV can show in the panel
+  // while Español holds the page. `texts` are chapterOffer's rows.
+  //   -> { id: row id | null,       the page's language, null = none (yet)
+  //        next: lang | null }      a language not checked yet in the way: check it, then ask again
+  function pageLanguage(opts) {
+    const o = opts || {};
+    const none = { id: null, next: null };
+    if (o.layout !== 'columns' && o.layout !== 'interlinear') return none;
+    const church = (Array.isArray(o.texts) ? o.texts : []).filter((row) => row && row.provider === PROVIDER);
+    for (const row of pickOrder(church, o.picks)) {
+      if (row.offered === true) return { id: row.id, next: null };
+      if (row.offered === null) return { id: null, next: row.lang };
+    }
+    return none;
   }
 
   // ---- What the reader picked, most recent first ------------------------------
@@ -453,7 +479,7 @@
   }
 
   const CORE = {
-    PROVIDER, ID_PREFIX, MRU_MAX, rowFor, textsFor, pickText, pickOrder, chapterOffer, mruFrom, rememberPick, rememberTicked, labelFor, menuFor, languagesToAdd,
+    PROVIDER, ID_PREFIX, MRU_MAX, rowFor, textsFor, pickText, pickOrder, chapterOffer, pageLanguage, mruFrom, rememberPick, rememberTicked, labelFor, menuFor, languagesToAdd,
     chapterUri, apiUrl, chapterFrom, blockElements, servesChapter, dirOf,
   };
 

@@ -36,9 +36,21 @@ unmounts, it scrolls the *window* by the shift of an anchor paragraph so the
 reader's place holds (`hide({ anchor })`, `keepAt`). It never scrolls the
 panel body — `panel.js` stays that body's only scroll writer.
 
-Amended October 9, 2026 (issue #89): `__BTX.pageSplit` owns **the reading
-layer**, and the layer fits the site's reading column to the open space in
-every mode, split or not. A widened panel otherwise left the column wider
+Amended October 9, 2026 (issues #89 and #109): `__BTX.pageSplit` owns **the
+reading layer**, which does two things, both independent of the panel's mode:
+it fits the site's reading column to the open space (#89), and it adds the
+split while the panel's arrangement names a page's language (#109).
+
+The split follows the arrangement, not the mode. A reader reading Spanish
+side by side keeps it on the page in Citations and reads the talks that cite
+each verse beside it. `wantsSplit` has no mode input; `content.js`'s
+`syncSplit` shows the arrangement's `page` (the first Church language in pick
+order that offers the chapter, while the split layout is in-page) whenever
+the chapter shows at all, and runs the chapter check for it in Citations too.
+
+The fit: a widened panel otherwise left the column wider
+than the space between the site's docked drawer and the panel, so verse text
+ran under both. A widened panel otherwise left the column wider
 than the space between the site's docked drawer and the panel, so verse text
 ran under both. The fit is one more id-scoped `<style>` rule, on
 `section#content`: it places the column inside the visible reading area

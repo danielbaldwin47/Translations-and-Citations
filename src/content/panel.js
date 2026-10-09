@@ -26,8 +26,9 @@
  *                                  (the chapter check settled, a pick): the
  *                                  arrangement again, no view dropped
  *   arrangement()                  the current answer: { mode, body, text,
- *                                  saves, note, noteLang }; the orchestrator
- *                                  applies `body` and `note`
+ *                                  saves, note, noteLang, page, pageNext };
+ *                                  the orchestrator applies `body` and `note`
+ *                                  to the panel and `page` to the page split
  *   setNote({ kind, language, chapter } | null)
  *                                  the note slot: one quiet line at the top of
  *                                  the body, above the mounted view (copy: the
@@ -174,6 +175,8 @@
   //     saves: 'translation' | 'citations' | null   what the click writes to panelMode
   //     note:  'no-translation' | null   the one quiet line above the body
   //     noteLang: Church code | null     the language the line names
+  //     page:  Church row id | null      the page split's language, in either mode
+  //     pageNext: lang | null            a language the check must ask before `page` is known
   //   }
   // Inputs, from content.js except the last two (the panel's own state):
   //   texts      the rows that may sit beside this chapter, each with
@@ -194,24 +197,31 @@
   // before it means the loading state (so Citations never paints first, then
   // switches); with nothing offered, the setup card when no Church language is
   // on or the reader clicked Translation on this visit, else Citations with
-  // the no-translation line (note) unless it was dismissed.
-  // Later answers (the page's language, the notes) join this object.
+  // the no-translation line (note) unless it was dismissed. The page's
+  // language is churchText.pageLanguage, whatever the mode; the text it
+  // names shows as the beside card ('beside' means text === page), any other
+  // text in the panel (NIV beside Español on the page).
+  // Later answers (the beside-the-page note) join this object.
   function arrangement(input) {
     const o = input || {};
     const click = o.click === 'translation' || o.click === 'citations' ? o.click : null;
     const stored = o.mode === 'translation' ? 'translation' : 'citations';
     const mode = click || stored;
     const saves = click && click !== stored ? click : null;
+    // The page's language is the same in either mode (the split stays on the
+    // page in Citations).
+    const page = CT().pageLanguage({ texts: o.texts, picks: o.picks, layout: o.layout });
     const show = (m, body, text, note, noteLang) => ({
       mode: m, body, text: text || null, saves, note: note || null, noteLang: noteLang || null,
+      page: page.id, pageNext: page.next,
     });
     if (mode !== 'translation') return show('citations', 'citations');
     if (!Array.isArray(o.texts)) return show('translation', 'loading');
     for (const row of CT().pickOrder(o.texts, o.picks)) {
       if (row.offered === null) return show('translation', 'loading');
       if (row.offered !== true) continue;
-      const beside = row.provider === CT().PROVIDER && o.layout !== 'panel';
-      return show('translation', beside ? 'beside' : 'text', row.id);
+      // The text the tab is about holds the page: the beside card says so.
+      return show('translation', row.id === page.id ? 'beside' : 'text', row.id);
     }
     const anyLanguage = Array.isArray(o.languages) && o.languages.length > 0;
     if (!anyLanguage || click === 'translation') return show('translation', 'setup');

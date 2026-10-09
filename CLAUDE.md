@@ -84,7 +84,7 @@ src/
     fums.js                __BTX.fums      api.bible usage report (FUMS v3 GET) on every api.bible display, cache hits too; device id minted on a successful Connect (storage.local), session id per worker lifetime
   content/
     church-text.js         __BTX.churchText which texts a chapter offers + which shows (textsFor/pickText; the chapter check's chapterOffer); dropdown rows (labelFor/menuFor); setup-card list (languagesToAdd); pick memory (mruFrom/rememberPick; rememberTicked for a tick in settings; stored under C.SELECTION_KEY, written by content.js and the options page); same-origin Church-language chapter → IR with element ids (chapterFrom; its block walk blockElements also reads the English side for the split)
-    page-split.js/.css     __BTX.pageSplit the reading layer: start() fits the site's reading column to the open space while the panel is open, any mode (fitColumn / fitRule); show/hide the page split (columns | interlinear), paired by element id; pure cores wantsSplit / fitWidth / effectiveLayout / fitColumn / fitRule / groupRows / soloIds / rowRules / readingRight / readingEdges / collapseFits
+    page-split.js/.css     __BTX.pageSplit the reading layer, independent of the mode: start() fits the site's reading column to the open space while the panel is open (fitColumn / fitRule); show/hide the page split (columns | interlinear) while the arrangement names a page's language, paired by element id; pure cores wantsSplit / fitWidth / effectiveLayout / fitColumn / fitRule / groupRows / soloIds / rowRules / readingRight / readingEdges / collapseFits
     detect.js              __BTX.detect    URL parse (all standard works, isBible) + SPA nav
     page-hook.js           page-world history patch, injected via web-accessible <script src>
     theme.js               __BTX.theme     mirror(resolveTarget) → {refresh}: site colors/fonts/header onto the panel; pure policies nextAlignDelay / dominantTextStyle / sameVars
@@ -318,10 +318,14 @@ validators — go there before changing behaviour.
   the chapter's facts (`showChapter` / `arrange`, via `factsFor`), runs
   the check while it answers `loading` (so Citations never paints first),
   and applies the answer; it holds no mode rule of its own.
-- **Page split** (`__BTX.pageSplit`) follows Translation mode: `content.js`'s
-  `syncSplit` asks the pure `wantsSplit` wherever an input moves (mode, active
-  row, chapter, whether the chapter shows at all, settings) and shows or
-  hides; only a new chapter hides it first. `show`/`hide` take an `anchor`
+- **Page split** (`__BTX.pageSplit`) follows the arrangement's page's
+  language (`page`, GLOSSARY: Page split), never the mode: it stays on the
+  page in Citations, and on John 3 NIV can show in the panel beside it.
+  `content.js`'s `syncSplit` runs wherever an input moves (mode, pick,
+  chapter, whether the chapter shows at all, settings): while `pageNext`
+  names an unchecked language it runs the chapter check (in Citations too,
+  never holding up the panel body), then asks the pure `wantsSplit` and
+  shows or hides; only a new chapter hides it first. `show`/`hide` take an `anchor`
   (`content.js` `splitAnchor`) so the paragraph at the top of the screen stays
   put. It mounts only once `article#main[data-uri]` is the chapter it loaded
   (the site swaps the whole article on navigation), and lays out again on
@@ -329,11 +333,13 @@ validators — go there before changing behaviour.
   the site moves the reading column (polled — the footnote panel and the
   navigation drawer move it without a resize). The reading area ends at the
   site's footnote panel and its floating buttons. Columns give way to
-  interlinear while each column would be under `MIN_COLUMN_PX`. The panel
-  meanwhile shows the `beside` card: where the text is, the Side by side |
+  interlinear while each column would be under `MIN_COLUMN_PX`. In
+  Translation, when the tab's text is the page's language, the panel shows
+  the `beside` card: where the text is, the Side by side |
   Under each verse | In the panel control (writes `churchLanguageLayout`), and
-  "Collapse panel for wider columns" when `collapseFits`. Collapsing the panel
-  does not hide the split — it widens it.
+  "Collapse panel for wider columns" when `collapseFits`; its In the panel is
+  how the reader takes the language off the page. Collapsing the panel does
+  not hide the split — it widens it.
 - **Reading column fit** (#89) belongs to `__BTX.pageSplit` too, split or
   not: `content.js` calls `start()` once, and the pure `fitColumn` places
   `section#content` inside the visible reading area while the panel is open
