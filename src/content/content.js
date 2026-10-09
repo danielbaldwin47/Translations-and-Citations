@@ -756,6 +756,10 @@
     // it owns applying, aligning and re-applying from here on.
     themeMirror = theme.mirror(() => (current ? panel.getRootEl() : null));
 
+    // The reading layer fits the site's reading column to the space the open
+    // panel leaves, in every mode, split or not (#89).
+    pageSplit.start();
+
     detect.setupNavigation(() => render());
     window.addEventListener('scroll', onPageScroll, { passive: true });
 

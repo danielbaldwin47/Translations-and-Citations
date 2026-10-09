@@ -835,6 +835,16 @@ check(!/onClose|btx-close|userClosed/.test(panelSrc), 'the panel has no close co
 // card never outlives its view.
 check(/function mountView\(entry\) \{[\s\S]*?setCard\(null\)/.test(panelSrc), 'mounting any view clears the card flag');
 check(/keepView\(views, kind === 'content'\)/.test(panelSrc), 'only a finished chapter earns a cache slot; every card and state re-renders');
+// While the panel starts below the site's header band (panelTop), the strip
+// above it is filled, not left as an empty block (#89): beneath the band's
+// overflowing controls, sized to the page reserve, gone once the top is 0.
+const cap = bodyOf('paintTopCap');
+check(/paintTopCap\(top\);/.test(bodyOf('updatePanelTop')), 'every panelTop decision repaints the cap above the panel');
+check(/if \(!top\) \{[\s\S]*?topCap\.remove\(\)/.test(cap), 'top 0 leaves no cap behind');
+check(/position: fixed; top: 0; right: 0; z-index: 0; pointer-events: none;/.test(cap) && /document\.body\.appendChild\(topCap\)/.test(cap),
+  "the cap sits outside #btx-root, beneath the site's header, and never takes a click");
+check(/topCap\.style\.width = pageReserve \+ 'px';/.test(cap) && /topCap\.style\.height = top \+ 'px';/.test(cap),
+  'the cap covers the page reserve from the window top to the panel top');
 
 // Orchestrator wiring for the talk reader and the citation list.
 const contentSrc = fs.readFileSync(path.join(ROOT, 'src/content/content.js'), 'utf8');

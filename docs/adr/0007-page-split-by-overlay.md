@@ -35,3 +35,20 @@ One side effect that is not a write into the page: when the split mounts or
 unmounts, it scrolls the *window* by the shift of an anchor paragraph so the
 reader's place holds (`hide({ anchor })`, `keepAt`). It never scrolls the
 panel body — `panel.js` stays that body's only scroll writer.
+
+Amended October 9, 2026 (issue #89): `__BTX.pageSplit` owns **the reading
+layer**, and the layer fits the site's reading column to the open space in
+every mode, split or not. A widened panel otherwise left the column wider
+than the space between the site's docked drawer and the panel, so verse text
+ran under both. The fit is one more id-scoped `<style>` rule, on
+`section#content`: it places the column inside the visible reading area
+(pure `fitColumn` / `fitRule`), and it exists only while the panel is open
+and the site's own column would be clipped. With the panel collapsed, or
+narrow enough, the module removes the rule and the site's layout is back
+exactly. `content.js` starts the layer once (`start()`); the split, when
+shown, lays out inside the fitted column. The mechanism is still the three
+listed above, with no new kind of write: one layer, id-scoped rules, and
+`data-btx-split` on `<html>` (set only while a split is mounted).
+The panel's own chrome sits outside the reader and is not a write into it:
+`#btx-root`, and the cap `panel.js` paints above the panel while the panel
+starts below the site's header band (`panelTop`).

@@ -119,6 +119,8 @@
  * The panel's top: 0, except while the site's header band, laid out for the
  * full window while the panel was away, runs under the open panel — then the
  * panel starts below the band until it fits again (panelTop, --btx-top).
+ * Meanwhile a cap in the panel's header colour fills the strip above it,
+ * beneath the band's overflowing controls (paintTopCap, #89).
  *
  * IIFE -> __BTX.panel (ADR-0002). The pure state core below is also exported
  * for Node (tools/validate-panel-state.js); the DOM shell is skipped there.
@@ -1816,7 +1818,33 @@
       if (top) ui.rootEl.style.setProperty('--btx-top', top + 'px');
       else ui.rootEl.style.removeProperty('--btx-top');
     }
+    paintTopCap(top);
     watchTopScroll(pageReserve > 0);
+  }
+
+  // While the panel starts below the band, the strip above it is the bare
+  // page background beside the band: an empty block (#89). The cap fills it
+  // in the panel's header colour, so the panel's column reads as running to
+  // the top. It sits beneath the site's header (fixed, z-index 0, outside
+  // #btx-root's stacking context), so the band's controls that run over it —
+  // Sign In, the account menu — stay on top and clickable. Gone with top 0.
+  let topCap = null;
+  function paintTopCap(top) {
+    if (!top) {
+      if (topCap) topCap.remove();
+      topCap = null;
+      return;
+    }
+    if (!topCap) {
+      topCap = document.createElement('div');
+      topCap.id = 'btx-top-cap';
+      topCap.setAttribute('aria-hidden', 'true');
+      topCap.style.cssText = 'position: fixed; top: 0; right: 0; z-index: 0; pointer-events: none;';
+      document.body.appendChild(topCap);
+    }
+    topCap.style.width = pageReserve + 'px';
+    topCap.style.height = top + 'px';
+    topCap.style.background = getComputedStyle(ui.rootEl).getPropertyValue('--btx-header-bg').trim();
   }
 
   // Scrolling moves an overflowing band (and may bring an unfound one into

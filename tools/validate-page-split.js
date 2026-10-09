@@ -154,13 +154,139 @@ const drawer = { left: 0, right: 320 };
 eq(P.readingEdges({ ...area, leftStack: [drawer, ...SITE], rightStack: SITE }).left, 320, 'the navigation drawer docked on the left narrows the area');
 eq(P.readingEdges({ ...area, leftStack: [toolbar, drawer, ...SITE], rightStack: SITE }).left, 320, '...even with the reading column\'s toolbar drawn over it');
 eq(P.readingEdges({ ...area, leftStack: [...SITE, drawer], rightStack: SITE }).left, 0, 'nothing beneath what holds the reading column counts');
-eq(P.readingEdges({ ...area, leftStack: [{ left: 0, right: 700 }, ...SITE], rightStack: SITE }).left, 0, 'a box reaching past the middle is not docked');
+// The live site at 1440px with the panel at 900 (page 525 wide): the docked
+// drawer (x 0-320) reaches past the middle of so narrow an area, and is still
+// docked (#89).
+const narrow = { width: 1425, reserve: 900 };
+eq(P.readingEdges({ ...narrow, leftStack: [{ left: 1, right: 304 }, drawer, holder(0, 640)], rightStack: [holder(0, 525)] }).left, 320,
+  'a docked drawer wider than half a narrow area still narrows it (#89)');
+// Below about 1200px the site's drawer is a modal: it overlays the page above
+// a scrim spanning the whole page. The page beneath is not laid out around it.
+const scrim = { left: 0, right: 449 };
+eq(P.readingEdges({ width: 1009, reserve: 560, leftStack: [drawer, scrim, toolbar, holder(0, 640)], rightStack: [scrim, holder(0, 640)] }), { left: 0, right: 449 },
+  "a drawer over a scrim spanning the page is the site's modal: nothing is docked");
+eq(P.readingEdges({ ...area, leftStack: [{ left: 0, right: 805 }, ...SITE], rightStack: SITE }).left, 0, 'a box spanning the whole area is not docked');
 const footnotes = { left: 560, right: 805 };
 eq(P.readingEdges({ ...area, leftStack: SITE, rightStack: [footnotes, ...SITE] }).right, 560, "the site's footnote panel ends the area where it starts");
 eq(P.readingEdges({ ...area, leftStack: SITE, rightStack: [{ left: 560, right: 805, ours: true }, footnotes, ...SITE] }).right, 805,
   'the probe stops at our own panel');
 eq(P.readingEdges({ width: 1385, reserve: 0, leftStack: SITE, rightStack: SITE }).right, 1385 - P.FLOAT_GUTTER_PX,
   'panel collapsed: the area ends short of the floating buttons (readingRight)');
+
+// ---- fitColumn ----
+// The fit rule (#89): where the site's reading column goes in the visible
+// reading area. With the panel open, a column whose text would run under the
+// docked drawer or the panel narrows into the area; one that already fits is
+// left exactly as the site laid it out (no box, so no rule). The split's
+// columns widen it as before.
+console.log('fitColumn:');
+const GEN = { padLeft: 64, padRight: 64 }; // section#content's own padding on ot/gen/1
+// The live site, 1440px window, Scriptures drawer docked (x 0-320), panel 640.
+eq(P.fitColumn({ layout: null, area: { left: 320, right: 785 }, column: { left: 232.5, right: 872.5, ...GEN }, width: 1425, reserve: 640 }),
+  { effective: null, collapseFits: false, box: { left: 320, width: 465, padLeft: 64, padRight: 64 } },
+  "clipped on both sides: the column takes the area between the drawer and the panel, keeping the site's padding (its gutter holds the annotation toolbar and media icons)");
+// 1024px window, drawer closed, panel 640: with the site's padding the text
+// would be 241px wide, under a readable measure, so the padding gives way.
+eq(P.fitColumn({ layout: null, area: { left: 0, right: 369 }, column: { left: 0, right: 640, ...GEN }, width: 1009, reserve: 640 }).box,
+  { left: 0, width: 369, padLeft: 34, padRight: 34 }, 'too narrow for the padding and a readable measure: the padding gives way first');
+// 1440px window, drawer docked, panel 900: 205px between the drawer and the panel.
+eq(P.fitColumn({ layout: null, area: { left: 320, right: 525 }, column: { left: 160, right: 800, ...GEN }, width: 1425, reserve: 900 }).box,
+  { left: 320, width: 205, padLeft: P.FIT_PAD_PX, padRight: P.FIT_PAD_PX }, '...down to FIT_PAD_PX, then the text narrows');
+// 1024px window, drawer closed, panel 560: the site's grid keeps the column 640 wide.
+eq(P.fitColumn({ layout: null, area: { left: 0, right: 449 }, column: { left: 0, right: 640, ...GEN }, width: 1009, reserve: 560 }).box,
+  { left: 0, width: 449, padLeft: 64, padRight: 64 }, 'clipped by the panel alone: the column ends where the panel starts');
+eq(P.fitColumn({ layout: null, area: { left: 0, right: 1045 }, column: { left: 202.5, right: 842.5, ...GEN }, width: 1425, reserve: 380 }).box,
+  null, "text already inside the area: no box, the site's own layout");
+eq(P.fitColumn({ layout: null, area: { left: 0, right: 1353 }, column: { left: 1300, right: 1940, ...GEN }, width: 1425, reserve: 0 }).box,
+  null, 'panel collapsed (no page reserve): never narrowed, the site lays itself out for the window');
+eq(P.fitColumn({ layout: 'interlinear', area: { left: 0, right: 449 }, column: { left: 0, right: 640, ...GEN }, width: 1009, reserve: 560 }),
+  { effective: 'interlinear', collapseFits: false, box: { left: 0, width: 449, padLeft: 64, padRight: 64 } },
+  'under each verse: the split lays out inside the fitted column');
+// 1600px window, drawer docked, panel 380: the column centred at 770.
+eq(P.fitColumn({ layout: 'columns', area: { left: 320, right: 1220 }, column: { left: 450, right: 1090, ...GEN }, width: 1600, reserve: 380 }),
+  { effective: 'columns', collapseFits: true, box: { left: 332, width: 876, padLeft: 40, padRight: 64 } },
+  'side by side: the column widens around its centre to the area, as before');
+eq(P.fitColumn({ layout: 'columns', area: { left: 320, right: 785 }, column: { left: 232.5, right: 872.5, ...GEN }, width: 1425, reserve: 640 }),
+  { effective: 'interlinear', collapseFits: true, box: { left: 320, width: 465, padLeft: 64, padRight: 64 } },
+  'side by side with no room: under each verse, in the fitted column');
+// The width matrix (#89's acceptance), measured on the live site on ot/gen/1
+// (2026-10-09): 1024px and 1440px windows, the Scriptures drawer open and
+// closed, the panel 280-900px wide and collapsed. Each row is the page's width,
+// the panel's page reserve, the reading area (readingEdges) and
+// section#content as the site laid it out (64px padding a side). Below about
+// 1200px the open drawer is the site's modal, so the area does not start
+// after it. Every row runs with no split, under each verse, and side by side.
+//   [window, drawer, panel, width, reserve, areaLeft, areaRight, columnLeft, columnRight]
+const MATRIX = [
+  [1024, true, 280, 1009, 280, 0, 729, 44.5, 684.5],
+  [1024, true, 380, 1009, 380, 0, 629, 0, 640],
+  [1024, true, 480, 1009, 480, 0, 529, 0, 640],
+  [1024, true, 560, 1009, 560, 0, 449, 0, 640],
+  [1024, true, 640, 1009, 640, 0, 369, 0, 640],
+  [1024, true, 720, 1009, 720, 0, 289, 0, 640],
+  [1024, true, 800, 1009, 800, 0, 209, 0, 640],
+  [1024, true, 900, 1009, 900, 0, 109, 0, 640],
+  [1024, true, 'collapsed', 1009, 0, 0, 937, 184.5, 824.5],
+  [1024, false, 280, 1009, 280, 0, 729, 44.5, 684.5],
+  [1024, false, 380, 1009, 380, 0, 592, 0, 640],
+  [1024, false, 480, 1009, 480, 0, 529, 0, 640],
+  [1024, false, 560, 1009, 560, 0, 449, 0, 640],
+  [1024, false, 640, 1009, 640, 0, 369, 0, 640],
+  [1024, false, 720, 1009, 720, 0, 289, 0, 640],
+  [1024, false, 800, 1009, 800, 0, 209, 0, 640],
+  [1024, false, 900, 1009, 900, 0, 109, 0, 640],
+  [1024, false, 'collapsed', 1009, 0, 0, 937, 184.5, 824.5],
+  [1440, true, 280, 1425, 280, 320, 1145, 412.5, 1052.5],
+  [1440, true, 380, 1425, 380, 320, 1045, 362.5, 1002.5],
+  [1440, true, 480, 1425, 480, 320, 945, 312.5, 952.5],
+  [1440, true, 560, 1425, 560, 320, 865, 272.5, 912.5],
+  [1440, true, 640, 1425, 640, 320, 785, 232.5, 872.5],
+  [1440, true, 720, 1425, 720, 320, 705, 192.5, 832.5],
+  [1440, true, 800, 1425, 800, 320, 592, 160, 800],
+  [1440, true, 900, 1425, 900, 320, 525, 160, 800],
+  [1440, true, 'collapsed', 1425, 0, 320, 1353, 552.5, 1192.5],
+  [1440, false, 280, 1425, 280, 0, 1145, 252.5, 892.5],
+  [1440, false, 380, 1425, 380, 0, 1045, 202.5, 842.5],
+  [1440, false, 480, 1425, 480, 0, 945, 152.5, 792.5],
+  [1440, false, 560, 1425, 560, 0, 865, 112.5, 752.5],
+  [1440, false, 640, 1425, 640, 0, 785, 72.5, 712.5],
+  [1440, false, 720, 1425, 720, 0, 705, 32.5, 672.5],
+  [1440, false, 800, 1425, 800, 0, 592, 0, 640],
+  [1440, false, 900, 1425, 900, 0, 525, 0, 640],
+  [1440, false, 'collapsed', 1425, 0, 0, 1353, 392.5, 1032.5],
+];
+let fittedRows = 0;
+for (const [win, drawerOpen, panel, width, reserve, aL, aR, cL, cR] of MATRIX) {
+  const name = `${win}px, drawer ${drawerOpen ? 'open' : 'closed'}, panel ${panel}`;
+  const column = { left: cL, right: cR, ...GEN };
+  const area = { left: aL, right: aR };
+  const siteText = [cL + GEN.padLeft, cR - GEN.padRight];
+  const siteFits = siteText[0] >= aL && siteText[1] <= aR;
+  const plain = P.fitColumn({ layout: null, area, column, width, reserve });
+  for (const layout of [null, 'interlinear', 'columns']) {
+    const { effective, box } = P.fitColumn({ layout, area, column, width, reserve });
+    const text = box ? [box.left + box.padLeft, box.left + box.width - box.padRight] : siteText;
+    check(text[0] >= aL && text[1] <= aR && text[1] > text[0], `${name}, split ${layout}: no verse text clipped (text ${text}, area ${aL}-${aR})`);
+    if (effective !== 'columns') {
+      eq(box, plain.box, `${name}, split ${layout}: the split lays out in the same fitted column as no split`);
+    }
+  }
+  eq(plain.box === null, siteFits || reserve === 0, `${name}: the site's own layout exactly when its text already fits, or the panel is collapsed`);
+  if (plain.box) fittedRows++;
+}
+check(fittedRows >= 10, `the matrix exercises the fit (${fittedRows} rows fitted)`);
+
+// The rule that places the box. The column's container is translated right by
+// half the drawer (x 160) and wider than the page; the rule places the column
+// from the container's left edge, whatever the site's own margins were.
+const rule = P.fitRule({ left: 320, width: 465, padLeft: 16, padRight: 16 }, 160);
+check(/^section#content \{[^}]*\}$/.test(rule), 'one rule, selecting the reading column by id (ADR-0005, ADR-0007)');
+check(/margin-left: 160px !important; margin-right: auto !important;/.test(rule), 'the column starts at the box: 320 - 160 into its container');
+check(/ width: 465px !important;/.test(rule) && /min-width: 0 !important;/.test(rule) && /max-width: none !important;/.test(rule),
+  "the box's width holds against the site's own min-width (272px) and max-width (640px)");
+check(/box-sizing: border-box !important;/.test(rule) && /padding-left: 16px !important; padding-right: 16px !important;/.test(rule),
+  'the box includes its padding');
+eq(P.fitRule(null, 160), '', 'no box, no rule');
 
 // ---- Wiring (greps: the DOM half can't run here) ----
 console.log('Wiring (ADR-0007):');
@@ -193,8 +319,19 @@ check(!cs.js.some((f) => /prototype/.test(f)), 'no prototype ships in the manife
 const content = fs.readFileSync(path.join(ROOT, 'src/content/content.js'), 'utf8');
 check(/pageSplit\.wantsSplit\(/.test(content), 'the orchestrator asks the pure rule whether to split');
 check(/\+\+splitToken;\s*pageSplit\.hide\(\);/.test(content), 'a new chapter drops the split before anything else');
-check(/if \(moved\(s\.geo, geometry\(\)\)\) schedule\(\);/.test(shell) && /layout\(\);\s*s\.geo = geometry\(\);/.test(shell),
-  'the watch refits when the column moved since the last fit, measured after the fit\'s own writes');
+check((shell.match(/if \(moved\(geo, geometry\(\)\)\) schedule\(\);/g) || []).length === 2 && /layout\(\);\s*geo = geometry\(\);/.test(shell),
+  'both watches (split and fit) refit when the column moved since the last fit, measured after the fit\'s own writes');
+// The fit (#89): the same rule with or without a split, measured from the
+// site's own column, and nothing left once no box is wanted.
+check(/fitStyle\.disabled = true;[\s\S]{0,400}fitColumn\(\{ layout: split \? split\.layout : null, area, column, width: area\.width, reserve: area\.reserve \}\)[\s\S]{0,200}fitStyle\.disabled = false;/.test(shell),
+  'the fit measures the column with its own rule switched off, and asks fitColumn with or without a split');
+check(/if \(fitStyle && !css\) \{ fitStyle\.remove\(\); fitStyle = null; \}/.test(shell),
+  'no box, no rule: the style element goes with it');
+check(/unmount\(\);\s*s = null;\s*refresh\(\);\s*keepAt\(anchor, keep\);/.test(shell),
+  'hiding the split refits the column without it, in the same reflow the anchor is kept through');
+check(/new ResizeObserver\(schedule\)\.observe\(document\.documentElement\);/.test(shell),
+  'the fit follows the page reserve: the panel opening, collapsing or resizing resizes <html>');
+check(/pageSplit\.start\(\);/.test(content), 'the orchestrator starts the reading layer once');
 // The reader's place survives the split coming and going: the anchor is
 // measured before the reflow and the page scrolled by its shift after.
 check(/BLOCKS\(article\)\.filter\(\(el\) => !s\.layer\.contains\(el\)\)/.test(shell)
