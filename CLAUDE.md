@@ -83,7 +83,7 @@ src/
     ratelimit.js           __BTX.rate      15/30s + 5000/day, persisted
     fums.js                __BTX.fums      api.bible usage report (FUMS v3 GET) on every api.bible display, cache hits too; device id minted on a successful Connect (storage.local), session id per worker lifetime
   content/
-    church-text.js         __BTX.churchText which texts a chapter offers + which shows (textsFor/pickText); dropdown rows (labelFor/menuFor); setup-card list (languagesToAdd); pick memory (mruFrom/rememberPick); same-origin Church-language chapter → IR with element ids (chapterFrom; its block walk blockElements also reads the English side for the split)
+    church-text.js         __BTX.churchText which texts a chapter offers + which shows (textsFor/pickText; the chapter check's chapterOffer); dropdown rows (labelFor/menuFor); setup-card list (languagesToAdd); pick memory (mruFrom/rememberPick); same-origin Church-language chapter → IR with element ids (chapterFrom; its block walk blockElements also reads the English side for the split)
     page-split.js/.css     __BTX.pageSplit show/hide the page split (columns | interlinear), paired by element id; pure cores wantsSplit / fitWidth / effectiveLayout / groupRows / soloIds / rowRules / readingRight / collapseFits
     detect.js              __BTX.detect    URL parse (all standard works, isBible) + SPA nav
     page-hook.js           page-world history patch, injected via web-accessible <script src>
@@ -302,7 +302,11 @@ validators — go there before changing behaviour.
 - **Source-type marking** is a coloured strip on each source-type group, hue
   set once per `btx-grp-{sourceType slug}` (`--btx-src`). No setting.
 - **Translatable and the setup card**: a chapter is translatable when some
-  enabled text offers it. On one that isn't, the panel opens on Citations;
+  enabled text offers *that chapter* — a Church language only once the
+  chapter check (GLOSSARY) found it there. `content.js` runs the check before
+  the panel decides (`translatable: null` while it asks: the stored mode
+  shows, Translation as its loading state); the pure `churchText.chapterOffer`
+  decides from its results. On one that isn't, the panel opens on Citations;
   clicking Translation sets the pure core's per-visit override and shows the
   setup card (Add a Church language, or api.bible setup via
   `OPEN_OPTIONS {section}`). The override never rewrites `panelMode` — until

@@ -142,11 +142,23 @@ The user's preferred panel feature: Translation or Citations. Stored as the
 `panelMode` setting, owned by the panel.
 
 **Translatable** (of a chapter):
-Some enabled text offers it: on a Bible chapter always (the bundled World
-English Bible is always enabled), elsewhere an enabled Church language that
-publishes its volume. `content.js`
-decides it from `churchText.textsFor`; the panel only reads the flag
-(`showChapter({ key, translatable })`).
+Some enabled text offers *this chapter*: on a Bible chapter always (the
+bundled World English Bible is always enabled), elsewhere an enabled Church
+language the **chapter check** found the chapter in. Publishing the volume is
+not enough (a language can lack a chapter of a volume it publishes). The panel
+only reads the flag (`showChapter({ key, translatable })`), `null` while the
+check is still asking.
+
+**Chapter check**:
+Whether an enabled Church language has the chapter, learned by fetching it
+(`churchText.load`) before the panel decides what to show. It walks the texts
+in pick order and fetches only as far as its question needs; a language whose
+volume lacks the chapter is excluded with no fetch, and a Bible row needs none.
+"Found" and "not available" are remembered per language and chapter for the
+tab, so a mode click, a settings change or a resize never fetches again. While
+it runs the panel shows the stored mode (Translation as its loading state).
+The decision over its results is the pure `churchText.chapterOffer`; the
+fetching loop is `content.js`'s `runCheck`.
 
 **Effective mode**:
 The mode actually showing. Equals the mode on a translatable chapter; on any

@@ -15,7 +15,10 @@
  *   showChapter({ key, translatable })  make the panel visible for a
  *                                  chapter. `key` names the chapter;
  *                                  `translatable` is false when no text
- *                                  offers it. Another chapter invalidates
+ *                                  offers it, null while the chapter check
+ *                                  is still asking (the stored mode shows;
+ *                                  settling it keeps the views shown
+ *                                  meanwhile). Another chapter invalidates
  *                                  every cached view; the same one again (a
  *                                  settings change) keeps Citations and the
  *                                  talk and the visit's Translation override,
@@ -148,9 +151,12 @@
   // for the next chapter that has one. `override` is the reader asking for
   // Translation anyway on this visit — the setup card — and it outranks the
   // rest until the chapter changes or Citations is clicked.
+  // `translatable` is null while the chapter check is still asking: the
+  // preference shows meanwhile (Translation as its loading state), so
+  // Citations never paints first and then switches.
   function effectiveMode(s) {
     if (s.override) return 'translation';
-    return s.translatable ? s.mode : 'citations';
+    return s.translatable !== false ? s.mode : 'citations';
   }
 
   // A mode-segment click. True when the effective mode changed (content must
@@ -162,7 +168,7 @@
     const before = effectiveMode(s);
     if (m === before) return false;
     if (m === 'citations') s.override = false;
-    if (s.translatable) s.mode = m;
+    if (s.translatable !== false) s.mode = m;
     else if (m === 'translation') s.override = true;
     return effectiveMode(s) !== before;
   }
@@ -182,27 +188,36 @@
   // language added from the setup card, Bible translations connected in
   // settings), the reader's request for Translation is answered, so it
   // becomes the preference: mode 'translation', override cleared. The caller
-  // persists `mode` when it moved. True when the effective mode flipped.
+  // persists `mode` when it moved. `translatable: null` is the chapter check
+  // still asking; it answers no request until it says true. True when the
+  // effective mode flipped.
   function setChapter(s, chapter) {
     const c = chapter || {};
     const before = effectiveMode(s);
     const key = c.key == null ? null : String(c.key);
     if (key === null || key !== s.chapter) s.override = false;
     s.chapter = key;
-    s.translatable = c.translatable !== false;
-    if (s.override && s.translatable) {
+    s.translatable = translatableOf(c);
+    if (s.override && s.translatable === true) {
       s.mode = 'translation';
       s.override = false;
     }
     return effectiveMode(s) !== before;
   }
 
+  function translatableOf(c) {
+    return c.translatable === null ? null : c.translatable !== false;
+  }
+
   // Whether showing `chapter` leaves every cached view valid: the same chapter
-  // again (a settings change re-renders it) with the same translatability. The
-  // talk and the citation list then keep their filter, open groups and scroll.
+  // again (a settings change re-renders it) with the same translatability, or
+  // the chapter check settling one it left pending (what showed meanwhile is
+  // what it decided). The talk and the citation list then keep their filter,
+  // open groups and scroll.
   function sameChapter(s, chapter) {
     const c = chapter || {};
-    return c.key != null && String(c.key) === s.chapter && (c.translatable !== false) === s.translatable;
+    if (c.key == null || String(c.key) !== s.chapter) return false;
+    return s.translatable === null || translatableOf(c) === s.translatable;
   }
 
   // A text-size step (the header's A− / A+ buttons), along the grid the

@@ -175,6 +175,34 @@ eq(s.override, false, 'a chapter with no key counts as a new one (the override d
 P.setChapter(s, null);
 eq(P.effectiveMode(s), 'translation', 'a missing chapter reads as translatable, override cleared');
 
+// Pending: the chapter check hasn't said yet whether anything offers the
+// chapter (translatable: null). The preference shows meanwhile — Translation
+// as its loading state, Citations as itself — so Citations never paints and
+// then switches.
+console.log('setChapter (chapter check pending):');
+s = fresh();
+P.setChapter(s, { key: 'dc/76', translatable: null });
+eq(P.effectiveMode(s), 'translation', 'Translation preferred, check pending: Translation (its loading state)');
+eq(P.setChapter(s, { key: 'dc/76', translatable: false }), true, '...the check finds nothing: the chapter flips to Citations');
+eq(s.mode, 'translation', '...and the preference is untouched');
+s = fresh({ mode: 'citations' });
+P.setChapter(s, { key: 'dc/76', translatable: null });
+eq(P.effectiveMode(s), 'citations', 'Citations preferred, check pending: Citations at once');
+eq(P.setChapter(s, { key: 'dc/76', translatable: false }), false, '...and the check settling changes nothing');
+s = fresh({ mode: 'citations' });
+P.setChapter(s, { key: 'dc/76', translatable: null });
+eq([P.selectMode(s, 'translation'), s.mode, s.override], [true, 'translation', false],
+  'a Translation click while pending is the preference, not an override');
+// The setup card adds a language: the same chapter again, its check pending.
+s = fresh({ mode: 'citations' });
+P.setChapter(s, { key: 'alma/5', translatable: false });
+P.selectMode(s, 'translation');
+P.setChapter(s, { key: 'alma/5', translatable: null });
+eq([s.mode, s.override, P.effectiveMode(s)], ['citations', true, 'translation'],
+  'a language added from the setup card, check pending: the request stands, not yet the preference');
+P.setChapter(s, { key: 'alma/5', translatable: true });
+eq([s.mode, s.override], ['translation', false], '...found: the request becomes the preference');
+
 // ---- sameChapter ----
 // A settings change re-renders the chapter showing; the views it cached stay
 // valid unless the chapter or whether anything offers it changed.
@@ -186,6 +214,11 @@ eq(P.sameChapter(s, { key: 'john/3' }), true, '...a missing flag reads as transl
 eq(P.sameChapter(s, { key: 'john/4', translatable: true }), false, 'another chapter');
 eq(P.sameChapter(s, { key: 'john/3', translatable: false }), false, 'the same chapter with nothing left to offer');
 eq(P.sameChapter(fresh(), { key: 'john/3' }), false, 'a panel that has shown nothing yet');
+s = fresh();
+P.setChapter(s, { key: 'dc/76', translatable: null });
+eq(P.sameChapter(s, { key: 'dc/76', translatable: false }), true,
+  'the chapter check settling keeps the views shown while it ran (Citations painted once)');
+eq(P.sameChapter(s, { key: 'dc/76', translatable: true }), true, '...either way');
 eq(P.sameChapter(s, null), false, 'no chapter at all');
 
 // ---- View host ----

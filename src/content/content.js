@@ -7,8 +7,11 @@
  *  - manages translation selection and hands the panel each Translation state
  *    (loading, rate-limit wait, error, setup card, beside card, text); the
  *    dropdown's rows, labels and the pick among them are __BTX.churchText's
- *    pure textsFor / menuFor / pickText, the pick walking a most-recently-used
- *    list (btxSelectedTranslation in chrome.storage.local). A rate-limited
+ *    pure textsFor / menuFor / chapterOffer, the pick walking a most-recently-used
+ *    list (btxSelectedTranslation in chrome.storage.local)
+ *  - runs the chapter check (runCheck over churchText.chapterOffer): render
+ *    hands the panel `translatable: null` while it asks, then the answer;
+ *    renderTranslation shows the loading state until the pick is found. A rate-limited
  *    load waits and retries only as panel.retryWait allows, counting its
  *    automatic retries per chapter and version
  *  - writes the cards' picks through __BTX.settings (a Church language added
@@ -69,8 +72,16 @@
   // see pickText.
   let mru = [];
   let selectionRead = null; // the stored list, merged in once (loadSelection)
-  let texts = []; // the rows the current chapter offers (textsFor)
-  let activeId = null; // the row showing now (pickText)
+  let texts = []; // the rows the current chapter may show: textsFor, minus those the chapter check found lacking it
+  let activeId = null; // the row showing now (chapterOffer's pick)
+  // The chapter check: checks that failed (not "not available") for the
+  // chapter showing, `${lang}|${uri}` -> 'error', so a pass doesn't re-ask
+  // them; cleared with each new chapter. "Found" and "not available" live in
+  // churchText for the tab.
+  let checkErrors = new Map();
+  let renderSeq = 0; // numbers each render, so a stale chapter check lands nowhere
+  let pendingCheck = null; // the check deciding whether anything offers the chapter showing
+  let transToken = 0; // numbers each renderTranslation, so a stale one stops
   let splitToken = 0; // guards the page split against stale chapter loads
   let current = null; // parsed location
   let reqToken = 0; // guards against stale responses
@@ -168,6 +179,42 @@
     return forceShow || e.actOnNonEngOnly === false || parsed.lang === 'eng';
   }
 
+  // ---- The chapter check ----------------------------------------------------
+  // A Church language offers a chapter only once its chapter is fetched and
+  // found (churchText.chapterOffer decides from the results so far). `rows`
+  // are textsFor's. Ordered by the reader's picks: the check walks them as
+  // pickText would and stops where its question is answered.
+  function offerFor(parsed, rows) {
+    const langs = rows.filter((r) => r.provider === churchText.PROVIDER).map((r) => r.lang);
+    const results = churchText.checked(parsed, langs);
+    const uri = churchText.chapterUri(parsed);
+    for (const lang of langs) {
+      if (!results[lang] && checkErrors.has(`${lang}|${uri}`)) results[lang] = 'error';
+    }
+    return churchText.chapterOffer({ texts: rows, results, preferredIds: mru.concat(enabled ? enabled.defaultId : []) });
+  }
+
+  // Fetch the next language chapterOffer names until `answered(offer)`.
+  // `stale()` true -> the reader moved on: resolves null. Each fetch is
+  // churchText.load's, so the panel's text shares it, and a language found
+  // lacking the chapter is never fetched for it again in this tab.
+  async function runCheck(parsed, rows, answered, stale) {
+    for (;;) {
+      const offer = offerFor(parsed, rows);
+      if (answered(offer)) return offer;
+      const res = await churchText.load(parsed, offer.next);
+      if (stale()) return null;
+      if (!res || (res.error && res.error.code !== C.ERR.NOT_FOUND)) {
+        checkErrors.set(`${offer.next}|${churchText.chapterUri(parsed)}`, 'error');
+      }
+    }
+  }
+
+  // The panel's brief loading state, while the check fetches.
+  function showChecking() {
+    return panel.showView({ name: 'translation', key: 'checking', render: () => panel.showTranslation({ kind: 'loading' }) });
+  }
+
   // Merge the stored list in behind any pick made before it was read, once.
   function loadSelection() {
     if (!selectionRead) {
@@ -210,6 +257,7 @@
     if (key !== shownChapter) {
       // A talk stays open across a settings change, not across chapters.
       openEntry = null;
+      checkErrors = new Map();
       // The split's per-id rules would land on the incoming chapter's
       // elements before its text arrives. (The same chapter again keeps it:
       // syncSplit replaces it only if the settings changed what it shows.)
@@ -227,10 +275,28 @@
     }
 
     // Translatable = some text offers this chapter: an enabled api.bible
-    // translation (Bible only) or a Church language publishing its volume.
-    texts = textsForChapter(parsed, e);
-    panel.showChapter({ key, translatable: texts.length > 0 });
+    // translation (Bible only), or a Church language the chapter check found
+    // it in. Until the check knows, the panel shows the stored mode
+    // (Translation as its loading state), then adopts the answer — and
+    // re-renders only if that changed the mode showing.
+    await loadSelection();
+    const seq = ++renderSeq;
+    const rows = textsForChapter(parsed, e);
+    const offer = offerFor(parsed, rows);
+    texts = offer.texts.filter((t) => t.offered !== false);
+    pendingCheck = null;
+    panel.showChapter({ key, translatable: offer.translatable });
     if (themeMirror) themeMirror.refresh(); // the panel is on screen: theme it now
+    if (offer.translatable === null) {
+      const stale = () => seq !== renderSeq;
+      pendingCheck = runCheck(parsed, rows, (o) => o.translatable !== null, stale).then((o) => {
+        if (!o || stale()) return;
+        pendingCheck = null;
+        const before = panel.effectiveMode();
+        panel.showChapter({ key, translatable: o.translatable });
+        if (panel.effectiveMode() !== before) renderActiveMode();
+      });
+    }
 
     await renderActiveMode();
   }
@@ -311,8 +377,27 @@
     // The user can toggle to Citations while that resolves; mounting a
     // translation view now would paint over the citations they asked for.
     if (panel.effectiveMode() !== 'translation') return;
-    const list = texts = textsForChapter(current, e);
-    if (!list.length) {
+    await loadSelection();
+    const token = ++transToken;
+    const parsed = current;
+    const stale = () => token !== transToken || current !== parsed || panel.effectiveMode() !== 'translation';
+    if (stale()) return;
+    const rows = textsForChapter(parsed, e);
+    let offer = offerFor(parsed, rows);
+    if (offer.next) {
+      // The chapter check isn't done: the loading state, then the text the
+      // reader picked last that the chapter is found in. A text still loading
+      // for the previous pick must not land on the loading state.
+      ++reqToken;
+      clearTimeout(retryTimer);
+      showChecking();
+      if (pendingCheck) await pendingCheck; // it may flip the panel to Citations
+      if (stale()) return;
+      offer = await runCheck(parsed, rows, (o) => !o.next, stale);
+      if (!offer) return;
+    }
+    const list = texts = offer.texts.filter((t) => t.offered !== false);
+    if (!offer.pick) {
       // Nothing left to show, so nothing in flight may land here either: a load
       // started for a row that has just gone would paint over this state (and
       // be cached under its key).
@@ -338,8 +423,7 @@
         });
       } });
     }
-    await loadSelection();
-    activeId = churchText.pickText(list, mru.concat(e.defaultId));
+    activeId = offer.pick;
     panel.populateTranslations(churchText.menuFor(list), activeId);
     syncSplit({ anchor: splitAnchor() }); // another version may bring the split or take it away
     // Same chapter and same version -> the panel re-mounts what it has, and

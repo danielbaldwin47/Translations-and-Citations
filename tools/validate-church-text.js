@@ -5,7 +5,8 @@
  *   node tools/validate-church-text.js
  *
  * Covers the pure core: which texts a chapter offers and which one shows
- * (textsFor / pickText), where a chapter lives (chapterUri / apiUrl), and the
+ * (textsFor / pickText), which texts the chapter check found it in
+ * (chapterOffer), where a chapter lives (chapterUri / apiUrl), and the
  * markup rule that turns the site's chapter HTML into translation IR
  * (chapterFrom). The fixtures are trimmed copies of real responses from
  * /study/api/v3/language-pages/type/content; a tiny parser below builds the
@@ -111,6 +112,56 @@ eq(T.pickText(churchOnly, ['niv', 'niv']), 'church:' + L1.code,
   'a Bible version preferred on a Book of Mormon chapter falls back to a Church language...');
 eq(T.pickText(list, ['niv']), 'niv', '...and is still the pick back on a Bible chapter (the preference was not rewritten)');
 eq(T.pickText([], ['niv']), null, 'an empty list picks nothing');
+
+console.log('chapterOffer:');
+{
+  // Kiribati publishes the Doctrine and Covenants but not section 76; the
+  // chapter check fetched it and found nothing there.
+  const dc = T.textsFor({ isBible: false, collection: 'dc-testament', languages: ['gil', 'spa'], pageLang: 'eng' });
+  const kirOnly = dc.filter((r) => r.lang === 'gil');
+  const offer = (texts, results, preferredIds) => T.chapterOffer({ texts, results, preferredIds });
+  const offered = (o) => o.texts.map((r) => [r.id, r.offered]);
+
+  let o = offer(kirOnly, {}, []);
+  eq([o.next, o.pick, o.translatable], ['gil', null, null], 'Kiribati alone, unchecked: check Kiribati; nothing is decided yet');
+  eq(offered(o), [['church:gil', null]], '...and its row is marked not yet checked');
+  o = offer(kirOnly, { gil: 'unavailable' }, []);
+  eq([o.next, o.pick, o.translatable], [null, null, false], 'Kiribati lacks D&C 76: the chapter is not translatable');
+  eq(offered(o), [['church:gil', false]], '...its row is marked not offered');
+
+  const mru = ['church:gil', 'church:spa'];
+  o = offer(dc, {}, mru);
+  eq(o.next, 'gil', 'Kiribati and Español, Kiribati picked last: Kiribati is checked first (pick order)');
+  o = offer(dc, { gil: 'unavailable' }, mru);
+  eq([o.next, o.pick, o.translatable], ['spa', null, null], '...missing there, Español is checked next');
+  o = offer(dc, { gil: 'unavailable', spa: 'found' }, mru);
+  eq([o.next, o.pick, o.translatable], [null, 'church:spa', true], '...found there, Español shows');
+  eq(offered(o), [['church:gil', false], ['church:spa', true]], '...each text marked offered or not');
+  o = offer(dc, { spa: 'found' }, ['church:spa', 'church:gil']);
+  eq([o.next, o.pick, o.translatable], [null, 'church:spa', true],
+    'Español picked last and found: no need to check Kiribati at all');
+  eq(offered(o), [['church:gil', null], ['church:spa', true]], '...Kiribati stays not yet checked');
+  o = offer(dc, { gil: 'error' }, mru);
+  eq([o.next, o.pick, o.translatable], [null, 'church:gil', true],
+    'a check that failed (network) counts as offered, so the panel says why it failed');
+
+  // A Bible chapter: the bundled Bible always offers it.
+  const WEB = { id: C.BUNDLED_BIBLE.id, provider: C.BUNDLED_BIBLE.provider, abbr: 'WEB', name: 'World English Bible' };
+  const john = T.textsFor({ isBible: true, collection: 'nt', bibleRows: [WEB], languages: ['spa'], pageLang: 'eng' });
+  o = offer(john, {}, []);
+  eq([o.next, o.pick, o.translatable], [null, WEB.id, true], 'John 3, the Bible preferred: no check at all');
+  eq(offered(o), [[WEB.id, true], ['church:spa', null]], '...a Bible row is offered without a check');
+  o = offer(john, {}, ['church:spa']);
+  eq([o.next, o.pick, o.translatable], ['spa', null, true],
+    'John 3, Español picked last: translatable already, but Español is checked before it can show');
+  o = offer(john, { spa: 'unavailable' }, ['church:spa']);
+  eq([o.next, o.pick], [null, WEB.id], '...and a missing Español falls back to the Bible');
+
+  o = offer([], {}, ['church:spa']);
+  eq([o.next, o.pick, o.translatable], [null, null, false], 'no texts at all: nothing to check, not translatable');
+  o = T.chapterOffer({});
+  eq([o.next, o.pick, o.translatable, o.texts], [null, null, false, []], 'no inputs, nothing offered');
+}
 
 console.log('mruFrom / rememberPick:');
 eq(T.mruFrom('niv'), ['niv'], 'a single stored id (before the list existed) becomes a one-item list');

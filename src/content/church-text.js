@@ -14,6 +14,15 @@
  *       the first preferred id the list offers, else the list's first row.
  *       The caller's preference is never rewritten by a fallback, which is
  *       what lets a Bible version survive a detour through the Book of Mormon.
+ *     chapterOffer({ texts, results, preferredIds })
+ *         -> { texts: [row + { offered }], pick, next, translatable }
+ *       the chapter check's decision (GLOSSARY): a Church row offers the
+ *       chapter only once found there (`results[lang]` 'found' | 'unavailable'
+ *       | 'error', absent = not checked; 'error' counts as offered so the
+ *       panel's error card says why). Walks pickText's order and stops at the
+ *       first offered row (`pick`) or the first unchecked one (`next`, the
+ *       language to fetch, then ask again). `offered` and `translatable` are
+ *       true / false / null (null = not checked yet).
  *     mruFrom(stored) / rememberPick(mru, id) -> [id]
  *       the preference itself: the reader's picks, newest first (MRU_MAX),
  *       migrated from the single id older versions stored.
@@ -40,7 +49,11 @@
  *       contents page — the endpoint answers a missing book or chapter with
  *       the volume's or book's contents, whose `data-uri` (…/_manifest,
  *       …/_contents) differs from the one asked for. Verses aren't required:
- *       the Official Declarations have none. Results are cached per tab.
+ *       the Official Declarations have none. Results are cached per tab, and
+ *       NOT_FOUND is remembered for the tab: never fetched twice.
+ *     checked(parsed, langs) -> { [lang]: 'found' | 'unavailable' }
+ *       what load has learned about this chapter in this tab, as
+ *       chapterOffer's `results`
  *
  * chapterFrom(root, meta) is the markup rule, pure over a minimal node
  * interface (nodeType, tagName, childNodes, getAttribute, nodeValue) so Node
@@ -121,6 +134,42 @@
       if (id && rows.some((t) => t.id === id)) return id;
     }
     return rows.length ? rows[0].id : null;
+  }
+
+  // ---- Which texts offer this chapter (the chapter check's decision) ---------
+  // A Church language offers a chapter only once the chapter check found it
+  // there; a Bible row (bundled or api.bible) offers it without a check.
+  // `results` maps a language to what its check said — 'found', 'unavailable'
+  // (the language lacks the chapter), or 'error' (the check failed: offered, so
+  // the panel's error card says why) — and lacks the languages not checked yet.
+  // The rows are walked in pickText's order, and checking stops at the first
+  // one that offers the chapter:
+  //   -> { texts: [row + { offered: true | false | null }],   null = not checked yet
+  //        pick: id | null,                 pickText over the offered rows, once settled
+  //        next: lang | null,               the language to check next; null = settled
+  //        translatable: true | false | null }   null = unknown until `next` is checked
+  function chapterOffer(opts) {
+    const o = opts || {};
+    const results = o.results || {};
+    const offeredBy = (row) => {
+      if (row.provider !== PROVIDER) return true;
+      const r = Object.prototype.hasOwnProperty.call(results, row.lang) ? results[row.lang] : undefined;
+      if (r === undefined) return null;
+      return r !== 'unavailable';
+    };
+    const texts = (Array.isArray(o.texts) ? o.texts : []).map((row) => Object.assign({}, row, { offered: offeredBy(row) }));
+    const preferred = (o.preferredIds || []).filter((id) => texts.some((t) => t.id === id));
+    const order = preferred.concat(texts.map((t) => t.id).filter((id) => preferred.indexOf(id) < 0));
+    let pick = null;
+    let next = null;
+    for (const id of order) {
+      const row = texts.find((t) => t.id === id);
+      if (row.offered === true) { pick = id; break; }
+      if (row.offered === null) { next = row.lang; break; }
+    }
+    const translatable = texts.some((t) => t.offered === true) ? true
+      : (texts.some((t) => t.offered === null) ? null : false);
+    return { texts, pick, next, translatable };
   }
 
   // ---- What the reader picked, most recent first ------------------------------
@@ -370,7 +419,7 @@
   }
 
   const CORE = {
-    PROVIDER, ID_PREFIX, MRU_MAX, rowFor, textsFor, pickText, mruFrom, rememberPick, labelFor, menuFor, languagesToAdd,
+    PROVIDER, ID_PREFIX, MRU_MAX, rowFor, textsFor, pickText, chapterOffer, mruFrom, rememberPick, labelFor, menuFor, languagesToAdd,
     chapterUri, apiUrl, chapterFrom, blockElements, servesChapter, dirOf,
   };
 
@@ -383,6 +432,11 @@
   const CACHE_MAX = 40;
   const cache = new Map(); // `${lang}|${uri}` -> chapter, oldest first
   const inFlight = new Map(); // `${lang}|${uri}` -> pending load, shared by concurrent callers
+  // What the chapter check learned this tab, `${lang}|${uri}` -> 'found' |
+  // 'unavailable'. Unbounded but tiny; never evicted, so a language that lacks
+  // a chapter is fetched for it once per tab, and one that has it is known to
+  // even after `cache` evicted its text.
+  const known = new Map();
 
   function err(code, message) {
     return { error: { code, message: message || code } };
@@ -394,6 +448,7 @@
     const uri = chapterUri(parsed);
     const key = `${lang}|${uri}`;
     if (cache.has(key)) return Promise.resolve(cache.get(key));
+    if (known.get(key) === 'unavailable') return Promise.resolve(err(ERR.NOT_FOUND));
     if (!inFlight.has(key)) {
       inFlight.set(key, fetchChapter(uri, lang, key).finally(() => inFlight.delete(key)));
     }
@@ -401,29 +456,43 @@
   }
 
   async function fetchChapter(uri, lang, key) {
+    const missing = () => { known.set(key, 'unavailable'); return err(ERR.NOT_FOUND); };
     let res;
     try { res = await fetch(apiUrl(lang, uri), { credentials: 'omit' }); }
     catch (e) { return err(ERR.NETWORK, String(e)); }
-    if (res.status === 404) return err(ERR.NOT_FOUND);
+    if (res.status === 404) return missing();
     if (!res.ok) return err(ERR.UNKNOWN, `HTTP ${res.status}`);
 
     let json;
     try { json = await res.json(); } catch (e) { return err(ERR.UNKNOWN, 'Unreadable response'); }
     const body = json && json.content && json.content.body;
-    if (typeof body !== 'string') return err(ERR.NOT_FOUND);
+    if (typeof body !== 'string') return missing();
 
     // An inert document: DOMParser runs no scripts and loads no resources, and
     // only text is read back out of it.
     const doc = new DOMParser().parseFromString(body, 'text/html');
     const chapter = chapterFrom(doc.body, json.meta);
-    if (!servesChapter(chapter, uri)) return err(ERR.NOT_FOUND);
+    if (!servesChapter(chapter, uri)) return missing();
 
+    known.set(key, 'found');
     cache.set(key, chapter);
     while (cache.size > CACHE_MAX) cache.delete(cache.keys().next().value);
     return chapter;
   }
 
+  // The chapter check's results for `parsed` so far, as chapterOffer reads
+  // them: { [lang]: 'found' | 'unavailable' }, languages not checked absent.
+  function checked(parsed, langs) {
+    const uri = chapterUri(parsed);
+    const out = {};
+    for (const lang of langs || []) {
+      const r = known.get(`${lang}|${uri}`);
+      if (r) out[lang] = r;
+    }
+    return out;
+  }
+
   root.__BTX = Object.assign(root.__BTX || {}, {
-    churchText: Object.assign({}, CORE, { load }),
+    churchText: Object.assign({}, CORE, { load, checked }),
   });
 })(typeof globalThis !== 'undefined' ? globalThis : this);
