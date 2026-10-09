@@ -6,21 +6,40 @@
  *  - points the theme module at the panel root (it owns keeping it in sync)
  *  - manages translation selection and hands the panel each Translation state
  *    (loading, rate-limit wait, error, setup card, beside card, text); the
- *    dropdown's rows, labels and the pick among them are __BTX.churchText's
- *    pure textsFor / menuFor / pickText, the pick walking a most-recently-used
- *    list (btxSelectedTranslation in chrome.storage.local). A rate-limited
+ *    dropdown's rows and labels are __BTX.churchText's pure textsFor /
+ *    menuFor, and the row shown is the arrangement's, walking a
+ *    most-recently-used list (C.SELECTION_KEY in chrome.storage.local). The options page writes
+ *    it too (a Church language ticked there leads) and this tab adopts that
+ *    write through storage.onChanged
+ *  - describes the chapter to the panel's arrangement (factsFor: the texts
+ *    chapterOffer marked offered, the pick memory, the enabled languages, the
+ *    split layout) wherever one of those moves, and applies its answer: the
+ *    mode, body and note showing are the arrangement's, never decided here
+ *  - applies the arrangement's note to the panel's note slot (applyNote, after
+ *    every mode render and wherever the arrangement moves: it names the
+ *    language and the chapter) and writes the no-translation line's dismissal
+ *    (noTranslationLineDismissed) through __BTX.settings
+ *  - runs the chapter check (runCheck over churchText.chapterOffer) while the
+ *    arrangement answers `loading`, then arranges again; once the
+ *    Translation tab settles, checks the languages left (checkRest) so the
+ *    dropdown drops rows lacking the chapter. A rate-limited
  *    load waits and retries only as panel.retryWait allows, counting its
  *    automatic retries per chapter and version
  *  - writes the cards' picks through __BTX.settings (a Church language added
- *    from the setup card, the beside card's layout) and renders them itself,
- *    since its settings subscriber skips its own writes
- *  - keeps the page split (__BTX.pageSplit) in step with Translation mode; a
- *    new chapter drops it, a same-chapter re-render keeps it unless what it
- *    shows changed, and bringing it or taking it away keeps the paragraph at
- *    the top of the screen in place
+ *    from the setup card, the layout control's layout) and renders them
+ *    itself, since its settings subscriber skips its own writes; a layout
+ *    pick that names a row (the panel's layoutChoice) also goes to the front
+ *    of the pick memory
+ *  - keeps the page split (__BTX.pageSplit) on the arrangement's page's
+ *    language, in either mode (syncSplit), running the chapter check for it
+ *    when the arrangement names one unchecked (`pageNext`), in Citations too,
+ *    without holding up the panel body; a new chapter drops the split, a
+ *    same-chapter re-render keeps it unless what it shows changed, and
+ *    bringing it or taking it away keeps the paragraph at the top of the
+ *    screen in place
  *  - Citations: builds the list opened at the verse being read (readingVerse:
  *    only in the article of the chapter being rendered, read before the split
- *    goes), moves that verse's mark as the page scrolls (citPanel.markVerse,
+ *    comes or goes), moves that verse's mark as the page scrolls (citPanel.markVerse,
  *    By verse only), and brings a list re-mounted by a mode switch to that
  *    verse when the reader has moved on (citPanel.revealVerse). An open talk
  *    (openEntry) survives a trip to Translation under its stored view key; a
@@ -53,8 +72,6 @@
   const churchText = root.__BTX.churchText;
   const pageSplit = root.__BTX.pageSplit;
 
-  const SELECTION_KEY = 'btxSelectedTranslation';
-
   // Settings the panel reacts to by itself (owning some, e.g. panelMode, and
   // applying others, e.g. sidebarWidth). A change touching only these never
   // needs the orchestrator's full re-render — the panel adopts it and fires
@@ -63,14 +80,20 @@
   const PANEL_KEYS = panel.HANDLED_KEYS;
 
   let enabled = null; // { translations, churchLanguages, churchLanguageLayout, defaultId, provider, hasKey, actOnNonEngOnly }
-  // What the reader last picked, newest first (persisted under SELECTION_KEY).
+  // What the reader last picked, newest first (persisted under C.SELECTION_KEY).
   // A preference, not what is showing: a chapter that doesn't offer the newest
   // pick shows the newest one it does, or a fallback, and rewrites nothing —
   // see pickText.
   let mru = [];
   let selectionRead = null; // the stored list, merged in once (loadSelection)
-  let texts = []; // the rows the current chapter offers (textsFor)
-  let activeId = null; // the row showing now (pickText)
+  let texts = []; // the rows the current chapter may show: textsFor, minus those the chapter check found lacking it
+  let activeId = null; // the row showing now (chapterOffer's pick)
+  // The chapter check: the churchText.checkKeys whose check failed (network,
+  // not "not available") for the chapter showing, so a pass doesn't re-ask
+  // them; cleared with each new chapter. "Found" and "not available" live in
+  // churchText for the tab.
+  let failedChecks = new Set();
+  let transToken = 0; // numbers each renderTranslation, so a stale one stops
   let splitToken = 0; // guards the page split against stale chapter loads
   let current = null; // parsed location
   let reqToken = 0; // guards against stale responses
@@ -84,6 +107,7 @@
   let themeMirror = null; // theme.mirror handle — the theme module keeps the panel in sync
   let currentKey = null; // dedupes repeat navigation events for the same chapter
   let shownChapter = null; // the chapter last shown (currentKey is reset to force a re-render)
+  let arrangedKey = null; // the chapter the panel's arrangement describes (render's showChapter)
   // The talk open in Citations mode, re-opened when Citations comes back; the
   // list's layout when it was built (another layout asks for the list).
   let openEntry = null;
@@ -168,10 +192,106 @@
     return forceShow || e.actOnNonEngOnly === false || parsed.lang === 'eng';
   }
 
+  // ---- The chapter check ----------------------------------------------------
+  // A Church language offers a chapter only once its chapter is fetched and
+  // found (churchText.chapterOffer decides from the results so far). `rows`
+  // are textsFor's. Ordered by the reader's picks: the check walks them as
+  // pickText would and stops where its question is answered.
+  function offerFor(parsed, rows) {
+    const langs = rows.filter((r) => r.provider === churchText.PROVIDER).map((r) => r.lang);
+    const results = churchText.checkResults(parsed, langs, failedChecks);
+    return churchText.chapterOffer({ texts: rows, results, preferredIds: preferredIds() });
+  }
+
+  // The pick memory as both walks read it: the chapter check, and the panel's
+  // arrangement (so they settle on the same row).
+  function preferredIds() {
+    return mru.concat(enabled ? enabled.defaultId : []);
+  }
+
+  // What the panel's arrangement needs to know about the chapter showing,
+  // besides its own stored mode and this visit's click.
+  function factsFor(e, offer) {
+    return {
+      texts: offer.texts, picks: preferredIds(), languages: e.churchLanguages, layout: placement(),
+      dismissed: e.noTranslationLineDismissed === true,
+    };
+  }
+
+  // A fact about the chapter showing moved (a pick, the layout, the
+  // dismissal, a check): the panel arranges it again from what this tab knows,
+  // fetching nothing.
+  function rearrange() {
+    return panel.arrange(factsFor(enabled, offerFor(current, textsForChapter(current, enabled))));
+  }
+
+  // The arrangement's note, handed to the panel's note slot with the
+  // language's row and the chapter as the reader names it (the panel's
+  // noteCopy words it), and the split layout the beside-the-page line's
+  // Change control presses. The panel renders the line above the view it
+  // belongs to and shows it only while that view is mounted, so this runs
+  // after every mode render and wherever the arrangement moves (a render with
+  // no note clears the slot).
+  function applyNote() {
+    const a = panel.arrangement();
+    const row = a.note && current ? churchText.rowFor(a.noteLang) : null;
+    if (!row) { panel.setNote(null); return; }
+    panel.setNote({ kind: a.note, row, chapter: chapterLabel(current), layout: placement() });
+  }
+
+  // The line's ×: dismissed for good, on every computer (a synced setting).
+  function dismissNote() {
+    if (enabled) enabled = Object.assign({}, enabled, { noTranslationLineDismissed: true });
+    SETTINGS.patch({ noTranslationLineDismissed: true });
+    if (!current || !enabled) return;
+    rearrange();
+    applyNote();
+  }
+
+  // Fetch the language `question(offer)` names until it names none, then
+  // resolve the offer. `stale()` true -> the reader moved on: resolves null.
+  // Each fetch is churchText.load's, so the panel's text shares it, and a
+  // language found lacking the chapter is never fetched for it again in this
+  // tab.
+  async function runCheck(parsed, rows, question, stale) {
+    for (;;) {
+      const offer = offerFor(parsed, rows);
+      const lang = question(offer);
+      if (!lang) return offer;
+      const res = await churchText.load(parsed, lang);
+      if (stale()) return null;
+      if (!res || (res.error && res.error.code !== C.ERR.NOT_FOUND)) failedChecks.add(churchText.checkKey(parsed, lang));
+    }
+  }
+
+  // The dropdown lists the languages the check hasn't reached. Once the
+  // Translation tab has settled, ask the rest (chapterOffer's `unchecked`) so
+  // a row lacking the chapter drops out of it. Each fetch is churchText.load's:
+  // a pick of a row still being asked waits on the same request, and what is
+  // learned is the tab's. A failed fetch leaves its row in, unchecked: a pick
+  // asks again. `stale()`: renderTranslation's, true once another render
+  // overtook the one that asked.
+  async function checkRest(parsed, e, stale) {
+    const rows = textsForChapter(parsed, e);
+    const pending = offerFor(parsed, rows).unchecked;
+    if (!pending.length) return;
+    await Promise.all(pending.map((lang) => churchText.load(parsed, lang)));
+    if (stale()) return; // another Translation render asks again, sharing these loads
+    const offer = offerFor(parsed, rows);
+    if (panel.arrange(factsFor(e, offer)).body === 'setup') return;
+    texts = offer.texts.filter((t) => t.offered !== false);
+    panel.populateTranslations(churchText.menuFor(texts, { isBible: parsed.isBible !== false }), activeId);
+  }
+
+  // The panel's brief loading state, while the check fetches.
+  function showChecking() {
+    return panel.showView({ name: 'translation', key: 'checking', render: () => panel.showTranslation({ kind: 'loading' }) });
+  }
+
   // Merge the stored list in behind any pick made before it was read, once.
   function loadSelection() {
     if (!selectionRead) {
-      selectionRead = getStored(SELECTION_KEY).then((stored) => {
+      selectionRead = getStored(C.SELECTION_KEY).then((stored) => {
         mru = churchText.mruFrom(mru.concat(churchText.mruFrom(stored)));
       });
     }
@@ -184,7 +304,7 @@
   function remember(id) {
     mru = churchText.rememberPick(mru, id);
     loadSelection().then(() => {
-      try { chrome.storage.local.set({ [SELECTION_KEY]: mru }); } catch (e) { /* ignore */ }
+      try { chrome.storage.local.set({ [C.SELECTION_KEY]: mru }); } catch (e) { /* ignore */ }
     });
   }
 
@@ -203,13 +323,14 @@
 
     // Skip spurious events (e.g. verse-anchor hashchange) for the same chapter.
     // Panel-initiated changes arrive via renderMode instead, bypassing this.
-    const key = `${parsed.collection}/${parsed.ldsBook}/${parsed.chapter}/${parsed.lang}`;
+    const key = chapterKey(parsed);
     if (key === currentKey) return;
     currentKey = key;
     clearTimeout(retryTimer);
     if (key !== shownChapter) {
       // A talk stays open across a settings change, not across chapters.
       openEntry = null;
+      failedChecks = new Set();
       // The split's per-id rules would land on the incoming chapter's
       // elements before its text arrives. (The same chapter again keeps it:
       // syncSplit replaces it only if the settings changed what it shows.)
@@ -226,10 +347,15 @@
       return;
     }
 
-    // Translatable = some text offers this chapter: an enabled api.bible
-    // translation (Bible only) or a Church language publishing its volume.
-    texts = textsForChapter(parsed, e);
-    panel.showChapter({ key, translatable: texts.length > 0 });
+    // The panel arranges itself from what is known so far (the chapter
+    // check's results this tab): a text not checked yet in the way of the
+    // pick is Translation's loading state, and renderTranslation runs the
+    // check before anything else shows.
+    await loadSelection();
+    const offer = offerFor(parsed, textsForChapter(parsed, e));
+    texts = offer.texts.filter((t) => t.offered !== false);
+    panel.showChapter(Object.assign({ key }, factsFor(e, offer)));
+    arrangedKey = key;
     if (themeMirror) themeMirror.refresh(); // the panel is on screen: theme it now
 
     await renderActiveMode();
@@ -240,11 +366,17 @@
   // the list as it was).
   function renderActiveMode(opts) {
     if (!current) return undefined;
+    const out = renderModeBody(opts);
+    applyNote();
+    return out;
+  }
+
+  function renderModeBody(opts) {
     if (panel.effectiveMode() === 'citations') {
-      // Read before the split goes: taking it away reflows the page (and
+      // Read before the split comes or goes: either reflows the page (and
       // keeps the reader's place on screen).
       const paragraph = readingParagraph();
-      syncSplit({ anchor: splitAnchor() }); // the split belongs to Translation mode
+      syncSplit({ anchor: splitAnchor() }); // the page's language stays; a new chapter's arrives
       // A talk left open comes back where it was left — unless the reader has
       // since picked another citation layout, which asks for the list.
       if (panel.citationView() !== citViewShown) openEntry = null;
@@ -258,32 +390,50 @@
     return `${citKey(parsed)}|${row.lang}|${layout}`;
   }
 
-  // The page split follows Translation mode: it shows while the active row is a
-  // Church language whose layout is in-page, and goes with everything else —
-  // Citations, an api.bible version, the panel closed, the page left. Called
-  // wherever one of those inputs moves; pageSplit.show is a no-op for the key
-  // already showing. `anchor`: the paragraph to keep in place while the split
-  // comes or goes (splitAnchor).
+  function chapterKey(parsed) {
+    return `${parsed.collection}/${parsed.ldsBook}/${parsed.chapter}/${parsed.lang}`;
+  }
+
+  // The page split shows the arrangement's page language, in either mode: the
+  // first Church language in pick order that offers the chapter, while the
+  // split layout is in-page. It goes when there is none, when the chapter
+  // doesn't show (another language's page the preference hides, the page
+  // left). Called wherever one of those inputs moves; pageSplit.show is a
+  // no-op for the key already showing. While a language in the way is not
+  // checked yet (`pageNext`), the chapter check asks for it first — in
+  // Citations too, where nothing else runs it; the panel's body never waits
+  // on it. `anchor`: the paragraph to keep in place while the split comes or
+  // goes (splitAnchor).
   async function syncSplit(opts) {
+    const anchor = opts && opts.anchor;
+    const token = ++splitToken;
+    const parsed = current;
     const e = enabled;
-    const row = findTranslation(activeId);
-    const layout = e && e.churchLanguageLayout;
-    const want = pageSplit.wantsSplit({
-      visible: !!current && !!e && showsOn(current, e),
-      mode: panel.effectiveMode(),
-      row,
-      layout,
-    });
-    if (!want) {
-      ++splitToken;
-      pageSplit.hide({ anchor: opts && opts.anchor });
+    if (!parsed || !e || !showsOn(parsed, e)) {
+      pageSplit.hide({ anchor });
       return;
     }
-    const parsed = current;
-    const anchor = opts && opts.anchor;
+    // render() hasn't described this chapter to the panel yet: it syncs
+    // once it has (a new chapter dropped the split already).
+    if (arrangedKey !== chapterKey(parsed)) return;
+    let a = panel.arrangement();
+    if (a.pageNext) {
+      const stale = () => token !== splitToken || !current || chapterKey(current) !== chapterKey(parsed);
+      const rows = textsForChapter(parsed, e);
+      // Asked of the pure arrangement: nothing is stored until the check settles.
+      const offer = await runCheck(parsed, rows, (o) => panel.arrangement(factsFor(e, o)).pageNext, stale);
+      if (!offer) return;
+      a = panel.arrange(factsFor(e, offer));
+      applyNote(); // the page's language is known now: the line beside a Bible version names it
+    }
+    const row = a.page ? churchText.rowFor(a.page.slice(churchText.ID_PREFIX.length)) : null;
+    const layout = placement();
+    if (!pageSplit.wantsSplit({ visible: true, row, layout })) {
+      pageSplit.hide({ anchor });
+      return;
+    }
     const key = splitKey(parsed, row, layout);
     if (pageSplit.currentKey() === key) return;
-    const token = ++splitToken;
     const res = await churchText.load(parsed, row.lang);
     if (token !== splitToken) return;
     if (!res || res.error) { pageSplit.hide(); return; } // the panel card says why
@@ -311,8 +461,30 @@
     // The user can toggle to Citations while that resolves; mounting a
     // translation view now would paint over the citations they asked for.
     if (panel.effectiveMode() !== 'translation') return;
-    const list = texts = textsForChapter(current, e);
-    if (!list.length) {
+    await loadSelection();
+    const token = ++transToken;
+    const parsed = current;
+    const stale = () => token !== transToken || current !== parsed || panel.effectiveMode() !== 'translation';
+    if (stale()) return;
+    const rows = textsForChapter(parsed, e);
+    let offer = offerFor(parsed, rows);
+    let shown = panel.arrange(factsFor(e, offer));
+    if (shown.body === 'loading') {
+      // The chapter check isn't done: the loading state, then what the
+      // arrangement makes of its answer. A text still loading for the
+      // previous pick must not land on the loading state.
+      ++reqToken;
+      clearTimeout(retryTimer);
+      showChecking();
+      offer = await runCheck(parsed, rows, (o) => o.next, stale);
+      if (!offer) return;
+      shown = panel.arrange(factsFor(e, offer));
+    }
+    applyNote(); // the beside-the-page line comes with a Bible version, goes with anything else
+    // Nothing offers the chapter and Church languages are on: Citations.
+    if (shown.mode !== 'translation') return renderActiveMode();
+    const list = texts = offer.texts.filter((t) => t.offered !== false);
+    if (shown.body === 'setup') {
       // Nothing left to show, so nothing in flight may land here either: a load
       // started for a row that has just gone would paint over this state (and
       // be cached under its key).
@@ -321,8 +493,8 @@
       activeId = null;
       syncSplit();
       panel.populateTranslations([], '');
-      // Nothing offers the chapter, and the reader asked for Translation: the
-      // setup card (never cached — the panel re-renders it every time).
+      // Nothing offers the chapter, and the arrangement says the setup card
+      // (never cached — the panel re-renders it every time).
       const bible = current.isBible === false ? null
         : (e.hasKey ? 'noversions' : 'nokey');
       return panel.showView({ name: 'translation', key: 'setup', render: () => {
@@ -338,10 +510,10 @@
         });
       } });
     }
-    await loadSelection();
-    activeId = churchText.pickText(list, mru.concat(e.defaultId));
-    panel.populateTranslations(churchText.menuFor(list), activeId);
+    activeId = shown.text;
+    panel.populateTranslations(churchText.menuFor(list, { isBible: current.isBible !== false }), activeId);
     syncSplit({ anchor: splitAnchor() }); // another version may bring the split or take it away
+    checkRest(parsed, e, stale);
     // Same chapter and same version -> the panel re-mounts what it has, and
     // loadChapter never runs.
     return panel.showView({ name: 'translation', key: transKey(), render: () => loadChapter() });
@@ -352,7 +524,7 @@
   function transKey() {
     if (!current) return null;
     const row = findTranslation(activeId);
-    const where = row && row.provider === churchText.PROVIDER ? (placement() === 'panel' ? '::panel' : '::page') : '';
+    const where = row && row.provider === churchText.PROVIDER ? (panel.arrangement().body === 'beside' ? '::page' : '::panel') : '';
     return `${citKey(current)}::${activeId}${where}`;
   }
 
@@ -561,7 +733,10 @@
       return;
     }
     const layout = placement();
-    if (layout !== 'panel') {
+    // A Try again that worked where the chapter check failed: the language
+    // offers the chapter now, and may hold the page.
+    const arranged = failedChecks.has(churchText.checkKey(parsed, tr.lang)) ? rearrange() : panel.arrangement();
+    if (arranged.body === 'beside') {
       // The split's own load may have failed where this one (a Try again)
       // worked: ask for it again, or the card would say the text is on the
       // page when it isn't. A no-op while it is showing.
@@ -620,17 +795,27 @@
     render();
   }
 
-  // The beside card's layout control (and the panel text's way back into the
-  // page). Between the two in-page layouts only the split and the card move;
-  // into or out of the panel, the view itself changes.
-  function changeLayout(layout) {
+  // The layout control: on the beside card, in the beside-the-page line's
+  // place (its Change), and above a language read in the panel (the way back
+  // into the page). `pick` is the row the choice makes the pick (the panel's
+  // layoutChoice): "In the panel" from the line moves the page's language
+  // into the panel in the Bible version's place, so it leads the pick memory
+  // and the dropdown selects it. Between the two in-page layouts only the
+  // split, the card and the line's control move; into or out of the panel,
+  // the view itself changes.
+  function changeLayout(layout, pick) {
     const before = placement();
     if (enabled) enabled = Object.assign({}, enabled, { churchLanguageLayout: layout });
     const after = placement();
     SETTINGS.patch({ churchLanguageLayout: layout });
     if (!current || panel.effectiveMode() !== 'translation' || after === before) return;
+    if (pick) remember(pick);
     if (before !== 'panel' && after !== 'panel') {
+      // The layout is one of the arrangement's facts (the page's language
+      // needs an in-page one).
+      rearrange();
       panel.updateBeside({ layout: after });
+      applyNote();
       syncSplit({ anchor: splitAnchor() });
     } else {
       renderTranslation();
@@ -666,11 +851,16 @@
       onGear: (section) => send(section ? { type: C.MSG.OPEN_OPTIONS, section } : { type: C.MSG.OPEN_OPTIONS }),
       onAddLanguage: addLanguage,
       onLayoutChange: changeLayout,
+      onDismissNote: dismissNote,
     });
 
     // Hand the theme module the panel root (null while there's nothing shown);
     // it owns applying, aligning and re-applying from here on.
     themeMirror = theme.mirror(() => (current ? panel.getRootEl() : null));
+
+    // The reading layer fits the site's reading column to the space the open
+    // panel leaves, in every mode, split or not (#89).
+    pageSplit.start();
 
     detect.setupNavigation(() => render());
     window.addEventListener('scroll', onPageScroll, { passive: true });
@@ -684,6 +874,13 @@
       enabled = null;
       currentKey = null; // force a re-render with the new settings
       if (current) render();
+    });
+
+    // The options page put a ticked language first. It writes the pick memory
+    // before the setting, so this lands before the re-render above.
+    chrome.storage.onChanged.addListener((changes, area) => {
+      const c = area === 'local' && changes[C.SELECTION_KEY];
+      if (c) mru = churchText.mruFrom(c.newValue);
     });
 
     // The toolbar icon. Answered at once, so the worker can tell a tab with a

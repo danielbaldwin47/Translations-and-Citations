@@ -6,9 +6,9 @@
  * src/content/panel.js exports its state machine for Node (the DOM shell is
  * skipped when `document` is undefined). These checks pin down the toggle
  * semantics that used to live scattered in content.js callbacks: what a mode
- * click means, when the citation-layout toggle acts, how an untranslatable
- * chapter shows citations and how the reader's Translation override for one
- * visit works — plus the view host's caching rules, which used to be the
+ * click saves, when the citation-layout toggle acts, and the arrangement —
+ * what the panel body shows for a chapter, its texts, the stored mode and
+ * this visit's click, as table-driven journeys — plus the view host's caching rules, which used to be the
  * orchestrator's citCache/transCache bookkeeping, the copy the Translation
  * cards and errors show (setupCopy / besideCopy / errorCopy), and a few
  * DOM-shell and orchestrator rules read from the source (toggle state and
@@ -23,6 +23,7 @@ const path = require('path');
 
 const ROOT = path.resolve(__dirname, '..');
 const P = require(path.join(ROOT, 'src/content/panel.js'));
+const CT = require(path.join(ROOT, 'src/content/church-text.js'));
 
 let failures = 0;
 function check(cond, msg) {
@@ -40,11 +41,9 @@ function fresh(init) {
 // ---- createState ----
 console.log('createState:');
 let s = fresh();
-eq(s.mode, 'translation', 'mode defaults to translation');
+eq(s.mode, 'citations', 'mode defaults to citations');
 eq(s.citationView, 'source', 'citationView defaults to source');
 eq(s.collapsed, false, 'collapsed defaults to false');
-eq(s.translatable, true, 'a fresh panel assumes a translatable chapter');
-eq(s.override, false, 'a fresh panel has no Translation override');
 
 s = fresh({ mode: 'citations', citationView: 'verse', collapsed: true });
 eq(s.mode, 'citations', 'persisted mode is adopted');
@@ -52,59 +51,306 @@ eq(s.citationView, 'verse', 'persisted citationView is adopted');
 eq(s.collapsed, true, 'persisted collapsed is adopted');
 
 s = fresh({ mode: 'nonsense', citationView: 42, collapsed: 'yes' });
-eq(s.mode, 'translation', 'garbage mode falls back to translation');
+eq(s.mode, 'citations', 'garbage mode falls back to citations');
 eq(s.citationView, 'source', 'garbage citationView falls back to source');
 eq(s.collapsed, false, 'garbage collapsed falls back to false');
 
-// ---- effectiveMode ----
-console.log('effectiveMode:');
-s = fresh({ mode: 'translation' });
-eq(P.effectiveMode(s), 'translation', 'translatable + translation preference -> translation');
-s.mode = 'citations';
-eq(P.effectiveMode(s), 'citations', 'translatable + citations preference -> citations');
-s.mode = 'translation';
-s.translatable = false;
-eq(P.effectiveMode(s), 'citations', 'an untranslatable chapter shows citations regardless of preference');
-s.override = true;
-eq(P.effectiveMode(s), 'translation', "the visit's override shows Translation on an untranslatable chapter");
-s = fresh({ mode: 'citations' });
-s.override = true;
-eq(P.effectiveMode(s), 'translation', 'the override outranks a citations preference too');
+// ---- The arrangement ----
+// What the panel body shows and which mode a click saves, from the chapter's
+// texts (each offered or not: chapterOffer's rows), the pick memory, the
+// enabled Church languages, the split layout, the stored mode, and this
+// visit's mode click and dropdown pick. Each row is one reader's journey:
+// chapters shown (setChapter: a new one, or the same one again after a
+// settings change), mode clicks (selectMode), dropdown picks (selectText) and
+// layout picks, each followed by what the reader sees — the
+// effective mode, the body, the text the Translation tab is about — and the
+// stored mode (`saved`).
+const WEB = { id: 'engwebp', provider: 'bundled', offered: true };
+const NIV = { id: 'niv', provider: 'apibible', offered: true };
+const church = (lang, offered) => ({ id: 'church:' + lang, provider: 'church', lang, offered });
+const failed = (row) => Object.assign(row, { failed: true }); // chapterOffer's mark: the check hit a network error
+// A chapter as content.js describes it to the panel.
+const chapter = (key, texts, languages, more) => Object.assign({ key, texts, picks: [], languages, layout: 'columns' }, more);
+const MOSIAH3 = chapter('bofm/mosiah/3', [], []); // no Church language on: nothing offers it
+const MOSIAH4 = chapter('bofm/mosiah/4', [], []);
+const JOHN3 = chapter('nt/john/3', [WEB], []); // the bundled Bible offers every Bible chapter
+const DC76_GIL = chapter('dc-testament/dc/76', [church('gil', false)], ['gil']); // Kiribati on, lacking the chapter
+const DC77_GIL = chapter('dc-testament/dc/77', [church('gil', false)], ['gil']);
+const ALMA5_SPA = chapter('bofm/alma/5', [church('spa', true)], ['spa']);
+const ALMA5_NONE = chapter('bofm/alma/5', [], []); // the only language unticked
 
-// ---- selectMode ----
-console.log('selectMode:');
-s = fresh({ mode: 'translation' });
-eq(P.selectMode(s, 'citations'), true, 'switching mode reports a change');
-eq(s.mode, 'citations', '...and lands in the new mode');
-eq(P.selectMode(s, 'citations'), false, 're-selecting the current mode is a no-op');
-eq(P.selectMode(s, 'translation'), true, 'switching back reports a change');
-eq(s.override, false, 'on a translatable chapter a click is the preference, never an override');
+const ARRANGEMENT_CASES = [
+  { name: 'a fresh install opens on Citations', init: {}, steps: [
+    [{ chapter: ALMA5_SPA }, { mode: 'citations', body: 'citations', saved: 'citations' }],
+    [{ chapter: JOHN3 }, { mode: 'citations', body: 'citations', saved: 'citations' }],
+  ] },
+  { name: 'Mosiah 3 -> Mosiah 4 after a Translation click with no language on: the setup card on both', init: {}, steps: [
+    [{ chapter: MOSIAH3 }, { mode: 'citations', body: 'citations', saved: 'citations' }],
+    [{ click: 'translation' }, { mode: 'translation', body: 'setup', saved: 'translation' }],
+    [{ chapter: MOSIAH4 }, { mode: 'translation', body: 'setup', saved: 'translation' }],
+    [{ chapter: MOSIAH3 }, { mode: 'translation', body: 'setup', saved: 'translation' }], // the back button
+  ] },
+  { name: 'a Citations click on an untranslatable chapter, then a Bible chapter: Citations', init: { mode: 'translation' }, steps: [
+    [{ chapter: MOSIAH3 }, { mode: 'translation', body: 'setup', saved: 'translation' }],
+    [{ click: 'citations' }, { mode: 'citations', body: 'citations', saved: 'citations' }],
+    [{ chapter: JOHN3 }, { mode: 'citations', body: 'citations', saved: 'citations' }],
+  ] },
+  { name: 'unticking the only language while in Translation: the setup card', init: { mode: 'translation' }, steps: [
+    [{ chapter: ALMA5_SPA }, { mode: 'translation', body: 'beside', text: 'church:spa', saved: 'translation' }],
+    [{ chapter: ALMA5_NONE }, { mode: 'translation', body: 'setup', text: null, saved: 'translation' }],
+  ] },
+  { name: 'a Translation click on an untranslatable chapter with languages on: the setup card for the visit, translation saved', init: {}, steps: [
+    [{ chapter: DC76_GIL }, { mode: 'citations', body: 'citations', saved: 'citations' }],
+    [{ click: 'translation' }, { mode: 'translation', body: 'setup', saved: 'translation' }],
+    [{ chapter: DC76_GIL }, { mode: 'translation', body: 'setup', saved: 'translation' }], // a settings change re-renders it
+  ] },
+  { name: 'the next chapter, with no click, shows Citations', init: {}, steps: [
+    [{ chapter: DC76_GIL }, { mode: 'citations', body: 'citations', saved: 'citations' }],
+    [{ click: 'translation' }, { mode: 'translation', body: 'setup', saved: 'translation' }],
+    [{ chapter: DC77_GIL }, { mode: 'citations', body: 'citations', saved: 'translation' }],
+  ] },
+  { name: 'a language added from the setup card shows the chapter in it once the check finds it', init: {}, steps: [
+    [{ chapter: MOSIAH3 }, { mode: 'citations', body: 'citations', saved: 'citations' }],
+    [{ click: 'translation' }, { mode: 'translation', body: 'setup', saved: 'translation' }],
+    [{ chapter: chapter('bofm/mosiah/3', [church('spa', null)], ['spa'], { picks: ['church:spa'] }) },
+      { mode: 'translation', body: 'loading', saved: 'translation' }],
+    [{ chapter: chapter('bofm/mosiah/3', [church('spa', true)], ['spa'], { picks: ['church:spa'] }) },
+      { mode: 'translation', body: 'beside', text: 'church:spa', saved: 'translation' }],
+  ] },
+  { name: 'saved Translation, some text offers the chapter: the latest pick it offers, in the page or the panel', init: { mode: 'translation' }, steps: [
+    [{ chapter: chapter('nt/john/3', [WEB, NIV, church('spa', true)], ['spa'], { picks: ['niv'] }) },
+      { mode: 'translation', body: 'text', text: 'niv', saved: 'translation' }],
+    [{ chapter: chapter('nt/john/3', [WEB, NIV, church('spa', true)], ['spa'], { picks: ['church:spa', 'niv'] }) },
+      { mode: 'translation', body: 'beside', text: 'church:spa', saved: 'translation' }],
+    [{ chapter: chapter('nt/john/3', [WEB, NIV, church('spa', true)], ['spa'], { picks: ['church:spa'], layout: 'panel' }) },
+      { mode: 'translation', body: 'text', text: 'church:spa', saved: 'translation' }],
+    [{ chapter: chapter('bofm/alma/5', [church('spa', false), church('jpn', true)], ['spa', 'jpn'], { picks: ['church:spa'] }) },
+      { mode: 'translation', body: 'beside', text: 'church:jpn', saved: 'translation' }],
+  ] },
+  { name: 'the chapter check still asking: Translation shows its loading state, never Citations first', init: { mode: 'translation' }, steps: [
+    [{ chapter: chapter('dc-testament/dc/76', [church('gil', null)], ['gil']) }, { mode: 'translation', body: 'loading', saved: 'translation' }],
+    [{ chapter: DC76_GIL }, { mode: 'citations', body: 'citations', saved: 'translation' }],
+    [{ chapter: chapter('bofm/alma/5', [church('spa', true), church('jpn', null)], ['spa', 'jpn'], { picks: ['church:spa'] }) },
+      { mode: 'translation', body: 'beside', text: 'church:spa', saved: 'translation' }],
+    [{ chapter: chapter('bofm/alma/6', [church('spa', true), church('jpn', null)], ['spa', 'jpn'], { picks: ['church:jpn'] }) },
+      { mode: 'translation', body: 'loading', saved: 'translation' }],
+  ] },
+  { name: 'saved Citations while the check asks: Citations at once, a Translation click waits for it', init: {}, steps: [
+    [{ chapter: chapter('dc-testament/dc/76', [church('gil', null)], ['gil']) }, { mode: 'citations', body: 'citations', saved: 'citations' }],
+    [{ click: 'translation' }, { mode: 'translation', body: 'loading', saved: 'translation' }],
+  ] },
+  { name: 'a click on a translatable chapter is saved like any other', init: { mode: 'translation' }, steps: [
+    [{ chapter: JOHN3 }, { mode: 'translation', body: 'text', text: 'engwebp', saved: 'translation' }],
+    [{ click: 'citations' }, { mode: 'citations', body: 'citations', text: null, saved: 'citations' }],
+    [{ click: 'translation' }, { mode: 'translation', body: 'text', text: 'engwebp', saved: 'translation' }],
+  ] },
+  { name: 'Citations clicked where saved Translation already shows Citations: saved, nothing else moves', init: { mode: 'translation' }, steps: [
+    [{ chapter: DC76_GIL }, { mode: 'citations', body: 'citations', saved: 'translation' }],
+    [{ click: 'citations' }, { mode: 'citations', body: 'citations', saved: 'citations' }],
+    [{ chapter: chapter('bofm/alma/5', [church('gil', true)], ['gil']) }, { mode: 'citations', body: 'citations', saved: 'citations' }],
+  ] },
+  { name: 'the no-translation line: saved Translation, languages on, none offering the chapter -> Citations naming the language', init: { mode: 'translation' }, steps: [
+    [{ chapter: DC76_GIL }, { mode: 'citations', body: 'citations', note: 'no-translation', noteLang: 'gil', saved: 'translation' }],
+    [{ chapter: DC77_GIL }, { mode: 'citations', body: 'citations', note: 'no-translation', noteLang: 'gil', saved: 'translation' }],
+    [{ chapter: ALMA5_SPA }, { mode: 'translation', body: 'beside', note: null, noteLang: null, saved: 'translation' }],
+  ] },
+  { name: 'the no-translation line, dismissed: Citations, no line', init: { mode: 'translation' }, steps: [
+    [{ chapter: chapter('dc-testament/dc/76', [church('gil', false)], ['gil'], { dismissed: true }) },
+      { mode: 'citations', body: 'citations', note: null, noteLang: null, saved: 'translation' }],
+  ] },
+  { name: 'the no-translation line names the most recently picked enabled language', init: { mode: 'translation' }, steps: [
+    [{ chapter: chapter('dc-testament/dc/76', [church('gil', false), church('jpn', false)], ['gil', 'jpn'], { picks: ['church:jpn', 'church:gil'] }) },
+      { mode: 'citations', body: 'citations', note: 'no-translation', noteLang: 'jpn', saved: 'translation' }],
+    [{ chapter: chapter('dc-testament/dc/76', [church('gil', false), church('jpn', false)], ['gil', 'jpn'], { picks: ['church:spa', 'engwebp', 'church:gil', 'church:jpn'] }) },
+      { mode: 'citations', body: 'citations', note: 'no-translation', noteLang: 'gil', saved: 'translation' }], // spa is no longer enabled; a Bible row is not a language
+    [{ chapter: chapter('dc-testament/dc/76', [church('gil', false), church('jpn', false)], ['gil', 'jpn'], { picks: ['engwebp'] }) },
+      { mode: 'citations', body: 'citations', note: 'no-translation', noteLang: 'gil', saved: 'translation' }], // none picked: the first enabled
+  ] },
+  { name: 'the no-translation line never shows with Citations saved', init: {}, steps: [
+    [{ chapter: DC76_GIL }, { mode: 'citations', body: 'citations', note: null, noteLang: null, saved: 'citations' }],
+  ] },
+  { name: 'the no-translation line never shows on a Bible chapter (the bundled Bible always offers one)', init: { mode: 'translation' }, steps: [
+    [{ chapter: chapter('nt/john/3', [WEB, church('gil', false)], ['gil']) }, { mode: 'translation', body: 'text', note: null, text: 'engwebp', saved: 'translation' }],
+  ] },
+  { name: 'Add a language on the line: the setup card for the visit, no line; the next chapter has the line again', init: { mode: 'translation' }, steps: [
+    [{ chapter: DC76_GIL }, { mode: 'citations', body: 'citations', note: 'no-translation', saved: 'translation' }],
+    [{ click: 'translation' }, { mode: 'translation', body: 'setup', note: null, saved: 'translation' }],
+    [{ chapter: DC77_GIL }, { mode: 'citations', body: 'citations', note: 'no-translation', noteLang: 'gil', saved: 'translation' }],
+  ] },
+  { name: 'a Citations click where the line shows: saved, the line goes with the choice', init: { mode: 'translation' }, steps: [
+    [{ chapter: DC76_GIL }, { mode: 'citations', body: 'citations', note: 'no-translation', saved: 'translation' }],
+    [{ click: 'citations' }, { mode: 'citations', body: 'citations', note: null, saved: 'citations' }],
+  ] },
+  // The page's language (#109): the first Church language in pick order that
+  // offers the chapter, while the split layout is in-page — whatever the
+  // panel shows. `pageNext` is the language the chapter check must ask first.
+  { name: 'Spanish picked, side by side, mode Citations: the page holds Spanish', init: {}, steps: [
+    [{ chapter: chapter('bofm/alma/5', [church('spa', true)], ['spa'], { picks: ['church:spa'] }) },
+      { mode: 'citations', body: 'citations', page: 'church:spa', pageNext: null, saved: 'citations' }],
+  ] },
+  { name: 'Spanish side by side, then a Citations click: Spanish stays on the page', init: { mode: 'translation' }, steps: [
+    [{ chapter: chapter('bofm/alma/5', [church('spa', true)], ['spa'], { picks: ['church:spa'] }) },
+      { mode: 'translation', body: 'beside', text: 'church:spa', page: 'church:spa', saved: 'translation' }],
+    [{ click: 'citations' }, { mode: 'citations', body: 'citations', text: null, page: 'church:spa', saved: 'citations' }],
+    [{ click: 'translation' }, { mode: 'translation', body: 'beside', text: 'church:spa', page: 'church:spa', saved: 'translation' }],
+  ] },
+  { name: 'layout panel: no page language, in either mode', init: { mode: 'translation' }, steps: [
+    [{ chapter: chapter('bofm/alma/5', [church('spa', true)], ['spa'], { picks: ['church:spa'], layout: 'panel' }) },
+      { mode: 'translation', body: 'text', text: 'church:spa', page: null, pageNext: null, saved: 'translation' }],
+    [{ click: 'citations' }, { mode: 'citations', body: 'citations', page: null, pageNext: null, saved: 'citations' }],
+  ] },
+  { name: 'Citations, the page\'s language not checked yet: Citations at once, the check asks for it', init: {}, steps: [
+    [{ chapter: chapter('bofm/alma/5', [church('spa', null)], ['spa'], { picks: ['church:spa'] }) },
+      { mode: 'citations', body: 'citations', page: null, pageNext: 'spa', saved: 'citations' }],
+    [{ chapter: chapter('bofm/alma/5', [church('spa', true)], ['spa'], { picks: ['church:spa'] }) },
+      { mode: 'citations', body: 'citations', page: 'church:spa', pageNext: null, saved: 'citations' }],
+  ] },
+  { name: 'the next chapter lacks the page\'s language: the next offering pick holds the page, or none', init: {}, steps: [
+    [{ chapter: chapter('dc-testament/dc/83', [church('pon', true), church('spa', true)], ['pon', 'spa'], { picks: ['church:pon', 'church:spa'] }) },
+      { mode: 'citations', page: 'church:pon', pageNext: null }],
+    [{ chapter: chapter('dc-testament/dc/84', [church('pon', false), church('spa', null)], ['pon', 'spa'], { picks: ['church:pon', 'church:spa'] }) },
+      { mode: 'citations', page: null, pageNext: 'spa' }],
+    [{ chapter: chapter('dc-testament/dc/84', [church('pon', false), church('spa', true)], ['pon', 'spa'], { picks: ['church:pon', 'church:spa'] }) },
+      { mode: 'citations', page: 'church:spa', pageNext: null }],
+    [{ chapter: chapter('dc-testament/dc/84', [church('pon', false)], ['pon'], { picks: ['church:pon'] }) },
+      { mode: 'citations', page: null, pageNext: null }],
+  ] },
+  // A Bible version beside the page's language (#110): John 3 can show the
+  // site's KJV, Spanish split into the page and NIV in the panel.
+  { name: 'John 3, Spanish on the page, NIV selected: NIV plus the beside-the-page line', init: { mode: 'translation' }, steps: [
+    [{ chapter: chapter('nt/john/3', [WEB, NIV, church('spa', true)], ['spa'], { picks: ['niv', 'church:spa'] }) },
+      { mode: 'translation', body: 'text', text: 'niv', page: 'church:spa', note: 'beside-page', noteLang: 'spa', saved: 'translation' }],
+    [{ click: 'citations' }, { mode: 'citations', body: 'citations', page: 'church:spa', note: null, noteLang: null }],
+  ] },
+  // The line's Change opens the layout control in its place; each pick there
+  // is a layout step (layoutChoice, applied as content.js applies it).
+  { name: '"In the panel" from the line: layout panel, Spanish selected, no page language', init: { mode: 'translation' }, steps: [
+    [{ chapter: chapter('nt/john/3', [WEB, NIV, church('spa', true)], ['spa'], { picks: ['niv', 'church:spa'] }) },
+      { body: 'text', text: 'niv', page: 'church:spa', note: 'beside-page' }],
+    [{ layout: 'panel' }, { mode: 'translation', body: 'text', text: 'church:spa', page: null, note: null, layout: 'panel', saved: 'translation' }],
+  ] },
+  { name: 'Under each verse from the line: the page keeps Spanish, NIV and the line stay', init: { mode: 'translation' }, steps: [
+    [{ chapter: chapter('nt/john/3', [WEB, NIV, church('spa', true)], ['spa'], { picks: ['niv', 'church:spa'] }) },
+      { body: 'text', text: 'niv', page: 'church:spa', note: 'beside-page' }],
+    [{ layout: 'interlinear' }, { body: 'text', text: 'niv', page: 'church:spa', note: 'beside-page', layout: 'interlinear' }],
+  ] },
+  { name: '"In the panel" from the beside card: Spanish moves into the panel', init: { mode: 'translation' }, steps: [
+    [{ chapter: ALMA5_SPA }, { body: 'beside', text: 'church:spa', page: 'church:spa' }],
+    [{ layout: 'panel' }, { body: 'text', text: 'church:spa', page: null, layout: 'panel' }],
+    [{ layout: 'columns' }, { body: 'beside', text: 'church:spa', page: 'church:spa', layout: 'columns' }],
+  ] },
+  { name: 'John 3, Spanish selected while it holds the page: the beside card, no line', init: { mode: 'translation' }, steps: [
+    [{ chapter: chapter('nt/john/3', [WEB, NIV, church('spa', true)], ['spa'], { picks: ['church:spa', 'niv'] }) },
+      { mode: 'translation', body: 'beside', text: 'church:spa', page: 'church:spa', note: null, noteLang: null, saved: 'translation' }],
+  ] },
+  { name: 'John 3, Spanish read in the panel, NIV selected: NIV, no line (nothing is on the page)', init: { mode: 'translation' }, steps: [
+    [{ chapter: chapter('nt/john/3', [WEB, NIV, church('spa', true)], ['spa'], { picks: ['niv', 'church:spa'], layout: 'panel' }) },
+      { mode: 'translation', body: 'text', text: 'niv', page: null, note: null, noteLang: null }],
+  ] },
+  { name: 'John 3, NIV selected, Spanish not checked yet: NIV shows at once, the check asks for the page', init: { mode: 'translation' }, steps: [
+    [{ chapter: chapter('nt/john/3', [WEB, NIV, church('spa', null)], ['spa'], { picks: ['niv', 'church:spa'] }) },
+      { mode: 'translation', body: 'text', text: 'niv', page: null, pageNext: 'spa', note: null, saved: 'translation' }],
+    [{ chapter: chapter('nt/john/3', [WEB, NIV, church('spa', true)], ['spa'], { picks: ['niv', 'church:spa'] }) },
+      { mode: 'translation', body: 'text', text: 'niv', page: 'church:spa', note: 'beside-page', noteLang: 'spa' }],
+  ] },
+  // The page's language with no pick naming one (B2): what the Translation
+  // tab selects, only when that is a language.
+  { name: 'John 3, no picks, Spanish on: the Bible in the panel, no page language', init: { mode: 'translation' }, steps: [
+    [{ chapter: chapter('nt/john/3', [WEB, church('spa', true)], ['spa']) },
+      { mode: 'translation', body: 'text', text: 'engwebp', page: null, pageNext: null, note: null }],
+    [{ click: 'citations' }, { mode: 'citations', page: null, pageNext: null }],
+  ] },
+  { name: 'Alma 5, no picks, Spanish on, side by side: Spanish holds the page', init: {}, steps: [
+    [{ chapter: chapter('bofm/alma/5', [church('spa', true)], ['spa']) }, { mode: 'citations', page: 'church:spa', pageNext: null }],
+  ] },
+  // A check that failed (network) offers the panel's text, for its error
+  // card and Try again, never the page (B1).
+  { name: 'Spanish\'s check failed: the panel tries Spanish, the next offering pick holds the page', init: { mode: 'translation' }, steps: [
+    [{ chapter: chapter('bofm/alma/5', [failed(church('spa', true)), church('jpn', true)], ['spa', 'jpn'], { picks: ['church:spa', 'church:jpn'] }) },
+      { mode: 'translation', body: 'text', text: 'church:spa', page: 'church:jpn', note: null }],
+    [{ click: 'citations' }, { mode: 'citations', page: 'church:jpn' }],
+    [{ chapter: chapter('bofm/alma/6', [failed(church('spa', true))], ['spa'], { picks: ['church:spa'] }) },
+      { mode: 'citations', page: null, pageNext: null }],
+  ] },
+  // A dropdown pick of a language the check hasn't reached (B3): the loading
+  // state while it asks, then, lacking the chapter, the text before it with
+  // the missing-chapter line instead of a silent fallback.
+  { name: 'Pohnpeian picked on D&C 84 while its check runs: loading, then Spanish with the missing-chapter line', init: { mode: 'translation' }, steps: [
+    [{ chapter: chapter('dc-testament/dc/84', [church('spa', true), church('pon', null)], ['spa', 'pon'], { picks: ['church:spa'], layout: 'panel' }) },
+      { body: 'text', text: 'church:spa', note: null }],
+    [{ pick: 'church:pon' }, { mode: 'translation', body: 'loading', note: null }],
+    [{ chapter: chapter('dc-testament/dc/84', [church('spa', true), church('pon', false)], ['spa', 'pon'], { picks: ['church:pon', 'church:spa'], layout: 'panel' }) },
+      { mode: 'translation', body: 'text', text: 'church:spa', note: 'missing-chapter', noteLang: 'pon' }],
+    [{ click: 'citations' }, { mode: 'citations', note: null }],
+    [{ click: 'translation' }, { mode: 'translation', text: 'church:spa', note: 'missing-chapter', noteLang: 'pon' }],
+    [{ pick: 'church:spa' }, { body: 'text', text: 'church:spa', note: null }],
+  ] },
+  { name: 'the missing-chapter line is the visit\'s: the next chapter has none', init: { mode: 'translation' }, steps: [
+    [{ chapter: chapter('dc-testament/dc/84', [church('spa', true), church('pon', false)], ['spa', 'pon'], { picks: ['church:spa'] }) },
+      { body: 'beside', text: 'church:spa', note: null }],
+    [{ pick: 'church:pon' }, { body: 'beside', text: 'church:spa', note: 'missing-chapter', noteLang: 'pon' }],
+    [{ chapter: chapter('dc-testament/dc/85', [church('spa', true), church('pon', false)], ['spa', 'pon'], { picks: ['church:pon', 'church:spa'] }) },
+      { body: 'beside', text: 'church:spa', note: null }],
+  ] },
+  { name: 'a pick that lacks the chapter and leaves nothing: the no-translation line says it', init: { mode: 'translation' }, steps: [
+    [{ chapter: chapter('dc-testament/dc/84', [church('pon', null)], ['pon'], { picks: [] }) }, { body: 'loading' }],
+    [{ pick: 'church:pon' }, { body: 'loading' }],
+    [{ chapter: chapter('dc-testament/dc/84', [church('pon', false)], ['pon'], { picks: ['church:pon'] }) },
+      { mode: 'citations', note: 'no-translation', noteLang: 'pon' }],
+  ] },
+  { name: 'before any chapter: the stored mode, Translation as its loading state', init: { mode: 'translation' }, steps: [
+    [{}, { mode: 'translation', body: 'loading', saved: 'translation' }],
+  ] },
+];
 
+console.log('arrangement:');
+for (const c of ARRANGEMENT_CASES) {
+  s = fresh(c.init);
+  c.steps.forEach(([act, want], i) => {
+    if (act.chapter) P.setChapter(s, act.chapter);
+    if (act.click) P.selectMode(s, act.click);
+    if (act.pick) {
+      // A dropdown pick, as content.js applies it: remembered, then the
+      // same chapter arranged again.
+      P.selectText(s, act.pick);
+      P.setChapter(s, Object.assign({ key: s.chapter }, s.facts, { picks: CT.rememberPick(s.facts.picks, act.pick) }));
+    }
+    if (act.layout) {
+      // What content.js does with a layout pick: write the setting, remember
+      // the row it names, and arrange the same chapter again.
+      const pick = P.layoutChoice(P.arrangementOf(s), act.layout);
+      const picks = pick ? CT.rememberPick(s.facts.picks, pick) : s.facts.picks;
+      P.setChapter(s, Object.assign({ key: s.chapter }, s.facts, { layout: act.layout, picks }));
+    }
+    const a = P.arrangementOf(s);
+    const got = {};
+    for (const k of Object.keys(want)) got[k] = k === 'saved' ? s.mode : k === 'layout' ? s.facts.layout : a[k];
+    eq(got, want, `${c.name} (step ${i + 1})`);
+  });
+}
+
+// What a click saves, and what the shell is told.
+const DC76_FACTS = { texts: [church('gil', false)], picks: [], languages: ['gil'], layout: 'columns' };
+eq(P.arrangement(Object.assign({ mode: 'citations', click: 'translation' }, DC76_FACTS)).saves, 'translation',
+  'a Translation click saves translation');
+eq(P.arrangement(Object.assign({ mode: 'translation', click: 'translation' }, DC76_FACTS)).saves, null,
+  '...and nothing once translation is what is stored');
+eq(P.arrangement(Object.assign({ mode: 'translation', click: null }, DC76_FACTS)).saves, null, 'no click saves nothing');
+s = fresh();
+P.setChapter(s, DC76_GIL);
+eq(P.selectMode(s, 'translation'), true, 'selectMode: true when the mode showing changed (content re-renders)');
+eq(P.selectMode(s, 'translation'), false, '...a repeat click changes nothing');
 s = fresh({ mode: 'translation' });
+P.setChapter(s, DC76_GIL);
+eq([P.selectMode(s, 'citations'), s.mode], [false, 'citations'], 'a click can save without changing what shows');
 eq(P.selectMode(s, 'bogus'), false, 'a garbage mode click cannot corrupt state');
-eq(s.mode, 'translation', '...and the mode is unchanged');
-
-// The Translation | Citations control is always shown. On a chapter no text
-// offers, Translation opens the setup card for this visit only.
-console.log('selectMode (untranslatable chapter):');
-s = fresh({ mode: 'citations' });
-P.setChapter(s, { key: 'alma/5', translatable: false });
-eq(P.selectMode(s, 'citations'), false, 'Citations is already showing: a no-op');
-eq(P.selectMode(s, 'translation'), true, 'Translation on an untranslatable chapter is a change');
-eq(P.effectiveMode(s), 'translation', '...it shows Translation (the setup card)');
-eq(s.override, true, '...through the override');
-eq(s.mode, 'citations', '...and the stored preference is not rewritten');
-eq(P.selectMode(s, 'translation'), false, 're-clicking Translation while overridden is a no-op');
-eq(P.selectMode(s, 'citations'), true, 'Citations while overridden is a change');
-eq(s.override, false, '...that just clears the override');
-eq(P.effectiveMode(s), 'citations', '...back to citations');
-eq(s.mode, 'citations', '...with the preference still untouched');
-
-s = fresh({ mode: 'translation' });
-P.setChapter(s, { key: 'alma/5', translatable: false });
+eq(s.mode, 'citations', '...the stored mode is untouched');
+eq(P.effectiveMode(s), P.arrangementOf(s).mode, 'effectiveMode is the arrangement\'s mode');
+s = fresh();
+P.setChapter(s, DC76_GIL);
 P.selectMode(s, 'translation');
-P.selectMode(s, 'citations');
-eq(s.mode, 'translation', 'a Translation preference survives an override and its clearing');
+P.setChapter(s, { texts: [church('gil', false)], languages: ['gil'] });
+eq(P.effectiveMode(s), 'citations', 'a chapter with no key counts as a new one (the visit\'s click does not leak)');
 
 // ---- selectCitationView ----
 console.log('selectCitationView:');
@@ -114,78 +360,27 @@ eq(s.citationView, 'verse', '...and lands on the new layout');
 eq(P.selectCitationView(s, 'verse'), false, 're-selecting the current layout is a no-op');
 
 s = fresh({ mode: 'translation', citationView: 'source' });
+P.setChapter(s, JOHN3);
 eq(P.selectCitationView(s, 'verse'), false, 'the layout toggle only acts while citations are showing');
 eq(s.citationView, 'source', '...and the stored layout is untouched');
 
 s = fresh({ mode: 'translation', citationView: 'source' });
-s.translatable = false; // citations shown -> the toggle acts even though mode pref is translation
-eq(P.selectCitationView(s, 'verse'), true, 'citations on an untranslatable chapter count as citations showing');
-s.override = true;
-eq(P.selectCitationView(s, 'source'), false, "...but not while the visit's override shows Translation");
-
-// ---- setChapter ----
-// Translatable means some text offers the chapter: an enabled api.bible
-// translation (Bible only) or a Church language that publishes its volume.
-// `key` names the chapter, so showing the same one again (a settings change
-// re-renders it) is told apart from arriving at the next one.
-console.log('setChapter:');
-s = fresh({ mode: 'translation' });
-eq(P.setChapter(s, { key: 'john/3', translatable: true }), false, 'translatable -> translatable does not change the effective mode');
-eq(P.setChapter(s, { key: 'john/4', translatable: false }), true, 'translatable -> not flips the effective mode to citations');
-eq(P.effectiveMode(s), 'citations', '...effective mode is citations');
-eq(s.mode, 'translation', '...but the stored preference survives');
-eq(P.setChapter(s, { key: 'john/5', translatable: true }), true, 'not -> translatable restores the preferred mode (a change)');
-eq(P.effectiveMode(s), 'translation', '...effective mode is translation again');
-eq(P.setChapter(s, { key: 'john/6' }), false, 'a missing flag reads as translatable');
-
-s = fresh({ mode: 'citations' });
-eq(P.setChapter(s, { key: 'alma/5', translatable: false }), false, 'citations preference: translatable -> not is not an effective change');
-
-// The override lives for one visit to one chapter.
-s = fresh({ mode: 'citations' });
-P.setChapter(s, { key: 'alma/5', translatable: false });
+P.setChapter(s, DC76_GIL);
+eq(P.selectCitationView(s, 'verse'), true, 'Citations shown under a stored Translation count as citations showing');
 P.selectMode(s, 'translation');
-eq(P.setChapter(s, { key: 'alma/5', translatable: false }), false, 'the same chapter shown again keeps the override');
-eq(P.effectiveMode(s), 'translation', '...still on the setup card');
-// The reader turns on a language from the setup card: same chapter, now
-// translatable. They asked for Translation, and it is answered: Translation
-// becomes the preference, so the next chapter opens in it too.
-eq(P.setChapter(s, { key: 'alma/5', translatable: true }), false, 'the same chapter becoming translatable keeps Translation');
-eq(P.effectiveMode(s), 'translation', '...even under a citations preference');
-eq(s.mode, 'translation', '...which the request made the preference (the panel persists it)');
-eq(s.override, false, '...and the override is spent');
-eq(P.setChapter(s, { key: 'alma/6', translatable: true }), false, 'the next chapter stays in Translation');
-eq(P.effectiveMode(s), 'translation', '...the language added from the setup card sticks');
-
-// Not answered yet: the same chapter still untranslatable keeps the override,
-// and never rewrites the preference.
-s = fresh({ mode: 'citations' });
-P.setChapter(s, { key: 'john/3', translatable: false });
-P.selectMode(s, 'translation');
-P.setChapter(s, { key: 'john/3', translatable: false });
-eq([s.mode, s.override], ['citations', true], 'a settings change that still offers nothing leaves the preference alone');
-P.setChapter(s, { key: 'john/4', translatable: true });
-eq([s.mode, P.effectiveMode(s)], ['citations', 'citations'], '...and a chapter left before it was answered drops the request');
-
-s = fresh();
-P.setChapter(s, { key: 'alma/5', translatable: false });
-P.selectMode(s, 'translation');
-P.setChapter(s, { translatable: false });
-eq(s.override, false, 'a chapter with no key counts as a new one (the override does not leak)');
-P.setChapter(s, null);
-eq(P.effectiveMode(s), 'translation', 'a missing chapter reads as translatable, override cleared');
+eq(P.selectCitationView(s, 'source'), false, "...but not while the visit's click shows the setup card");
 
 // ---- sameChapter ----
-// A settings change re-renders the chapter showing; the views it cached stay
-// valid unless the chapter or whether anything offers it changed.
+// A settings change, or the chapter check settling, re-shows the chapter
+// showing; the views it cached stay valid. They depend on the chapter, not on
+// which texts offer it.
 console.log('sameChapter:');
 s = fresh();
-P.setChapter(s, { key: 'john/3', translatable: true });
-eq(P.sameChapter(s, { key: 'john/3', translatable: true }), true, 'the same chapter, as translatable as before');
-eq(P.sameChapter(s, { key: 'john/3' }), true, '...a missing flag reads as translatable');
-eq(P.sameChapter(s, { key: 'john/4', translatable: true }), false, 'another chapter');
-eq(P.sameChapter(s, { key: 'john/3', translatable: false }), false, 'the same chapter with nothing left to offer');
-eq(P.sameChapter(fresh(), { key: 'john/3' }), false, 'a panel that has shown nothing yet');
+P.setChapter(s, JOHN3);
+eq(P.sameChapter(s, JOHN3), true, 'the same chapter again');
+eq(P.sameChapter(s, chapter('nt/john/3', [], [])), true, '...whatever now offers it');
+eq(P.sameChapter(s, chapter('nt/john/4', [WEB], [])), false, 'another chapter');
+eq(P.sameChapter(fresh(), JOHN3), false, 'a panel that has shown nothing yet');
 eq(P.sameChapter(s, null), false, 'no chapter at all');
 
 // ---- View host ----
@@ -363,20 +558,20 @@ eq(r.entry.scrollTop, 500, '...at its own saved offset, untouched by scroll-sync
 // predicate after each of them and nowhere else.
 console.log('wantsScrollSync:');
 const syncable = { visible: true, scrollSync: true };
-eq(P.wantsScrollSync(fresh(), syncable), true, 'a visible, expanded Translation view syncs');
+eq(P.wantsScrollSync(fresh({ mode: 'translation' }), syncable), true, 'a visible, expanded Translation view syncs');
 eq(P.wantsScrollSync(fresh(), { visible: false, scrollSync: true }), false, 'a hidden panel does not sync');
 eq(P.wantsScrollSync(fresh({ collapsed: true }), syncable), false, 'a collapsed panel does not sync');
 eq(P.wantsScrollSync(fresh({ mode: 'citations' }), syncable), false, 'citations mode does not sync');
 eq(P.wantsScrollSync(fresh(), { visible: true, scrollSync: false }), false, 'the setting switches it off outright');
-const untranslatable = fresh();
-untranslatable.translatable = false;
-eq(P.wantsScrollSync(untranslatable, syncable), false, 'an untranslatable chapter is citations, so it does not sync');
-untranslatable.override = true;
-eq(P.wantsScrollSync(untranslatable, syncable), true, "the visit's override is Translation, so it syncs");
+const untranslatable = fresh({ mode: 'translation' });
+P.setChapter(untranslatable, DC76_GIL);
+eq(P.wantsScrollSync(untranslatable, syncable), false, 'Citations shown under a stored Translation does not sync');
+P.selectMode(untranslatable, 'translation');
+eq(P.wantsScrollSync(untranslatable, syncable), true, "the visit's click shows Translation (the setup card), so it syncs");
 // Defensive: a missing flag must not read as "on" for visibility, nor as "off"
 // for the setting (the panel asks before its first settings read resolves).
 eq(P.wantsScrollSync(fresh(), {}), false, 'no visibility means no sync');
-eq(P.wantsScrollSync(fresh(), { visible: true }), true, 'an unknown setting reads as its default (on)');
+eq(P.wantsScrollSync(fresh({ mode: 'translation' }), { visible: true }), true, 'an unknown setting reads as its default (on)');
 
 // ---- Damped scroll step ----
 // The body eases toward a target instead of teleporting. Frame-rate
@@ -639,6 +834,33 @@ eq(notches, Math.round((SCALE.max - SCALE.min) / SCALE.step), 'the walk hits eve
 
 // ---- What the Translation cards and errors say ----
 // Copy rules the DOM shell renders verbatim: which heading, which action.
+console.log('noteCopy:');
+{
+  // `row` is the language's dropdown row: { abbr: native name, name: English name }.
+  const GIL = { abbr: 'Kiribati', name: 'Kiribati' };
+  const SPA = { abbr: 'Español', name: 'Spanish' };
+  const n = P.noteCopy({ kind: 'no-translation', row: GIL, chapter: 'Doctrine and Covenants 76' });
+  eq(n.text, 'No Kiribati translation for Doctrine and Covenants 76.', 'the no-translation line names the language and the chapter');
+  eq(n.view, 'citations', '...and sits above the citation list');
+  eq(n.actions.map((a) => [a.id, a.label]), [['add', 'Add a language'], ['dismiss', '×']], '...with Add a language, then ×');
+  check(typeof n.actions[1].title === 'string' && n.actions[1].title.length > 0, '...the × is named for assistive tech');
+  eq(P.noteCopy({ kind: 'no-translation', row: SPA, chapter: 'Alma 5' }).text, 'No Spanish translation for Alma 5.',
+    '...naming the language in English');
+  const b = P.noteCopy({ kind: 'beside-page', row: SPA });
+  eq([b.text, b.view], ['Español is beside the page text ·', 'translation'],
+    'the beside-the-page line names the language on the page, above the Bible version in the panel');
+  eq(b.actions.map((a) => [a.id, a.label]), [['change', 'Change']], '...with Change (the layout control, in its place) and no ×');
+  eq(P.noteCopy({ kind: 'beside-page' }).text, 'A language is beside the page text ·', '...a missing name falls back to a plain sentence');
+  eq(P.noteCopy(null), null, 'no note, no copy');
+  eq(P.noteCopy({ kind: 'bogus' }), null, 'an unknown note kind has no copy');
+  eq(P.noteCopy({ kind: 'no-translation' }).text, 'No translation for this chapter.', 'missing names fall back to a plain sentence');
+  eq(P.noteCopy({ kind: 'beside-page', row: { abbr: '', name: 'English' } }).text, 'English is beside the page text ·',
+    '...a language with no native name apart reads by its one name');
+  const m = P.noteCopy({ kind: 'missing-chapter', row: { abbr: 'Pohnpei', name: 'Pohnpeian' }, chapter: 'Doctrine and Covenants 84' });
+  eq([m.text, m.view, m.actions], ['No Pohnpeian translation for Doctrine and Covenants 84.', 'translation', []],
+    'the missing-chapter line: the dropdown pick lacks the chapter, said once above the Translation tab, no buttons');
+}
+
 console.log('setupCopy:');
 {
   const bible = P.setupCopy({ chapter: 'John 3', bible: 'nokey' });
@@ -666,14 +888,15 @@ console.log('besideCopy:');
   const b = (o) => P.besideCopy(Object.assign({ name: 'Spanish' }, o));
   const WIDEN = 'Collapse panel for wider columns';
   eq(b({ layout: 'columns', effective: 'columns' }),
-    { status: 'Spanish is shown side by side.', note: '', collapse: WIDEN }, 'columns that fit: side by side, and collapsing widens them');
+    { status: 'Spanish is shown side by side.', note: '', collapse: WIDEN, pressed: 'columns' }, 'columns that fit: side by side, and collapsing widens them');
   eq(b({ layout: 'columns', effective: 'interlinear', collapseFits: true }),
-    { status: 'Spanish is shown under each verse.', note: 'Not enough room for side by side.', collapse: WIDEN },
-    'columns asked for but not fitting: the card says what the page really shows, and why — and collapsing makes room');
-  eq(b({ layout: 'columns', effective: 'interlinear', collapseFits: false }).collapse, null,
-    'collapsing is not offered where it would not make room for columns either');
+    { status: 'Spanish is shown under each verse.', note: 'Collapse the panel for side by side.', collapse: WIDEN, pressed: 'interlinear' },
+    'columns asked for but not fitting: the card says what the page really shows, and what would make room');
+  eq(b({ layout: 'columns', effective: 'interlinear', collapseFits: false }),
+    { status: 'Spanish is shown under each verse.', note: 'Not enough room for side by side.', collapse: null, pressed: 'interlinear' },
+    '...where collapsing would not make room either: only that there is not enough room, and no collapse button');
   eq(b({ layout: 'interlinear', effective: 'interlinear' }),
-    { status: 'Spanish is shown under each verse.', note: '', collapse: null }, 'under each verse: nothing to widen');
+    { status: 'Spanish is shown under each verse.', note: '', collapse: null, pressed: 'interlinear' }, 'under each verse: nothing to widen');
   eq(b({ layout: 'columns', effective: null }).status, 'Spanish is shown side by side.',
     'before the split has mounted, the card states what was asked for');
   eq(b({ layout: 'interlinear', effective: 'columns' }).status, 'Spanish is shown side by side.',
@@ -681,10 +904,37 @@ console.log('besideCopy:');
   // The narrow window's bottom sheet covers the page the text is in, and no
   // collapse makes room for columns there.
   eq(b({ layout: 'columns', effective: 'interlinear', collapseFits: false, sheet: true }),
-    { status: 'Spanish is shown under each verse.', note: '', collapse: 'Hide panel' },
+    { status: 'Spanish is shown under each verse.', note: '', collapse: 'Hide panel', pressed: 'interlinear' },
     'in the bottom sheet: no room note nothing can fix, and the offer is to hide the panel');
+  eq(b({ layout: 'columns', effective: 'interlinear', collapseFits: false, sheet: true, nudged: true }).note, 'Not enough room for side by side.',
+    '...but a click on Side by side there is answered: there is no room, and collapsing would not give it');
   eq(b({ layout: 'interlinear', effective: 'interlinear', sheet: true }).collapse, 'Hide panel',
     '...whatever the layout');
+  // The pressed segment is the layout the page shows, not the setting.
+  eq(b({ layout: 'columns', effective: null }).pressed, 'columns', 'before the split has mounted, the setting is pressed');
+  eq(b({ layout: 'interlinear', effective: 'columns' }).pressed, 'columns', 'the effective layout is pressed, whatever the setting');
+  eq(P.pressedLayout('columns', 'interlinear'), 'interlinear', 'pressedLayout: columns wanted, none fits: Under each verse');
+  eq(P.pressedLayout('columns', 'columns'), 'columns', '...room: Side by side');
+  eq(P.pressedLayout('columns', null), 'columns', '...not measured yet: the setting');
+  eq(P.pressedLayout('panel', 'interlinear'), 'panel', 'In the panel is never overridden by a split fit');
+  // What a click on a segment does. The setting is what a pick is compared
+  // with, never the pressed (effective) layout.
+  const click = (layout, effective, value) => P.layoutClick({ layout, effective, value });
+  eq(click('columns', 'interlinear', 'columns'), 'explain',
+    'Side by side while it has no room: the setting stays, the reader is told what would make room');
+  eq(click('columns', 'interlinear', 'interlinear'), 'write',
+    'Under each verse (pressed, but not the setting) is written: the preference changes');
+  eq(click('columns', 'columns', 'columns'), 'none', 'the pressed setting again: nothing');
+  eq(click('columns', null, 'columns'), 'none', '...also before the split has mounted');
+  eq(click('interlinear', 'interlinear', 'columns'), 'write', 'Side by side from Under each verse: written');
+  eq(click('columns', 'interlinear', 'panel'), 'write', 'In the panel: written');
+  // The room note alone, for the line's Change control (it has no status text).
+  eq(P.roomHint({ layout: 'columns', effective: 'interlinear', collapseFits: true }), 'Collapse the panel for side by side.',
+    'roomHint: collapsing makes room');
+  eq(P.roomHint({ layout: 'columns', effective: 'interlinear', collapseFits: false }), 'Not enough room for side by side.',
+    '...it would not');
+  eq(P.roomHint({ layout: 'columns', effective: 'columns', collapseFits: true }), '', '...no hint where columns fit');
+  eq(P.roomHint({ layout: 'interlinear', effective: 'interlinear', collapseFits: true }), '', '...or where they were not asked for');
   // One vocabulary for the layouts, on the card and on the options page.
   eq(P.LAYOUTS, [['columns', 'Side by side'], ['interlinear', 'Under each verse'], ['panel', 'In the panel']],
     'the layouts are named Side by side, Under each verse, In the panel');
@@ -802,6 +1052,29 @@ check(!/onClose|btx-close|userClosed/.test(panelSrc), 'the panel has no close co
 // card never outlives its view.
 check(/function mountView\(entry\) \{[\s\S]*?setCard\(null\)/.test(panelSrc), 'mounting any view clears the card flag');
 check(/keepView\(views, kind === 'content'\)/.test(panelSrc), 'only a finished chapter earns a cache slot; every card and state re-renders');
+// While the panel starts below the site's header band (panelTop), the strip
+// above it is filled, not left as an empty block (#89): beneath the band's
+// overflowing controls, sized to the page reserve, gone once the top is 0.
+const cap = bodyOf('paintTopCap');
+check(/paintTopCap\(top\);/.test(bodyOf('updatePanelTop')), 'every panelTop decision repaints the cap above the panel');
+check(/if \(!top\) \{[\s\S]*?topCap\.remove\(\)/.test(cap), 'top 0 leaves no cap behind');
+check(/position: fixed; top: 0; right: 0; z-index: 0; pointer-events: none;/.test(cap) && /document\.body\.appendChild\(topCap\)/.test(cap),
+  "the cap sits outside #btx-root, beneath the site's header, and never takes a click");
+check(/topCap\.style\.width = pageReserve \+ 'px';/.test(cap) && /topCap\.style\.height = top \+ 'px';/.test(cap),
+  'the cap covers the page reserve from the window top to the panel top');
+
+// The layout control presses the layout the page shows and judges a click by
+// the setting (#88): both hosts (the beside card, the line's Change) pass the
+// split's fit, and the open control is restated in place, never rebuilt.
+const lc = bodyOf('layoutControl');
+check(/pressedLayout\(current\(\), effective\(\)\)/.test(lc) && /layoutClick\(\{ layout: current\(\), effective: effective\(\), value \}\)/.test(lc),
+  'layoutControl presses by pressedLayout and judges a click by layoutClick against the setting');
+check(/effective: \(\) => card\.effective/.test(bodyOf('buildBeside')) && /effective: \(\) => splitFit\.effective/.test(bodyOf('openNoteLayouts')),
+  'the beside card and the line\'s Change control both give the control the split fit');
+check(/function updateBeside[\s\S]*?pressNote\(\)/.test(panelSrc) && /splitFit\.effective = c\.effective/.test(bodyOf('updateBeside')),
+  'a fit reported by the page split reaches the open Change control too, even with no beside card on screen');
+check(!/refocusLayout = true/.test(bodyOf('pressNote')) && /pressNote\(\);\s*refocusLayout = false/.test(panelSrc),
+  'restating the open Change control keeps its node (and so keyboard focus)');
 
 // Orchestrator wiring for the talk reader and the citation list.
 const contentSrc = fs.readFileSync(path.join(ROOT, 'src/content/content.js'), 'utf8');
@@ -820,9 +1093,9 @@ for (const fn of ['readingParagraph', 'splitAnchor']) {
   const src = (contentSrc.match(new RegExp(`function ${fn}\\(\\) \\{[\\s\\S]*?\\n {2}\\}\\n`)) || [''])[0];
   check(/const article = chapterArticle\(\);/.test(src), `${fn} reads only the chapter being rendered`);
 }
-// ...and read before the split goes, which reflows the page.
+// ...and read before the split comes or goes, which reflows the page.
 check(/const paragraph = readingParagraph\(\);\s*syncSplit\(\{ anchor: splitAnchor\(\) \}\)/.test(contentSrc),
-  'Citations reads the verse being read before the split is taken away, which keeps the paragraph on screen in place');
+  'Citations reads the verse being read before the split comes or goes, which keeps the paragraph on screen in place');
 check(/typeof citPanel\.revealVerse === 'function'/.test(contentSrc), 'citPanel.revealVerse is called only where it exists');
 // The retry rule is the panel's pure retryWait, not a copy of it here.
 check(/panel\.retryWait\(error, retries\.n\)/.test(contentSrc) && !/MAX_WAIT_MS/.test(contentSrc),
@@ -835,16 +1108,36 @@ check(/typeof citPanel\.refocus === 'function'/.test(contentSrc) && /typeof citP
 // for the split too: after a Try again the split's own earlier load may have
 // failed.
 const churchSrc = (contentSrc.match(/async function loadChurchChapter\([^)]*\) \{[\s\S]*?\n {2}\}\n/) || [''])[0];
-check(/if \(layout !== 'panel'\) \{[\s\S]*?syncSplit\(\);[\s\S]*?kind: 'beside'/.test(churchSrc),
+check(/if \(arranged\.body === 'beside'\) \{[\s\S]*?syncSplit\(\);[\s\S]*?kind: 'beside'/.test(churchSrc),
   'the beside card is never shown without asking for the page split');
+// The orchestrator holds no mode rule: it describes the chapter to the
+// arrangement and applies the answer.
+check(/panel\.showChapter\(Object\.assign\(\{ key \}, factsFor\(/.test(contentSrc) && /panel\.arrange\(factsFor\(/.test(contentSrc),
+  'content.js hands the arrangement its facts when a chapter shows and when one of them moves');
+check(!/translatable:|\.pick\b/.test(contentSrc), 'content.js decides neither translatability nor the pick: the arrangement does');
 // A pick made before the stored picks were read is written after them, not
 // over them (the setup card can add a language on a tab that never read them).
 const rememberSrc = (contentSrc.match(/function remember\(id\) \{[\s\S]*?\n {2}\}\n/) || [''])[0];
 check(/loadSelection\(\)\.then\([\s\S]*?storage\.local\.set/.test(rememberSrc),
   'a remembered pick is stored only once the older picks are merged in');
+// The no-translation line: the arrangement decides, content.js names it for
+// the panel's note slot, and the dismissal is a setting written through
+// __BTX.settings (never storage directly).
+check(/dismissed: e\.noTranslationLineDismissed === true/.test(contentSrc),
+  'content.js hands the arrangement the dismissal setting');
+check(/SETTINGS\.patch\(\{ noTranslationLineDismissed: true \}\)/.test(contentSrc),
+  'the × writes the dismissal through __BTX.settings');
+check(/const out = renderModeBody\(opts\);\s*applyNote\(\);/.test(contentSrc),
+  'every mode render restates the note (a render with none clears it)');
+const panelSrcText = fs.readFileSync(path.join(ROOT, 'src/content/panel.js'), 'utf8');
+check(!/innerHTML/.test((panelSrcText.match(/function buildNote[\s\S]*?\n {2}\}\n/) || [''])[0]),
+  'the note is built from text nodes, never markup');
+check(!/PANEL_HANDLED_KEYS = \[[^\]]*noTranslationLineDismissed/.test(panelSrcText),
+  'the dismissal is not a panel-handled key: another computer\'s × re-renders the chapter');
 
 if (failures) {
   console.error(`\n${failures} check(s) failed.`);
   process.exit(1);
 }
 console.log('\nAll checks passed.');
+

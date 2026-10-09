@@ -480,6 +480,37 @@
 #btx-root .btx-btn-outline:disabled { opacity: 0.45; cursor: default; }
 #btx-root .btx-card-add { flex: 0 0 auto; align-self: auto; height: 34px; padding: 0 16px; }
 
+/* The note slot: one quiet line at the top of the body, above the view (the
+   no-translation line, the beside-the-page line). UI text at fixed px, like
+   the cards' hints. */
+#btx-root .btx-note {
+  margin: 0 0 12px;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--btx-muted);
+}
+#btx-root .btx-note .btx-note-link { font-size: inherit; line-height: inherit; padding: 0; }
+/* The beside-the-page line's Change: the layout control in the line's place. */
+#btx-root .btx-note-tools { display: flex; flex-wrap: wrap; }
+#btx-root .btx-note-tools .btx-seg { flex: 1 1 auto; }
+/* After a click on Side by side that has no room: why, in its own line. */
+#btx-root .btx-note-hint { flex: 1 1 100%; margin-top: 6px; }
+#btx-root .btx-note-hint[hidden] { display: none; }
+#btx-root .btx-note-x {
+  appearance: none;
+  margin-inline-start: 6px;
+  padding: 0 4px;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+#btx-root .btx-note-x:hover { color: var(--btx-fg); background: var(--btx-border); }
+#btx-root .btx-note-link:focus-visible,
+#btx-root .btx-note-x:focus-visible { outline: 2px solid var(--btx-accent); outline-offset: 1px; }
+
 /* A text action that reads as a link. */
 #btx-root .btx-link {
   appearance: none;

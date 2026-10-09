@@ -5,7 +5,8 @@
  *   node tools/validate-church-text.js
  *
  * Covers the pure core: which texts a chapter offers and which one shows
- * (textsFor / pickText), where a chapter lives (chapterUri / apiUrl), and the
+ * (textsFor / pickText), which texts the chapter check found it in
+ * (chapterOffer), where a chapter lives (chapterUri / apiUrl), and the
  * markup rule that turns the site's chapter HTML into translation IR
  * (chapterFrom). The fixtures are trimmed copies of real responses from
  * /study/api/v3/language-pages/type/content; a tiny parser below builds the
@@ -112,6 +113,115 @@ eq(T.pickText(churchOnly, ['niv', 'niv']), 'church:' + L1.code,
 eq(T.pickText(list, ['niv']), 'niv', '...and is still the pick back on a Bible chapter (the preference was not rewritten)');
 eq(T.pickText([], ['niv']), null, 'an empty list picks nothing');
 
+console.log('chapterOffer:');
+{
+  // Kiribati publishes the Doctrine and Covenants but not section 76; the
+  // chapter check fetched it and found nothing there.
+  const dc = T.textsFor({ isBible: false, collection: 'dc-testament', languages: ['gil', 'spa'], pageLang: 'eng' });
+  const kirOnly = dc.filter((r) => r.lang === 'gil');
+  const offer = (texts, results, preferredIds) => T.chapterOffer({ texts, results, preferredIds });
+  const offered = (o) => o.texts.map((r) => [r.id, r.offered]);
+
+  let o = offer(kirOnly, {}, []);
+  eq([o.next, o.pick, o.translatable], ['gil', null, null], 'Kiribati alone, unchecked: check Kiribati; nothing is decided yet');
+  eq(offered(o), [['church:gil', null]], '...and its row is marked not yet checked');
+  o = offer(kirOnly, { gil: 'unavailable' }, []);
+  eq([o.next, o.pick, o.translatable], [null, null, false], 'Kiribati lacks D&C 76: the chapter is not translatable');
+  eq(offered(o), [['church:gil', false]], '...its row is marked not offered');
+
+  const mru = ['church:gil', 'church:spa'];
+  o = offer(dc, {}, mru);
+  eq(o.next, 'gil', 'Kiribati and Español, Kiribati picked last: Kiribati is checked first (pick order)');
+  o = offer(dc, { gil: 'unavailable' }, mru);
+  eq([o.next, o.pick, o.translatable], ['spa', null, null], '...missing there, Español is checked next');
+  o = offer(dc, { gil: 'unavailable', spa: 'found' }, mru);
+  eq([o.next, o.pick, o.translatable], [null, 'church:spa', true], '...found there, Español shows');
+  eq(offered(o), [['church:gil', false], ['church:spa', true]], '...each text marked offered or not');
+  o = offer(dc, { spa: 'found' }, ['church:spa', 'church:gil']);
+  eq([o.next, o.pick, o.translatable], [null, 'church:spa', true],
+    'Español picked last and found: no need to check Kiribati at all');
+  eq(offered(o), [['church:gil', null], ['church:spa', true]], '...Kiribati stays not yet checked');
+  eq(o.unchecked, ['gil'], '...and is what the background check asks once the panel settles, so a dropdown row lacking the chapter drops out');
+  o = offer(dc, { spa: 'found', gil: 'unavailable' }, ['church:spa', 'church:gil']);
+  eq(o.unchecked, [], 'every language asked: nothing left for the background check');
+  eq(offer(dc, { spa: 'found', gil: 'error' }, ['church:spa']).unchecked, [], 'a failed check is not asked again in the background (Try again asks)');
+  o = offer(dc, { gil: 'error' }, mru);
+  eq([o.next, o.pick, o.translatable], [null, 'church:gil', true],
+    'a check that failed (network) counts as offered, so the panel says why it failed');
+  eq(o.texts.map((r) => [r.id, r.offered, r.failed === true]), [['church:gil', true, true], ['church:spa', null, false]],
+    '...and its row is marked failed, which the page\'s language reads (pageLanguage)');
+
+  // A Bible chapter: the bundled Bible always offers it.
+  const WEB = { id: C.BUNDLED_BIBLE.id, provider: C.BUNDLED_BIBLE.provider, abbr: 'WEB', name: 'World English Bible' };
+  const john = T.textsFor({ isBible: true, collection: 'nt', bibleRows: [WEB], languages: ['spa'], pageLang: 'eng' });
+  o = offer(john, {}, []);
+  eq([o.next, o.pick, o.translatable], [null, WEB.id, true], 'John 3, the Bible preferred: no check at all');
+  eq(offered(o), [[WEB.id, true], ['church:spa', null]], '...a Bible row is offered without a check');
+  o = offer(john, {}, ['church:spa']);
+  eq([o.next, o.pick, o.translatable], ['spa', null, true],
+    'John 3, Español picked last: translatable already, but Español is checked before it can show');
+  o = offer(john, { spa: 'unavailable' }, ['church:spa']);
+  eq([o.next, o.pick], [null, WEB.id], '...and a missing Español falls back to the Bible');
+
+  o = offer([], {}, ['church:spa']);
+  eq([o.next, o.pick, o.translatable], [null, null, false], 'no texts at all: nothing to check, not translatable');
+  o = T.chapterOffer({});
+  eq([o.next, o.pick, o.translatable, o.texts, o.unchecked], [null, null, false, [], []], 'no inputs, nothing offered');
+}
+
+console.log('pageLanguage (the page\'s language, from the pick memory):');
+{
+  // The rows as the chapter check marks them: { id, provider, lang, offered }.
+  const SPA = (offered) => Object.assign({}, T.rowFor('spa'), { offered });
+  const JPN = (offered) => Object.assign({}, T.rowFor('jpn'), { offered });
+  const NIV_ROW = (offered) => Object.assign({}, NIV, { offered });
+  const page = (texts, picks, layout) => T.pageLanguage({ texts, picks, layout });
+
+  eq(page([SPA(true)], ['church:spa'], 'columns'), { id: 'church:spa', next: null },
+    'Alma 5, Español picked and found, side by side: Español holds the page');
+  eq(page([SPA(true)], ['church:spa'], 'interlinear'), { id: 'church:spa', next: null }, '...under each verse too');
+  eq(page([SPA(true)], ['church:spa'], 'panel'), { id: null, next: null }, '...in the panel: no page language, nothing to check');
+  eq(page([SPA(true)], ['church:spa'], undefined), { id: null, next: null }, 'an unknown layout holds nothing');
+
+  eq(page([NIV_ROW(true), SPA(true)], ['niv', 'church:spa'], 'columns'), { id: 'church:spa', next: null },
+    'John 3, NIV picked last: Español still holds the page (a Bible version never does)');
+  eq(page([NIV_ROW(true), SPA(null)], ['niv', 'church:spa'], 'columns'), { id: null, next: 'spa' },
+    '...Español not checked yet: check it (the panel\'s NIV needed no check)');
+
+  eq(page([SPA(true), JPN(true)], ['church:jpn', 'church:spa'], 'columns'), { id: 'church:jpn', next: null },
+    'two languages found: the one picked last holds the page');
+  eq(page([SPA(true), JPN(false)], ['church:jpn', 'church:spa'], 'columns'), { id: 'church:spa', next: null },
+    'the next chapter lacks Japanese: Español, the next pick that offers it, takes its place');
+  eq(page([SPA(null), JPN(false)], ['church:jpn', 'church:spa'], 'columns'), { id: null, next: 'spa' },
+    '...Español not checked yet: check it next');
+  eq(page([SPA(false), JPN(false)], ['church:jpn', 'church:spa'], 'columns'), { id: null, next: null },
+    '...neither offers it: no page language');
+  // No pick names a language that offers the chapter: the page holds what the
+  // Translation tab would select (pickText's answer), only when that is a
+  // Church language (B2).
+  const WEB_OK = Object.assign({}, { id: C.BUNDLED_BIBLE.id, provider: C.BUNDLED_BIBLE.provider }, { offered: true });
+  eq(page([SPA(true), JPN(true)], [], 'columns'), { id: 'church:spa', next: null },
+    'Alma 5, no picks, two languages: the one the Translation tab selects (the first enabled) holds the page');
+  eq(page([SPA(null)], [], 'columns'), { id: null, next: 'spa' }, '...not checked yet: check it');
+  eq(page([WEB_OK, SPA(true)], [], 'columns'), { id: null, next: null },
+    'John 3, no picks, Español on: the tab selects the Bible, so no page language (and no check)');
+  eq(page([WEB_OK, SPA(true), JPN(false)], ['church:jpn'], 'columns'), { id: null, next: null },
+    '...the only language picked lacks the chapter: still the Bible, no page language');
+  eq(page([SPA(true), JPN(false)], ['niv', 'church:jpn'], 'columns'), { id: 'church:spa', next: null },
+    'Alma 5, the picks name only NIV and a language lacking it: Español, the tab\'s selection, holds the page');
+  eq(page(undefined, ['church:spa'], 'columns'), { id: null, next: null }, 'nothing known: no page language');
+
+  // A check that failed (network) offers the panel's text, for its error card
+  // and Try again, but never the page: there is nothing to split in (B1).
+  const FAILED = (row) => Object.assign(row, { failed: true });
+  eq(page([FAILED(SPA(true)), JPN(true)], ['church:spa', 'church:jpn'], 'columns'), { id: 'church:jpn', next: null },
+    'Español\'s check failed: Japanese, the next pick that offers the chapter, holds the page');
+  eq(page([FAILED(SPA(true)), JPN(null)], ['church:spa', 'church:jpn'], 'columns'), { id: null, next: 'jpn' },
+    '...Japanese not checked yet: check it next');
+  eq(page([FAILED(SPA(true))], ['church:spa'], 'columns'), { id: null, next: null },
+    '...no other pick: no page language');
+}
+
 console.log('mruFrom / rememberPick:');
 eq(T.mruFrom('niv'), ['niv'], 'a single stored id (before the list existed) becomes a one-item list');
 eq(T.mruFrom(['church:spa', 'niv', 'church:spa', '', 7]), ['church:spa', 'niv'], 'duplicates and non-ids are dropped');
@@ -130,6 +240,18 @@ eq(T.rememberPick(['niv'], ''), ['niv'], 'an empty pick changes nothing');
   eq(T.pickText(bofm, mru.concat('niv')), 'church:spa',
     'back on the Book of Mormon the newest pick it offers wins, not its first row');
 }
+
+console.log('rememberTicked (a tick in settings goes to the front):');
+eq(T.rememberTicked(['niv'], [], ['spa']), ['church:spa', 'niv'], 'one tick goes in front of an earlier Bible pick');
+eq(T.rememberTicked(['niv'], ['jpn'], ['jpn', 'spa']), ['church:spa', 'niv'], '...only the language newly on counts, not one already on');
+eq(T.rememberTicked(['niv'], [], ['jpn', 'spa']), ['church:spa', 'church:jpn', 'niv'], 'two ticks at once: the last ticked is at the front');
+eq(T.rememberTicked(['church:spa', 'niv'], ['spa'], []), ['church:spa', 'niv'], 'an untick leaves the list as it was');
+eq(T.rememberTicked(['church:jpn', 'church:spa', 'niv'], ['jpn', 'spa'], ['jpn']), ['church:jpn', 'church:spa', 'niv'], '...order and all');
+eq(T.rememberTicked(['church:jpn', 'church:spa', 'niv'], [], ['spa']), ['church:spa', 'church:jpn', 'niv'], 'a re-tick of a language already in the list moves it to the front, once');
+eq(T.rememberTicked('niv', [], ['spa']), ['church:spa', 'niv'], '...a migrated single id included');
+eq(T.rememberTicked(['niv'], ['spa'], ['spa']), ['niv'], 'no change to the languages, no change to the list');
+eq(T.rememberTicked(['niv'], undefined, ['spa']), ['church:spa', 'niv'], 'nothing stored before counts as none on');
+eq(T.rememberTicked(['niv'], [], ['spa', 'xx-nope']), ['church:spa', 'niv'], 'a code that is no Church language is not remembered');
 
 console.log('labelFor / menuFor:');
 const SPA_ROW = T.rowFor('spa');
@@ -152,12 +274,24 @@ eq(sameDesc.map((r) => T.labelFor(r, sameDesc)), [
 eq(T.labelFor(WEBU('x-01', { description: 'Protestant' }), [NIV]), 'WEBU — World English Bible Updated',
   'a row with no twin carries no suffix, description or not');
 
-eq(T.menuFor([NIV, SPA_ROW]), [
-  { label: 'Bible translations', items: [{ id: 'niv', label: 'NIV — New International Version' }] },
-  { label: 'Church languages', items: [{ id: 'church:spa', label: 'Español — Spanish' }] },
-], 'both kinds on offer: two headed groups, Bible translations first');
-eq(T.menuFor([SPA_ROW]), [{ label: null, items: [{ id: 'church:spa', label: 'Español — Spanish' }] }],
-  'one kind: one group with no heading');
+const WEB_ROW = { id: 'bundled:engwebp', abbr: 'WEB', name: 'World English Bible', provider: C.PROVIDER_BUNDLED || 'bundled' };
+const JPN_ROW = T.rowFor('jpn');
+eq(T.menuFor([WEB_ROW], { isBible: true }), [
+  { label: 'Bible versions', items: [{ id: 'bundled:engwebp', label: 'WEB — World English Bible' }] },
+], 'Bible chapter, one Bible version and no language: still headed "Bible versions"');
+eq(T.menuFor([NIV, SPA_ROW], { isBible: true }), [
+  { label: 'Bible versions', items: [{ id: 'niv', label: 'NIV — New International Version' }] },
+  { label: 'Languages', items: [{ id: 'church:spa', label: 'Español — Spanish' }] },
+], 'Bible chapter, both kinds on offer: "Bible versions" then "Languages"');
+eq(T.menuFor([SPA_ROW], { isBible: true }), [
+  { label: 'Languages', items: [{ id: 'church:spa', label: 'Español — Spanish' }] },
+], 'Bible chapter, no Bible rows offered: "Languages" alone, no empty Bible heading');
+eq(T.menuFor([SPA_ROW, JPN_ROW], { isBible: false }), [
+  { label: null, items: [
+    { id: 'church:spa', label: 'Español — Spanish' },
+    { id: 'church:jpn', label: '日本語 — Japanese' },
+  ] },
+], 'off the Bible: language rows stay unheaded, no Bible group');
 eq(T.menuFor([]), [], 'nothing on offer: an empty menu (the select hides)');
 
 console.log('languagesToAdd:');
