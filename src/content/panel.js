@@ -1,8 +1,8 @@
 /*
  * The side panel — a deep module that owns everything panel-shaped: its DOM,
- * its state (mode, citation layout, collapsed, width, translatable, the
- * visit's Translation override), the persistence of that state through
- * __BTX.settings, scroll-sync, and drag-to-resize. It is also the *view
+ * its state (mode, citation layout, collapsed, width, this visit's mode
+ * click), the arrangement (what its body shows), the persistence of that
+ * state through __BTX.settings, scroll-sync, and drag-to-resize. It is also the *view
  * host*: callers ask for a named view and the panel decides whether to
  * rebuild it or re-mount the one it cached, and it is the only writer of the
  * body's scroll position. The orchestrator supplies chapter context and
@@ -12,25 +12,29 @@
  * Interface:
  *   init(handlers)                 build the DOM, adopt persisted state, wire
  *                                  controls; must be awaited before use
- *   showChapter({ key, translatable })  make the panel visible for a
- *                                  chapter. `key` names the chapter;
- *                                  `translatable` is false when no text
- *                                  offers it, null while the chapter check
- *                                  is still asking (the stored mode shows;
- *                                  settling it keeps the views shown
- *                                  meanwhile). Another chapter invalidates
- *                                  every cached view; the same one again (a
- *                                  settings change) keeps Citations and the
- *                                  talk and the visit's Translation override,
- *                                  and persists panelMode 'translation' once
- *                                  it becomes translatable under the override
+ *   showChapter({ key, texts, picks, languages, layout }) -> arrangement
+ *                                  make the panel visible for a chapter and
+ *                                  arrange it: `key` names the chapter, the
+ *                                  rest are the arrangement's facts (see the
+ *                                  pure arrangement). Another chapter starts
+ *                                  a new visit (its mode click goes) and
+ *                                  invalidates every cached view; the same
+ *                                  one again (a settings change) keeps the
+ *                                  click, Citations and the talk
+ *   arrange({ texts, picks, languages, layout }) -> arrangement
+ *                                  a fact about the chapter showing moved
+ *                                  (the chapter check settled, a pick): the
+ *                                  arrangement again, no view dropped
+ *   arrangement()                  the current answer: { mode, body, text,
+ *                                  saves }; the orchestrator applies `body`
  *   hide()
  *   toggleCollapsed(force)         collapse to the edge tab or expand — flip,
  *                                  or `force` true/false like classList.toggle
  *                                  (the toolbar icon); persisted like the
  *                                  header's Collapse button
- *   effectiveMode()                'translation' | 'citations' — see the pure
- *                                  effectiveMode for the rule
+ *   effectiveMode()                'translation' | 'citations': the
+ *                                  arrangement's mode, the one source of
+ *                                  truth for the mode showing
  *   citationView()                 'source' | 'verse'
  *   showView({ name, key, cache, render })  mount the named view; see the view
  *                                  host section below. Returns render's result.
@@ -83,8 +87,8 @@
  *   `renderMode` fires whenever the panel invalidated its own body content
  *   (mode toggle, citation-layout toggle, a synced change from another
  *   context); the orchestrator answers by rendering that mode's content.
- *   After showChapter() the orchestrator renders the current effectiveMode()
- *   itself — showChapter never fires events. `onGear(section)` opens the
+ *   After showChapter() the orchestrator renders what the arrangement
+ *   answered itself — showChapter and arrange never fire events. `onGear(section)` opens the
  *   options page, at a card when `section` names one ('bible' from the setup
  *   card and the key errors; none from the header's Settings button).
  *   `onAddLanguage` and `onLayoutChange` are the cards' picks; the panel
@@ -128,6 +132,9 @@
 
   const C = (root.__BTX && root.__BTX.const)
     || (typeof require === 'function' ? require('../shared/constants.js') : null);
+  // The pick order the arrangement walks (loaded before this file in the
+  // manifest; required in Node).
+  const CT = () => (root.__BTX && root.__BTX.churchText) || require('./church-text.js');
 
   // ---- Pure state core (Node-testable) -----------------------------------
   // The panel's state machine, free of DOM: which mode is effective and what
@@ -139,38 +146,79 @@
       mode: init.mode === 'translation' ? 'translation' : 'citations', // agrees with the settings default
       citationView: init.citationView === 'verse' ? 'verse' : 'source',
       collapsed: init.collapsed === true,
-      translatable: true,
-      override: false,
-      chapter: null,
+      chapter: null, // the key of the chapter showing
+      facts: null, // what content.js last said about it (setChapter / arrange)
+      click: null, // this visit's mode click: cleared by the next chapter
     };
   }
 
-  // `mode` is the stored preference; what shows is the effective mode. A
-  // chapter with no text to show beside it (no api.bible translation or Church
-  // language offers it) shows citations and leaves the preference untouched
-  // for the next chapter that has one. `override` is the reader asking for
-  // Translation anyway on this visit — the setup card — and it outranks the
-  // rest until the chapter changes or Citations is clicked.
-  // `translatable` is null while the chapter check is still asking: the
-  // preference shows meanwhile (Translation as its loading state), so
-  // Citations never paints first and then switches.
-  function effectiveMode(s) {
-    if (s.override) return 'translation';
-    return s.translatable !== false ? s.mode : 'citations';
+  // ---- The arrangement --------------------------------------------------------
+  // The one rule for what the panel shows (GLOSSARY: Arrangement). Pure:
+  //   arrangement({ texts, picks, languages, layout, mode, click }) -> {
+  //     mode:  'translation' | 'citations'   the effective mode
+  //     body:  'citations' | 'loading' | 'setup' | 'beside' | 'text'
+  //     text:  row id | null    the row the Translation tab is about ('beside', 'text')
+  //     saves: 'translation' | 'citations' | null   what the click writes to panelMode
+  //   }
+  // Inputs, from content.js except the last two (the panel's own state):
+  //   texts      the rows that may sit beside this chapter, each with
+  //              `offered` true | false | null (chapterOffer's texts; null =
+  //              the chapter check hasn't asked yet). Not an array: nothing is
+  //              known yet, as if the check were asking.
+  //   picks      the pick memory, newest first (plus the default row id)
+  //   languages  the enabled Church language codes
+  //   layout     churchLanguageLayout: a Church row shows as the beside card
+  //              unless it is 'panel'
+  //   mode       the stored panelMode
+  //   click      this visit's mode click, or null
+  // A click is saved on any chapter. Stored Citations shows Citations. Stored
+  // Translation walks the texts in pick order (churchText.pickOrder, the walk
+  // the chapter check makes): the first one offered shows; one not yet checked
+  // before it means the loading state (so Citations never paints first, then
+  // switches); with nothing offered, the setup card when no Church language is
+  // on or the reader clicked Translation on this visit, else Citations.
+  // Later answers (the page's language, the notes) join this object.
+  function arrangement(input) {
+    const o = input || {};
+    const click = o.click === 'translation' || o.click === 'citations' ? o.click : null;
+    const stored = o.mode === 'translation' ? 'translation' : 'citations';
+    const mode = click || stored;
+    const saves = click && click !== stored ? click : null;
+    const show = (m, body, text) => ({ mode: m, body, text: text || null, saves });
+    if (mode !== 'translation') return show('citations', 'citations');
+    if (!Array.isArray(o.texts)) return show('translation', 'loading');
+    for (const row of CT().pickOrder(o.texts, o.picks)) {
+      if (row.offered === null) return show('translation', 'loading');
+      if (row.offered !== true) continue;
+      const beside = row.provider === CT().PROVIDER && o.layout !== 'panel';
+      return show('translation', beside ? 'beside' : 'text', row.id);
+    }
+    const anyLanguage = Array.isArray(o.languages) && o.languages.length > 0;
+    if (!anyLanguage || click === 'translation') return show('translation', 'setup');
+    return show('citations', 'citations');
   }
 
-  // A mode-segment click. True when the effective mode changed (content must
-  // re-render). On a translatable chapter a click is the preference; on one
-  // that isn't, Translation sets the override instead, so the stored
-  // preference is never rewritten by a visit. Citations always clears it.
+  // The arrangement of the panel's state: its stored mode and this visit's
+  // click over what content.js last said about the chapter.
+  function arrangementOf(s) {
+    return arrangement(Object.assign({}, s.facts, { mode: s.mode, click: s.click }));
+  }
+
+  // The mode showing: the arrangement's. panel.effectiveMode() reads it.
+  function effectiveMode(s) {
+    return arrangementOf(s).mode;
+  }
+
+  // A mode-segment click: this visit's click, saved as the stored mode (the
+  // caller persists `mode` when it moved). True when the effective mode
+  // changed (content must re-render).
   function selectMode(s, m) {
     if (m !== 'citations' && m !== 'translation') return false;
     const before = effectiveMode(s);
-    if (m === before) return false;
-    if (m === 'citations') s.override = false;
-    if (s.translatable !== false) s.mode = m;
-    else if (m === 'translation') s.override = true;
-    return effectiveMode(s) !== before;
+    s.click = m;
+    const a = arrangementOf(s);
+    if (a.saves) s.mode = a.saves;
+    return a.mode !== before;
   }
 
   // A citation-layout click. Only acts while citations are showing.
@@ -182,42 +230,32 @@
     return true;
   }
 
-  // A chapter was shown: a new one, or the same one again after a settings
-  // change (`key` tells them apart). A new chapter drops the override. The
-  // same one keeps it — and once that chapter becomes translatable under it (a
-  // language added from the setup card, Bible translations connected in
-  // settings), the reader's request for Translation is answered, so it
-  // becomes the preference: mode 'translation', override cleared. The caller
-  // persists `mode` when it moved. `translatable: null` is the chapter check
-  // still asking; it answers no request until it says true. True when the
-  // effective mode flipped.
+  // A chapter was shown: a new one, or the same one again (a settings change,
+  // the chapter check settling, a pick) — `key` tells them apart. `chapter`
+  // is { key, texts, picks, languages, layout }: the arrangement's facts. A
+  // new chapter (or one with no key) starts a new visit, so this visit's
+  // click goes; the same one keeps it. True when the effective mode flipped.
   function setChapter(s, chapter) {
     const c = chapter || {};
     const before = effectiveMode(s);
     const key = c.key == null ? null : String(c.key);
-    if (key === null || key !== s.chapter) s.override = false;
+    if (key === null || key !== s.chapter) s.click = null;
     s.chapter = key;
-    s.translatable = translatableOf(c);
-    if (s.override && s.translatable === true) {
-      s.mode = 'translation';
-      s.override = false;
-    }
+    s.facts = factsOf(c);
     return effectiveMode(s) !== before;
   }
 
-  function translatableOf(c) {
-    return c.translatable === null ? null : c.translatable !== false;
+  function factsOf(c) {
+    return { texts: c.texts, picks: c.picks, languages: c.languages, layout: c.layout };
   }
 
   // Whether showing `chapter` leaves every cached view valid: the same chapter
-  // again (a settings change re-renders it) with the same translatability, or
-  // the chapter check settling one it left pending (what showed meanwhile is
-  // what it decided). The talk and the citation list then keep their filter,
-  // open groups and scroll.
+  // again (a settings change re-renders it, the chapter check settles it). The
+  // views depend on the chapter, not on which texts offer it, so the talk and
+  // the citation list keep their filter, open groups and scroll.
   function sameChapter(s, chapter) {
     const c = chapter || {};
-    if (c.key == null || String(c.key) !== s.chapter) return false;
-    return s.translatable === null || translatableOf(c) === s.translatable;
+    return c.key != null && String(c.key) === s.chapter;
   }
 
   // A text-size step (the header's A− / A+ buttons), along the grid the
@@ -692,7 +730,7 @@
 
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = {
-      createState, effectiveMode, selectMode, selectCitationView, setChapter, sameChapter,
+      createState, arrangement, arrangementOf, effectiveMode, selectMode, selectCitationView, setChapter, sameChapter,
       stepFontScale, setupCopy, besideCopy, errorCopy, retryWait, LAYOUTS, RETRY_MAX_WAIT_MS, RETRY_MAX,
       createViews, saveViewScroll, selectView, keepView, settleView, dropViews, SAME_CHAPTER_VIEWS,
       viewRestoresScroll, wantsScrollSync,
@@ -1040,13 +1078,14 @@
 
   // ---- User actions --------------------------------------------------------
 
-  // A click that only sets the visit's override leaves the stored preference
-  // as it was, so it writes nothing.
+  // A click is saved on any chapter (the arrangement's `saves`); one that
+  // repeats the stored mode writes nothing.
   function onModeClick(m) {
     const preferred = state.mode;
-    if (!selectMode(state, m)) return;
-    applyModeUI();
+    const changed = selectMode(state, m);
     if (state.mode !== preferred) persist({ panelMode: state.mode });
+    if (!changed) return;
+    applyModeUI();
     requestRender();
   }
 
@@ -1132,6 +1171,7 @@
     if (changed.includes('panelMode') && next.panelMode !== state.mode) {
       const before = effectiveMode(state);
       state.mode = next.panelMode;
+      state.click = null; // the reader chose elsewhere: this visit's click is spent
       applyModeUI();
       if (effectiveMode(state) !== before) contentStale = true;
     }
@@ -1175,13 +1215,20 @@
     dropViews(views, sameChapter(state, ctx) ? SAME_CHAPTER_VIEWS : null);
     visible = true;
     ui.rootEl.style.display = '';
-    const preferred = state.mode;
     setChapter(state, ctx);
     applyModeUI();
-    // The setup card's request for Translation, answered: now the preference.
-    if (state.mode !== preferred) persist({ panelMode: state.mode });
     updatePageReserve();
     scheduleTopChecks(); // the site may re-lay its header out after navigating
+    return arrangementOf(state);
+  }
+
+  // An input of the chapter showing moved (the chapter check settled, a pick,
+  // the split layout): the arrangement again, with no view dropped.
+  function arrange(facts) {
+    ensureRoot();
+    setChapter(state, Object.assign({}, facts, { key: state.chapter }));
+    applyModeUI();
+    return arrangementOf(state);
   }
 
   function hide() {
@@ -1962,6 +2009,8 @@
       init,
       showChapter,
       hide,
+      arrange,
+      arrangement: () => arrangementOf(state),
       effectiveMode: () => effectiveMode(state),
       citationView: () => state.citationView,
       toggleCollapsed: (force) => {

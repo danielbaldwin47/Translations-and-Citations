@@ -139,17 +139,19 @@ distinct talks.
 
 **Mode**:
 The user's preferred panel feature: Translation or Citations. Stored as the
-`panelMode` setting, owned by the panel. The default is Citations: a fresh
-install, and any missing or unreadable stored value, opens on it. A stored
-Translation stays.
+`panelMode` setting, owned by the panel. A click on either saves it, on any
+chapter, Bible chapters included, and every later chapter opens on it (the
+**arrangement** decides what that mode shows there). The default is
+Citations: a fresh install, and any missing or unreadable stored value, opens
+on it.
 
 **Translatable** (of a chapter):
 Some enabled text offers *this chapter*: on a Bible chapter always (the
 bundled World English Bible is always enabled), elsewhere an enabled Church
 language the **chapter check** found the chapter in. Publishing the volume is
-not enough (a language can lack a chapter of a volume it publishes). The panel
-only reads the flag (`showChapter({ key, translatable })`), `null` while the
-check is still asking.
+not enough (a language can lack a chapter of a volume it publishes). The
+**arrangement** reads it from each text's `offered` mark (`null` while the
+check has not asked that language).
 
 **Chapter check**:
 Whether an enabled Church language has the chapter, learned by fetching it
@@ -158,25 +160,40 @@ in pick order and fetches only as far as its question needs; a language whose
 volume lacks the chapter is excluded with no fetch, and a Bible row needs none.
 "Found" and "not available" are remembered per language and chapter for the
 tab, so a mode click, a settings change or a resize never fetches again. While
-it runs the panel shows the stored mode (Translation as its loading state).
+it runs the arrangement answers Translation's loading state wherever an
+unchecked language stands before the pick.
 The decision over its results is the pure `churchText.chapterOffer`; the
 fetching loop is `content.js`'s `runCheck`.
 
+**Arrangement**:
+The one pure rule for what the panel body shows (`arrangement` in the
+panel's pure core). Inputs: the chapter's texts, each marked offered or not
+(`chapterOffer`), the pick memory, the enabled Church languages, the split
+layout, the stored **mode** and this visit's mode click. Answer: the
+effective mode, the body (Citations, loading, the **setup card**, the
+**beside card**, or a text), the text the Translation tab is about, and the
+mode a click saves. With Translation stored:
+- a text offers the chapter: the latest pick that does (the beside card for a
+  Church language on the page);
+- a language not yet checked stands before it: the loading state;
+- nothing offers it and no Church language is on: the setup card;
+- nothing offers it and languages are on: Citations, unless the reader
+  clicked Translation on this visit, which shows the setup card.
+`content.js` describes the chapter to it wherever an input moves
+(`panel.showChapter`, `panel.arrange`) and applies the answer.
+
 **Effective mode**:
-The mode actually showing. Equals the mode on a translatable chapter; on any
-other the panel opens on Citations. The Translation | Citations control always
-shows: Translation there sets a per-visit **override** that shows the **setup
-card**, without rewriting the stored preference — unless the chapter becomes
-translatable under it (a language added from the card), which commits
-`panelMode: 'translation'`. The next chapter or a Citations click clears the
-override. The pure rule is `effectiveMode` / `selectMode` / `setChapter`;
-`panel.effectiveMode()` is the one source of truth.
+The mode actually showing: the **arrangement**'s mode. It differs from the
+stored mode only on a chapter nothing offers while Church languages are on
+(Citations under a stored Translation). `panel.effectiveMode()` is the one
+source of truth.
 
 **Setup card**:
-Translation mode's body on an untranslatable chapter: add a Church language
-(select + Add), or, on the Bible, set up api.bible for more translations (opens settings at the
-`bible` card via `OPEN_OPTIONS {section}`), or go to the talks that cite the
-chapter.
+Translation mode's body when nothing offers the chapter and no Church
+language is on, or the reader clicked Translation on this visit: add a Church
+language (select + Add; the chapter then shows in it at once), or, on the
+Bible, set up api.bible for more translations (opens settings at the `bible`
+card via `OPEN_OPTIONS {section}`), or go to the talks that cite the chapter.
 
 **Beside card**:
 Translation mode's body while the page split shows: where the text is (by the

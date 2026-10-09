@@ -89,7 +89,7 @@ src/
     page-hook.js           page-world history patch, injected via web-accessible <script src>
     theme.js               __BTX.theme     mirror(resolveTarget) → {refresh}: site colors/fonts/header onto the panel; pure policies nextAlignDelay / dominantTextStyle / sameVars
     sanitize.js            __BTX.sanitize  IR → DOM (text nodes only)
-    panel.js               __BTX.panel     deep module: panel state (mode/layout/collapsed/width, translatable, the visit's Translation override) + its persistence, DOM (setup / beside cards included), scroll-sync, drag-resize, AND the view host; pure cores exported for Node
+    panel.js               __BTX.panel     deep module: panel state (mode/layout/collapsed/width, the visit's mode click) + its persistence, the arrangement (what the body shows), DOM (setup / beside cards included), scroll-sync, drag-resize, AND the view host; pure cores exported for Node
     panel.css
     content.js             orchestrator: detect → worker/citations → panel content only (no panel state, no theme policy)
   citations/
@@ -308,15 +308,16 @@ validators — go there before changing behaviour.
   set once per `btx-grp-{sourceType slug}` (`--btx-src`). No setting.
 - **Translatable and the setup card**: a chapter is translatable when some
   enabled text offers *that chapter* — a Church language only once the
-  chapter check (GLOSSARY) found it there. `content.js` runs the check before
-  the panel decides (`translatable: null` while it asks: the stored mode
-  shows, Translation as its loading state); the pure `churchText.chapterOffer`
-  decides from its results. On one that isn't, the panel opens on Citations;
-  clicking Translation sets the pure core's per-visit override and shows the
-  setup card (Add a Church language, or api.bible setup via
-  `OPEN_OPTIONS {section}`). The override never rewrites `panelMode` — until
-  the chapter becomes translatable under it, which commits `panelMode:
-  'translation'`.
+  chapter check (GLOSSARY) found it there; the pure `churchText.chapterOffer`
+  marks each text `offered` from its results. What shows is the panel's pure
+  **arrangement** (GLOSSARY), the one place the mode rules live: a mode click
+  saves `panelMode` on any chapter; stored Translation on a chapter nothing
+  offers shows the setup card (Add a Church language, or api.bible setup via
+  `OPEN_OPTIONS {section}`) when no Church language is on or the reader
+  clicked Translation on this visit, else Citations. `content.js` hands it
+  the chapter's facts (`showChapter` / `arrange`, via `factsFor`), runs
+  the check while it answers `loading` (so Citations never paints first),
+  and applies the answer; it holds no mode rule of its own.
 - **Page split** (`__BTX.pageSplit`) follows Translation mode: `content.js`'s
   `syncSplit` asks the pure `wantsSplit` wherever an input moves (mode, active
   row, chapter, whether the chapter shows at all, settings) and shows or
