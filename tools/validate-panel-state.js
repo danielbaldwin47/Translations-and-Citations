@@ -146,6 +146,38 @@ const ARRANGEMENT_CASES = [
     [{ click: 'citations' }, { mode: 'citations', body: 'citations', saved: 'citations' }],
     [{ chapter: chapter('bofm/alma/5', [church('gil', true)], ['gil']) }, { mode: 'citations', body: 'citations', saved: 'citations' }],
   ] },
+  { name: 'the no-translation line: saved Translation, languages on, none offering the chapter -> Citations naming the language', init: { mode: 'translation' }, steps: [
+    [{ chapter: DC76_GIL }, { mode: 'citations', body: 'citations', note: 'no-translation', noteLang: 'gil', saved: 'translation' }],
+    [{ chapter: DC77_GIL }, { mode: 'citations', body: 'citations', note: 'no-translation', noteLang: 'gil', saved: 'translation' }],
+    [{ chapter: ALMA5_SPA }, { mode: 'translation', body: 'beside', note: null, noteLang: null, saved: 'translation' }],
+  ] },
+  { name: 'the no-translation line, dismissed: Citations, no line', init: { mode: 'translation' }, steps: [
+    [{ chapter: chapter('dc-testament/dc/76', [church('gil', false)], ['gil'], { dismissed: true }) },
+      { mode: 'citations', body: 'citations', note: null, noteLang: null, saved: 'translation' }],
+  ] },
+  { name: 'the no-translation line names the most recently picked enabled language', init: { mode: 'translation' }, steps: [
+    [{ chapter: chapter('dc-testament/dc/76', [church('gil', false), church('jpn', false)], ['gil', 'jpn'], { picks: ['church:jpn', 'church:gil'] }) },
+      { mode: 'citations', body: 'citations', note: 'no-translation', noteLang: 'jpn', saved: 'translation' }],
+    [{ chapter: chapter('dc-testament/dc/76', [church('gil', false), church('jpn', false)], ['gil', 'jpn'], { picks: ['church:spa', 'engwebp', 'church:gil', 'church:jpn'] }) },
+      { mode: 'citations', body: 'citations', note: 'no-translation', noteLang: 'gil', saved: 'translation' }], // spa is no longer enabled; a Bible row is not a language
+    [{ chapter: chapter('dc-testament/dc/76', [church('gil', false), church('jpn', false)], ['gil', 'jpn'], { picks: ['engwebp'] }) },
+      { mode: 'citations', body: 'citations', note: 'no-translation', noteLang: 'gil', saved: 'translation' }], // none picked: the first enabled
+  ] },
+  { name: 'the no-translation line never shows with Citations saved', init: {}, steps: [
+    [{ chapter: DC76_GIL }, { mode: 'citations', body: 'citations', note: null, noteLang: null, saved: 'citations' }],
+  ] },
+  { name: 'the no-translation line never shows on a Bible chapter (the bundled Bible always offers one)', init: { mode: 'translation' }, steps: [
+    [{ chapter: chapter('nt/john/3', [WEB, church('gil', false)], ['gil']) }, { mode: 'translation', body: 'text', note: null, text: 'engwebp', saved: 'translation' }],
+  ] },
+  { name: 'Add a language on the line: the setup card for the visit, no line; the next chapter has the line again', init: { mode: 'translation' }, steps: [
+    [{ chapter: DC76_GIL }, { mode: 'citations', body: 'citations', note: 'no-translation', saved: 'translation' }],
+    [{ click: 'translation' }, { mode: 'translation', body: 'setup', note: null, saved: 'translation' }],
+    [{ chapter: DC77_GIL }, { mode: 'citations', body: 'citations', note: 'no-translation', noteLang: 'gil', saved: 'translation' }],
+  ] },
+  { name: 'a Citations click where the line shows: saved, the line goes with the choice', init: { mode: 'translation' }, steps: [
+    [{ chapter: DC76_GIL }, { mode: 'citations', body: 'citations', note: 'no-translation', saved: 'translation' }],
+    [{ click: 'citations' }, { mode: 'citations', body: 'citations', note: null, saved: 'citations' }],
+  ] },
   { name: 'before any chapter: the stored mode, Translation as its loading state', init: { mode: 'translation' }, steps: [
     [{}, { mode: 'translation', body: 'loading', saved: 'translation' }],
   ] },
@@ -669,6 +701,18 @@ eq(notches, Math.round((SCALE.max - SCALE.min) / SCALE.step), 'the walk hits eve
 
 // ---- What the Translation cards and errors say ----
 // Copy rules the DOM shell renders verbatim: which heading, which action.
+console.log('noteCopy:');
+{
+  const n = P.noteCopy({ kind: 'no-translation', language: 'Kiribati', chapter: 'Doctrine and Covenants 76' });
+  eq(n.text, 'No Kiribati translation for Doctrine and Covenants 76.', 'the no-translation line names the language and the chapter');
+  eq(n.view, 'citations', '...and sits above the citation list');
+  eq(n.actions.map((a) => [a.id, a.label]), [['add', 'Add a language'], ['dismiss', '×']], '...with Add a language, then ×');
+  check(typeof n.actions[1].title === 'string' && n.actions[1].title.length > 0, '...the × is named for assistive tech');
+  eq(P.noteCopy(null), null, 'no note, no copy');
+  eq(P.noteCopy({ kind: 'bogus' }), null, 'an unknown note kind has no copy');
+  eq(P.noteCopy({ kind: 'no-translation' }).text, 'No translation for this chapter.', 'missing names fall back to a plain sentence');
+}
+
 console.log('setupCopy:');
 {
   const bible = P.setupCopy({ chapter: 'John 3', bible: 'nokey' });
@@ -877,9 +921,24 @@ check(!/translatable:|\.pick\b/.test(contentSrc), 'content.js decides neither tr
 const rememberSrc = (contentSrc.match(/function remember\(id\) \{[\s\S]*?\n {2}\}\n/) || [''])[0];
 check(/loadSelection\(\)\.then\([\s\S]*?storage\.local\.set/.test(rememberSrc),
   'a remembered pick is stored only once the older picks are merged in');
+// The no-translation line: the arrangement decides, content.js names it for
+// the panel's note slot, and the dismissal is a setting written through
+// __BTX.settings (never storage directly).
+check(/dismissed: e\.noTranslationLineDismissed === true/.test(contentSrc),
+  'content.js hands the arrangement the dismissal setting');
+check(/SETTINGS\.patch\(\{ noTranslationLineDismissed: true \}\)/.test(contentSrc),
+  'the × writes the dismissal through __BTX.settings');
+check(/const out = renderModeBody\(opts\);\s*applyNote\(\);/.test(contentSrc),
+  'every mode render restates the note (a render with none clears it)');
+const panelSrcText = fs.readFileSync(path.join(ROOT, 'src/content/panel.js'), 'utf8');
+check(!/innerHTML/.test((panelSrcText.match(/function buildNote[\s\S]*?\n {2}\}\n/) || [''])[0]),
+  'the note is built from text nodes, never markup');
+check(!/PANEL_HANDLED_KEYS = \[[^\]]*noTranslationLineDismissed/.test(panelSrcText),
+  'the dismissal is not a panel-handled key: another computer\'s × re-renders the chapter');
 
 if (failures) {
   console.error(`\n${failures} check(s) failed.`);
   process.exit(1);
 }
 console.log('\nAll checks passed.');
+

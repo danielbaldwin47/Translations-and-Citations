@@ -169,18 +169,32 @@ fetching loop is `content.js`'s `runCheck`.
 The one pure rule for what the panel body shows (`arrangement` in the
 panel's pure core). Inputs: the chapter's texts, each marked offered or not
 (`chapterOffer`), the pick memory, the enabled Church languages, the split
-layout, the stored **mode** and this visit's mode click. Answer: the
-effective mode, the body (Citations, loading, the **setup card**, the
-**beside card**, or a text), the text the Translation tab is about, and the
-mode a click saves. With Translation stored:
+layout, whether the **no-translation line** is dismissed, the stored **mode**
+and this visit's mode click. Answer: the effective mode, the body (Citations,
+loading, the **setup card**, the **beside card**, or a text), the text the
+Translation tab is about, the note (`no-translation` or none, with the
+language it names) and the mode a click saves. With Translation stored:
 - a text offers the chapter: the latest pick that does (the beside card for a
   Church language on the page);
 - a language not yet checked stands before it: the loading state;
 - nothing offers it and no Church language is on: the setup card;
-- nothing offers it and languages are on: Citations, unless the reader
-  clicked Translation on this visit, which shows the setup card.
+- nothing offers it and languages are on: Citations with the **no-translation
+  line**, unless the reader clicked Translation on this visit, which shows the
+  setup card.
 `content.js` describes the chapter to it wherever an input moves
 (`panel.showChapter`, `panel.arrange`) and applies the answer.
+
+**No-translation line**:
+The one quiet line above the Citations list when the stored mode is
+Translation, Church languages are on and none offers the chapter: "No
+Kiribati translation for Doctrine and Covenants 76. **Add a language** ×".
+It names the enabled Church language nearest the front of the pick memory,
+else the first enabled one. "Add a language" is a Translation click on this
+visit (the **setup card**); × sets the synced `noTranslationLineDismissed`
+setting, so it never shows again on any computer. It never shows with
+Citations stored, on a Bible chapter (the **bundled Bible** always offers
+one), or once dismissed. The **arrangement** answers it (`note`); the panel's
+note slot renders it, above the mounted view and never inside it.
 
 **Effective mode**:
 The mode actually showing: the **arrangement**'s mode. It differs from the

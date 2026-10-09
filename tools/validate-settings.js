@@ -33,7 +33,7 @@ console.log('Schema:');
 const KEYS = [
   'apiKey', 'provider', 'enabledTranslations', 'defaultTranslationId', 'churchLanguages', 'churchLanguageLayout',
   'actOnNonEngOnly', 'sidebarWidth', 'fontScale', 'citationView',
-  'panelMode', 'panelCollapsed', 'scrollSync',
+  'panelMode', 'panelCollapsed', 'scrollSync', 'noTranslationLineDismissed',
 ];
 check(Array.isArray(S.KEYS), 'exports KEYS');
 eq(S.KEYS.slice().sort(), KEYS.slice().sort(), 'KEYS covers exactly the known settings');
@@ -91,6 +91,16 @@ eq(S.normalize({ panelCollapsed: false }).panelCollapsed, false, 'panelCollapsed
 for (const bad of ['true', 1, null, undefined, {}]) {
   eq(S.normalize({ panelCollapsed: bad }).panelCollapsed, false,
     `panelCollapsed ${JSON.stringify(bad)} falls back to false`);
+}
+
+// ---- normalize: noTranslationLineDismissed (the no-translation line's ×) ----
+console.log('normalize (noTranslationLineDismissed):');
+eq(S.defaults().noTranslationLineDismissed, false, 'the no-translation line starts un-dismissed');
+eq(S.normalize({ noTranslationLineDismissed: true }).noTranslationLineDismissed, true, 'dismissed true survives');
+eq(S.normalize({ noTranslationLineDismissed: false }).noTranslationLineDismissed, false, 'dismissed false survives');
+for (const bad of ['true', 1, null, undefined, {}]) {
+  eq(S.normalize({ noTranslationLineDismissed: bad }).noTranslationLineDismissed, false,
+    `dismissed ${JSON.stringify(bad)} falls back to false (the line shows)`);
 }
 
 // ---- normalize: booleans ----

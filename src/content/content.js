@@ -14,7 +14,11 @@
  *  - describes the chapter to the panel's arrangement (factsFor: the texts
  *    chapterOffer marked offered, the pick memory, the enabled languages, the
  *    split layout) wherever one of those moves, and applies its answer: the
- *    mode and body showing are the arrangement's, never decided here
+ *    mode, body and note showing are the arrangement's, never decided here
+ *  - applies the arrangement's note to the panel's note slot (applyNote, after
+ *    every mode render: it names the language and the chapter) and writes the
+ *    no-translation line's dismissal (noTranslationLineDismissed) through
+ *    __BTX.settings
  *  - runs the chapter check (runCheck over churchText.chapterOffer) while the
  *    arrangement answers `loading`, then arranges again. A rate-limited
  *    load waits and retries only as panel.retryWait allows, counting its
@@ -204,7 +208,32 @@
   // What the panel's arrangement needs to know about the chapter showing,
   // besides its own stored mode and this visit's click.
   function factsFor(e, offer) {
-    return { texts: offer.texts, picks: preferredIds(), languages: e.churchLanguages, layout: placement() };
+    return {
+      texts: offer.texts, picks: preferredIds(), languages: e.churchLanguages, layout: placement(),
+      dismissed: e.noTranslationLineDismissed === true,
+    };
+  }
+
+  // The arrangement's note, named for the panel's note slot ("Kiribati",
+  // "Doctrine and Covenants 76"). The panel renders it above the view the
+  // note belongs to and shows it only while that view is mounted, so this runs
+  // after every mode render (a render with no note clears the slot).
+  function applyNote() {
+    const a = panel.arrangement();
+    const row = a.note && current ? churchText.rowFor(a.noteLang) : null;
+    panel.setNote(row ? { kind: a.note, language: row.name, chapter: chapterLabel(current) } : null);
+  }
+
+  // The line's ×: dismissed for good, on every computer (a synced setting).
+  function dismissNote() {
+    if (enabled) enabled = Object.assign({}, enabled, { noTranslationLineDismissed: true });
+    SETTINGS.patch({ noTranslationLineDismissed: true });
+    if (!current || !enabled) return;
+    // The arrangement again with the dismissal; the chapter check's results
+    // are the tab's, so nothing is fetched.
+    const parsed = current;
+    panel.arrange(factsFor(enabled, offerFor(parsed, textsForChapter(parsed, enabled))));
+    applyNote();
   }
 
   // Fetch the next language chapterOffer names until `answered(offer)`.
@@ -305,6 +334,12 @@
   // the list as it was).
   function renderActiveMode(opts) {
     if (!current) return undefined;
+    const out = renderModeBody(opts);
+    applyNote();
+    return out;
+  }
+
+  function renderModeBody(opts) {
     if (panel.effectiveMode() === 'citations') {
       // Read before the split goes: taking it away reflows the page (and
       // keeps the reader's place on screen).
@@ -751,6 +786,7 @@
       onGear: (section) => send(section ? { type: C.MSG.OPEN_OPTIONS, section } : { type: C.MSG.OPEN_OPTIONS }),
       onAddLanguage: addLanguage,
       onLayoutChange: changeLayout,
+      onDismissNote: dismissNote,
     });
 
     // Hand the theme module the panel root (null while there's nothing shown);

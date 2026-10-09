@@ -70,6 +70,7 @@ async function handleGetEnabledTranslations() {
     provider: s.provider,
     hasKey: !!s.apiKey,
     actOnNonEngOnly: s.actOnNonEngOnly,
+    noTranslationLineDismissed: s.noTranslationLineDismissed,
   };
 }
 

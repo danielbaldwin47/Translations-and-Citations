@@ -232,6 +232,11 @@
     // edge tab. Owned and written by __BTX.panel.
     panelMode: { def: 'citations', norm: oneOf(['translation', 'citations'], 'citations') },
     panelCollapsed: { def: false, norm: bool(false) },
+    // The reader pressed × on the no-translation line (GLOSSARY: No-translation
+    // line). Synced, so it holds on every computer; anything but a stored
+    // `true` reads as not dismissed. Written by the orchestrator, read into the
+    // panel's arrangement.
+    noTranslationLineDismissed: { def: false, norm: bool(false) },
   };
 
   const KEYS = Object.keys(SCHEMA);
