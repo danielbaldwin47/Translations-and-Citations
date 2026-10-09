@@ -96,7 +96,9 @@
  *                                  `rate` is the month's api.bible state on an
  *                                  api.bible chapter, see isPaused: paused
  *                                  turns a RATE_LIMITED card into the paused
- *                                  line, pausedLine)
+ *                                  line, pausedLine; near puts the near line
+ *                                  above a chapter's text once a month,
+ *                                  nearLine)
  *   updateBeside({ layout, effective, collapseFits })  restate the layout
  *                                  control in place: the reader picked another
  *                                  in-page layout, or the split fit another.
@@ -768,6 +770,18 @@
     return day ? `api.bible’s free monthly limit is reached. Back on ${day}.` : 'api.bible’s free monthly limit is reached.';
   }
 
+  // The near line (spec #101): one short line above an api.bible chapter, once
+  // per calendar month. Worded about the plan's limit, never a count (the
+  // count is this browser's alone). `rate` is the state attached to the
+  // chapter; `seenMonth` the 'YYYY-MM' the line was last shown (kept in
+  // chrome.storage.local under C.NEAR_LINE_KEY), '' when never.
+  //   -> the line, or '' when it isn't due
+  function nearLine(rate, seenMonth) {
+    if (!rate || rate.state !== 'near' || !/^\d{4}-\d{2}$/.test(String(rate.month || ''))) return '';
+    if (rate.month === seenMonth) return '';
+    return 'You’re at about 80% of api.bible’s free monthly limit.';
+  }
+
   // A chapter that failed to load. `code` is a C.ERR code; `church` says it
   // came from the Church's site rather than api.bible; `alternatives` that the
   // dropdown offers something else to pick; `rate` the month's rate state. A
@@ -1152,7 +1166,7 @@
       createState, arrangement, layoutChoice, arrangementOf, effectiveMode, selectMode, selectText, selectCitationView, setChapter, sameChapter,
       welcomeDue, setWelcomeSeen, welcomeTakesFocus, focusOnToggle, CONTROL_NAMES, WELCOME_COPY, WELCOME_STEPS, welcomeSteps, welcomeStepView, welcomeFactsFrom, lineParts,
       CALLOUT_GEOMETRY, calloutPlacement, unionRect,
-      stepFontScale, setupCopy, noteCopy, besideCopy, pressedLayout, layoutClick, roomHint, errorCopy, pausedLine, retryWait, LAYOUTS, RETRY_MAX_WAIT_MS, RETRY_MAX,
+      stepFontScale, setupCopy, noteCopy, besideCopy, pressedLayout, layoutClick, roomHint, errorCopy, pausedLine, nearLine, retryWait, LAYOUTS, RETRY_MAX_WAIT_MS, RETRY_MAX,
       createViews, saveViewScroll, selectView, keepView, settleView, dropViews, SAME_CHAPTER_VIEWS,
       viewRestoresScroll, wantsScrollSync,
       scrollStep, easeRamp, floorStep, carryScroll, realignmentDone, isForeignScroll,
@@ -2572,6 +2586,41 @@
     // After the text, outside the article: it is the panel's English, not the
     // translation's language.
     if (st.copyright) host.appendChild(el('p', 'btx-copyright', st.copyright));
+    // Last, and not waited for: the chapter is already on screen.
+    if (st.rate && st.rate.state === 'near') showNearLine(host, article, st.rate);
+  }
+
+  // The near line (nearLine) above the text, once a month. The month last
+  // shown is read from chrome.storage.local after the text is up; if the read
+  // fails the line simply doesn't show. `nearSeen` closes the gap between two
+  // chapters rendering before the first write lands. A quiet note, like the
+  // no-translation line, with an × to put it away.
+  let nearSeen = '';
+
+  function showNearLine(host, article, rate) {
+    const key = C.NEAR_LINE_KEY;
+    const settle = (value) => {
+      const text = nearLine(rate, nearSeen === rate.month ? nearSeen : String(value || ''));
+      if (!text) return;
+      nearSeen = rate.month;
+      try { chrome.storage.local.set({ [key]: rate.month }); } catch (e) { /* shown, not remembered */ }
+      if (article.parentNode !== host) return; // the view moved on: this chapter's line is spent
+      const node = el('p', 'btx-note');
+      node.setAttribute('role', 'status');
+      node.appendChild(el('span', 'btx-note-text', text));
+      node.appendChild(document.createTextNode(' '));
+      const x = button('btx-note-x', '×', () => node.remove());
+      labelled(x, 'Dismiss');
+      node.appendChild(x);
+      // Above the text without moving it: the body scrolls by the line's height.
+      const before = article.getBoundingClientRect().top;
+      host.insertBefore(node, host.firstChild);
+      const moved = article.getBoundingClientRect().top - before;
+      if (moved && ui && ui.body.scrollTop > 0) setBodyScroll(ui.body.scrollTop + moved);
+    };
+    try {
+      chrome.storage.local.get(key, (d) => { if (!chrome.runtime.lastError) settle(d && d[key]); });
+    } catch (e) { /* no storage: no line */ }
   }
 
   function showTranslation(st) {
