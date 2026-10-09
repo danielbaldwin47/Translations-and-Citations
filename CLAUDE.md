@@ -77,7 +77,7 @@ src/
   shared/settings.js       __BTX.settings  THE owner of synced `btxSettings`: schema, one normalizer per key, get/patch/replace, subscribe({next,prev,changed,own})
   shared/books.js          __BTX.books     66 Bible (slug→USFM/name) + BoM/D&C/PGP registry
   background/
-    service-worker.js      classic worker; importScripts; onMessage router (OPEN_OPTIONS {section} → storage.session); toolbar icon = TOGGLE_PANEL, else opens options; install opens options
+    service-worker.js      classic worker; importScripts; onMessage router (OPEN_OPTIONS {section} → storage.session); toolbar icon = TOGGLE_PANEL, else opens options; install opens Alma 5 (`C.FIRST_RUN_URL`)
     api.js                 __BTX.api       api.bible fetch + JSON→IR (403 "Invalid API key" → INVALID_KEY; 429 → remote + retryAfterMs; partial version lists); fetchBundledChapter serves the World English Bible from src/bible/
     cache.js               __BTX.cache     chapter cache + LRU; version list keyed by a key fingerprint, 7-day TTL (storage.local; the options page reads it too)
     ratelimit.js           __BTX.rate      15/30s + 5000/day, persisted

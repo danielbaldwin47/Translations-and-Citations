@@ -9,7 +9,9 @@
  * importScripts, chrome.storage and fetch stubbed, and the checks send it
  * messages through its onMessage router and read what it fetched.
  *
- * What it holds (spec #69, A12):
+ * What it holds (spec #69, A12; #111):
+ *   - `install` opens Alma 5 in a new tab and not the settings page; any other
+ *     onInstalled reason opens nothing;
  *   - a chapter is requested with `fums-version=3`;
  *   - every display sends GET https://fums.api.bible/f3?t=…&sId=…[&dId=…],
  *     a cache hit too, with the token stored beside the cached chapter;
@@ -80,6 +82,9 @@ const LIST = { data: [{ id: 'niv', name: 'New International Version', abbreviati
 
 function boot(disk, net) {
   const listeners = [];
+  const installed = [];
+  const tabs = [];
+  const opened = []; // openOptionsPage calls
   const ctx = {
     console,
     URL, URLSearchParams, setTimeout, clearTimeout, Promise,
@@ -94,11 +99,11 @@ function boot(disk, net) {
       runtime: {
         lastError: null,
         onMessage: { addListener: (fn) => listeners.push(fn) },
-        onInstalled: { addListener() {} },
-        openOptionsPage: async () => {},
+        onInstalled: { addListener: (fn) => installed.push(fn) },
+        openOptionsPage: async () => { opened.push(1); },
       },
       action: { onClicked: { addListener() {} } },
-      tabs: { sendMessage: async () => ({}) },
+      tabs: { sendMessage: async () => ({}), create: async (props) => { tabs.push(props); return {}; } },
     },
     fetch: async (url) => {
       url = String(url);
@@ -121,7 +126,8 @@ function boot(disk, net) {
     const async = listeners.some((fn) => fn(msg, {}, resolve) === true);
     if (!async) resolve(undefined);
   });
-  return { send };
+  const install = (reason) => { for (const fn of installed) fn({ reason }); };
+  return { send, install, tabs, opened };
 }
 
 // The api.bible side: a chapter with its token, a version list, or a refusal.
@@ -280,6 +286,23 @@ async function run() {
     eq(web && web.copyright, C.BUNDLED_BIBLE.copyright, '...under the ebible.org public-domain line');
     check(calls.length > 0 && calls.every((u) => u.startsWith(C.BUNDLED_BIBLE.dir + '/')), 'it reads only the packaged files: no api.bible call, no usage report');
     eq(Object.keys(disk.local), [], 'nothing is cached or counted against the rate limit');
+  }
+
+  // ---- install opens Alma 5 in Gospel Library, not the settings page (#111) ----
+  {
+    const ALMA_5 = 'https://www.churchofjesuschrist.org/study/scriptures/bofm/alma/5?lang=eng';
+    const w = boot({ local: {}, sync: {} }, apiBible());
+    w.install('install');
+    await flush();
+    eq(w.tabs.map((t) => t.url), [ALMA_5], 'install opens one new tab at Alma 5 in English');
+    eq(w.opened.length, 0, 'install does not open the settings page');
+
+    for (const reason of ['update', 'chrome_update', 'shared_module_update']) {
+      const u = boot({ local: {}, sync: {} }, apiBible());
+      u.install(reason);
+      await flush();
+      check(u.tabs.length === 0 && u.opened.length === 0, `"${reason}" opens no tab and no settings page`);
+    }
   }
 
   // ---- the page gets no script; the manifest lets the worker reach FUMS ----
