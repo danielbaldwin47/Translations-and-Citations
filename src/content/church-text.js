@@ -14,6 +14,9 @@
  *       the first preferred id the list offers, else the list's first row.
  *       The caller's preference is never rewritten by a fallback, which is
  *       what lets a Bible version survive a detour through the Book of Mormon.
+ *     pickOrder(list, preferredIds) -> [row]
+ *       pickText's order over every row; the chapter check and the panel's
+ *       arrangement both walk it
  *     chapterOffer({ texts, results, preferredIds })
  *         -> { texts: [row + { offered }], pick, next, translatable }
  *       the chapter check's decision (GLOSSARY): a Church row offers the
@@ -145,6 +148,16 @@
     return rows.length ? rows[0].id : null;
   }
 
+  // pickText's order over every row: the preferred ids the list offers, newest
+  // first, then the rest in list order. The chapter check and the panel's
+  // arrangement both walk it, so they settle on the same row.
+  function pickOrder(list, preferredIds) {
+    const rows = Array.isArray(list) ? list : [];
+    const preferred = (preferredIds || []).filter((id, i, all) => id && all.indexOf(id) === i)
+      .map((id) => rows.find((t) => t.id === id)).filter(Boolean);
+    return preferred.concat(rows.filter((t) => preferred.indexOf(t) < 0));
+  }
+
   // ---- Which texts offer this chapter (the chapter check's decision) ---------
   // A Church language offers a chapter only once the chapter check found it
   // there; a Bible row (bundled or api.bible) offers it without a check.
@@ -167,13 +180,10 @@
       return r !== 'unavailable';
     };
     const texts = (Array.isArray(o.texts) ? o.texts : []).map((row) => Object.assign({}, row, { offered: offeredBy(row) }));
-    const preferred = (o.preferredIds || []).filter((id) => texts.some((t) => t.id === id));
-    const order = preferred.concat(texts.map((t) => t.id).filter((id) => preferred.indexOf(id) < 0));
     let pick = null;
     let next = null;
-    for (const id of order) {
-      const row = texts.find((t) => t.id === id);
-      if (row.offered === true) { pick = id; break; }
+    for (const row of pickOrder(texts, o.preferredIds)) {
+      if (row.offered === true) { pick = row.id; break; }
       if (row.offered === null) { next = row.lang; break; }
     }
     const translatable = texts.some((t) => t.offered === true) ? true
@@ -443,7 +453,7 @@
   }
 
   const CORE = {
-    PROVIDER, ID_PREFIX, MRU_MAX, rowFor, textsFor, pickText, chapterOffer, mruFrom, rememberPick, rememberTicked, labelFor, menuFor, languagesToAdd,
+    PROVIDER, ID_PREFIX, MRU_MAX, rowFor, textsFor, pickText, pickOrder, chapterOffer, mruFrom, rememberPick, rememberTicked, labelFor, menuFor, languagesToAdd,
     chapterUri, apiUrl, chapterFrom, blockElements, servesChapter, dirOf,
   };
 

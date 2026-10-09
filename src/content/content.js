@@ -6,14 +6,21 @@
  *  - points the theme module at the panel root (it owns keeping it in sync)
  *  - manages translation selection and hands the panel each Translation state
  *    (loading, rate-limit wait, error, setup card, beside card, text); the
- *    dropdown's rows, labels and the pick among them are __BTX.churchText's
- *    pure textsFor / menuFor / chapterOffer, the pick walking a most-recently-used
- *    list (C.SELECTION_KEY in chrome.storage.local). The options page writes
+ *    dropdown's rows and labels are __BTX.churchText's pure textsFor /
+ *    menuFor, and the row shown is the arrangement's, walking a
+ *    most-recently-used list (C.SELECTION_KEY in chrome.storage.local). The options page writes
  *    it too (a Church language ticked there leads) and this tab adopts that
  *    write through storage.onChanged
- *  - runs the chapter check (runCheck over churchText.chapterOffer): render
- *    hands the panel `translatable: null` while it asks, then the answer;
- *    renderTranslation shows the loading state until the pick is found. A rate-limited
+ *  - describes the chapter to the panel's arrangement (factsFor: the texts
+ *    chapterOffer marked offered, the pick memory, the enabled languages, the
+ *    split layout) wherever one of those moves, and applies its answer: the
+ *    mode, body and note showing are the arrangement's, never decided here
+ *  - applies the arrangement's note to the panel's note slot (applyNote, after
+ *    every mode render: it names the language and the chapter) and writes the
+ *    no-translation line's dismissal (noTranslationLineDismissed) through
+ *    __BTX.settings
+ *  - runs the chapter check (runCheck over churchText.chapterOffer) while the
+ *    arrangement answers `loading`, then arranges again. A rate-limited
  *    load waits and retries only as panel.retryWait allows, counting its
  *    automatic retries per chapter and version
  *  - writes the cards' picks through __BTX.settings (a Church language added
@@ -79,8 +86,6 @@
   // them; cleared with each new chapter. "Found" and "not available" live in
   // churchText for the tab.
   let checkErrors = new Map();
-  let renderSeq = 0; // numbers each render, so a stale chapter check lands nowhere
-  let pendingCheck = null; // the check deciding whether anything offers the chapter showing
   let transToken = 0; // numbers each renderTranslation, so a stale one stops
   let splitToken = 0; // guards the page split against stale chapter loads
   let current = null; // parsed location
@@ -191,7 +196,44 @@
     for (const lang of langs) {
       if (!results[lang] && checkErrors.has(`${lang}|${uri}`)) results[lang] = 'error';
     }
-    return churchText.chapterOffer({ texts: rows, results, preferredIds: mru.concat(enabled ? enabled.defaultId : []) });
+    return churchText.chapterOffer({ texts: rows, results, preferredIds: preferredIds() });
+  }
+
+  // The pick memory as both walks read it: the chapter check, and the panel's
+  // arrangement (so they settle on the same row).
+  function preferredIds() {
+    return mru.concat(enabled ? enabled.defaultId : []);
+  }
+
+  // What the panel's arrangement needs to know about the chapter showing,
+  // besides its own stored mode and this visit's click.
+  function factsFor(e, offer) {
+    return {
+      texts: offer.texts, picks: preferredIds(), languages: e.churchLanguages, layout: placement(),
+      dismissed: e.noTranslationLineDismissed === true,
+    };
+  }
+
+  // The arrangement's note, named for the panel's note slot ("Kiribati",
+  // "Doctrine and Covenants 76"). The panel renders it above the view the
+  // note belongs to and shows it only while that view is mounted, so this runs
+  // after every mode render (a render with no note clears the slot).
+  function applyNote() {
+    const a = panel.arrangement();
+    const row = a.note && current ? churchText.rowFor(a.noteLang) : null;
+    panel.setNote(row ? { kind: a.note, language: row.name, chapter: chapterLabel(current) } : null);
+  }
+
+  // The line's ×: dismissed for good, on every computer (a synced setting).
+  function dismissNote() {
+    if (enabled) enabled = Object.assign({}, enabled, { noTranslationLineDismissed: true });
+    SETTINGS.patch({ noTranslationLineDismissed: true });
+    if (!current || !enabled) return;
+    // The arrangement again with the dismissal; the chapter check's results
+    // are the tab's, so nothing is fetched.
+    const parsed = current;
+    panel.arrange(factsFor(enabled, offerFor(parsed, textsForChapter(parsed, enabled))));
+    applyNote();
   }
 
   // Fetch the next language chapterOffer names until `answered(offer)`.
@@ -274,29 +316,15 @@
       return;
     }
 
-    // Translatable = some text offers this chapter: an enabled api.bible
-    // translation (Bible only), or a Church language the chapter check found
-    // it in. Until the check knows, the panel shows the stored mode
-    // (Translation as its loading state), then adopts the answer — and
-    // re-renders only if that changed the mode showing.
+    // The panel arranges itself from what is known so far (the chapter
+    // check's results this tab): a text not checked yet in the way of the
+    // pick is Translation's loading state, and renderTranslation runs the
+    // check before anything else shows.
     await loadSelection();
-    const seq = ++renderSeq;
-    const rows = textsForChapter(parsed, e);
-    const offer = offerFor(parsed, rows);
+    const offer = offerFor(parsed, textsForChapter(parsed, e));
     texts = offer.texts.filter((t) => t.offered !== false);
-    pendingCheck = null;
-    panel.showChapter({ key, translatable: offer.translatable });
+    panel.showChapter(Object.assign({ key }, factsFor(e, offer)));
     if (themeMirror) themeMirror.refresh(); // the panel is on screen: theme it now
-    if (offer.translatable === null) {
-      const stale = () => seq !== renderSeq;
-      pendingCheck = runCheck(parsed, rows, (o) => o.translatable !== null, stale).then((o) => {
-        if (!o || stale()) return;
-        pendingCheck = null;
-        const before = panel.effectiveMode();
-        panel.showChapter({ key, translatable: o.translatable });
-        if (panel.effectiveMode() !== before) renderActiveMode();
-      });
-    }
 
     await renderActiveMode();
   }
@@ -306,6 +334,12 @@
   // the list as it was).
   function renderActiveMode(opts) {
     if (!current) return undefined;
+    const out = renderModeBody(opts);
+    applyNote();
+    return out;
+  }
+
+  function renderModeBody(opts) {
     if (panel.effectiveMode() === 'citations') {
       // Read before the split goes: taking it away reflows the page (and
       // keeps the reader's place on screen).
@@ -384,20 +418,22 @@
     if (stale()) return;
     const rows = textsForChapter(parsed, e);
     let offer = offerFor(parsed, rows);
-    if (offer.next) {
-      // The chapter check isn't done: the loading state, then the text the
-      // reader picked last that the chapter is found in. A text still loading
-      // for the previous pick must not land on the loading state.
+    let shown = panel.arrange(factsFor(e, offer));
+    if (shown.body === 'loading') {
+      // The chapter check isn't done: the loading state, then what the
+      // arrangement makes of its answer. A text still loading for the
+      // previous pick must not land on the loading state.
       ++reqToken;
       clearTimeout(retryTimer);
       showChecking();
-      if (pendingCheck) await pendingCheck; // it may flip the panel to Citations
-      if (stale()) return;
       offer = await runCheck(parsed, rows, (o) => !o.next, stale);
       if (!offer) return;
+      shown = panel.arrange(factsFor(e, offer));
     }
+    // Nothing offers the chapter and Church languages are on: Citations.
+    if (shown.mode !== 'translation') return renderActiveMode();
     const list = texts = offer.texts.filter((t) => t.offered !== false);
-    if (!offer.pick) {
+    if (shown.body === 'setup') {
       // Nothing left to show, so nothing in flight may land here either: a load
       // started for a row that has just gone would paint over this state (and
       // be cached under its key).
@@ -406,8 +442,8 @@
       activeId = null;
       syncSplit();
       panel.populateTranslations([], '');
-      // Nothing offers the chapter, and the reader asked for Translation: the
-      // setup card (never cached — the panel re-renders it every time).
+      // Nothing offers the chapter, and the arrangement says the setup card
+      // (never cached — the panel re-renders it every time).
       const bible = current.isBible === false ? null
         : (e.hasKey ? 'noversions' : 'nokey');
       return panel.showView({ name: 'translation', key: 'setup', render: () => {
@@ -423,7 +459,7 @@
         });
       } });
     }
-    activeId = offer.pick;
+    activeId = shown.text;
     panel.populateTranslations(churchText.menuFor(list, { isBible: current.isBible !== false }), activeId);
     syncSplit({ anchor: splitAnchor() }); // another version may bring the split or take it away
     // Same chapter and same version -> the panel re-mounts what it has, and
@@ -436,7 +472,7 @@
   function transKey() {
     if (!current) return null;
     const row = findTranslation(activeId);
-    const where = row && row.provider === churchText.PROVIDER ? (placement() === 'panel' ? '::panel' : '::page') : '';
+    const where = row && row.provider === churchText.PROVIDER ? (panel.arrangement().body === 'beside' ? '::page' : '::panel') : '';
     return `${citKey(current)}::${activeId}${where}`;
   }
 
@@ -645,7 +681,7 @@
       return;
     }
     const layout = placement();
-    if (layout !== 'panel') {
+    if (panel.arrangement().body === 'beside') {
       // The split's own load may have failed where this one (a Try again)
       // worked: ask for it again, or the card would say the text is on the
       // page when it isn't. A no-op while it is showing.
@@ -750,6 +786,7 @@
       onGear: (section) => send(section ? { type: C.MSG.OPEN_OPTIONS, section } : { type: C.MSG.OPEN_OPTIONS }),
       onAddLanguage: addLanguage,
       onLayoutChange: changeLayout,
+      onDismissNote: dismissNote,
     });
 
     // Hand the theme module the panel root (null while there's nothing shown);
