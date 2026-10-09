@@ -28,6 +28,10 @@
  *   OPEN_OPTIONS { section? } -> opens (or focuses) the options page; a section
  *                               from C.OPTIONS_SECTIONS is parked in
  *                               chrome.storage.session for the page to scroll to.
+ *   GET_TOOLBAR_PIN          -> { isOnToolbar } from chrome.action.getUserSettings
+ *                               (content scripts can't call it); null when the
+ *                               API is missing or fails: the welcome then
+ *                               suggests the pin (#114)
  *
  * Browser events: the toolbar icon sends TOGGLE_PANEL to the tab. It opens
  * the options page instead on a tab without our content script, and on a
@@ -143,6 +147,18 @@ async function openOptions(section) {
   return { ok: true };
 }
 
+// Is the toolbar icon pinned? Asked by the welcome's pinning line. Unknown
+// (null) when this Chrome has no getUserSettings or it fails: the panel shows
+// the line, since a pin suggested twice costs less than a needed one hidden.
+async function handleGetToolbarPin() {
+  try {
+    const u = await chrome.action.getUserSettings();
+    return { isOnToolbar: u && typeof u.isOnToolbar === 'boolean' ? u.isOnToolbar : null };
+  } catch (e) {
+    return { isOnToolbar: null };
+  }
+}
+
 // ---- Message router ----
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (!msg || !msg.type) return false;
@@ -159,6 +175,9 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       break;
     case C.MSG.OPEN_OPTIONS:
       promise = openOptions(msg.section);
+      break;
+    case C.MSG.GET_TOOLBAR_PIN:
+      promise = handleGetToolbarPin();
       break;
     default:
       return false;

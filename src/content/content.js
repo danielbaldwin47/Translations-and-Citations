@@ -827,6 +827,7 @@
       onAddLanguage: addLanguage,
       onLayoutChange: changeLayout,
       onDismissNote: dismissNote,
+      welcomeFacts: () => send({ type: C.MSG.GET_TOOLBAR_PIN }), // is the toolbar icon pinned? (the welcome's pinning line)
     });
 
     // Hand the theme module the panel root (null while there's nothing shown);

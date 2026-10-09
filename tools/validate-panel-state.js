@@ -888,7 +888,8 @@ eq(P.WELCOME_CALLOUTS.map((c) => [c.id, c.control]), [
   ['settings', 'settings'],
   ['text-size', 'text-size'],
   ['toolbar-icon', null],
-], 'the six callouts, in reading order, against their controls');
+  ['pin', null],
+], 'the seven callouts, in reading order, against their controls');
 eq(new Set(P.WELCOME_CALLOUTS.map((c) => c.id)).size, P.WELCOME_CALLOUTS.length, 'callout ids are unique');
 const sentences = (t) => t.split(/(?<=\.)\s+/).filter(Boolean);
 for (const c of P.WELCOME_CALLOUTS) {
@@ -909,8 +910,20 @@ eq(P.calloutParts(byId('toolbar-icon')).filter((x) => typeof x !== 'string').len
 check(P.WELCOME_CALLOUTS.filter((c) => c.id !== 'toolbar-icon').every((c) => !/\{icon\}/.test(c.text)), 'only the toolbar line draws the icon');
 check(typeof P.WELCOME_COPY.title === 'string' && P.WELCOME_COPY.title && P.WELCOME_COPY.gotIt === 'Got it', 'the welcome has a title and closes on Got it');
 // Which lines show, from what the panel knows (`when`: facts the line needs;
-// #114's pinning line needs { pinned: false }). Every line here needs none.
-eq(P.welcomeCallouts({}).map((c) => c.id), P.WELCOME_CALLOUTS.map((c) => c.id), 'every line of the table shows, with no facts known');
+// the pinning line needs { pinned: false }). A fact nobody has answered
+// hides a `when` line, but the pinning line must show on an unknown answer:
+// welcomeFactsFrom turns the worker's reply into the facts, an unknown one
+// into "not pinned" (a pin suggested twice costs less than a needed one hidden).
+const shownWith = (reply) => P.welcomeCallouts(P.welcomeFactsFrom(reply)).map((c) => c.id);
+const allIds = P.WELCOME_CALLOUTS.map((c) => c.id);
+check(allIds.includes('pin') && JSON.stringify(byId('pin').when) === '{"pinned":false}', 'the pinning line needs { pinned: false }');
+check(/pin/i.test(byId('pin').text) && /toolbar/.test(byId('pin').text), 'the pinning line suggests pinning to the toolbar');
+eq(shownWith({ isOnToolbar: false }), allIds, 'icon not on the toolbar: the pinning line is in the welcome');
+eq(shownWith({ isOnToolbar: true }), allIds.filter((id) => id !== 'pin'), 'icon pinned: no pinning line');
+for (const [what, reply] of [['null (API missing)', { isOnToolbar: null }], ['an empty reply', {}], ['no reply', undefined], ['an error reply', { error: { code: 'NETWORK' } }], ['a non-boolean', { isOnToolbar: 'yes' }]]) {
+  eq(shownWith(reply), allIds, `unknown answer, ${what}: the pinning line shows`);
+}
+eq(P.welcomeCallouts({}).map((c) => c.id), allIds.filter((id) => id !== 'pin'), 'a `when` line stays hidden on facts nobody gave (the generic rule)');
 {
   const table = [{ id: 'a', control: null, text: 'A.' }, { id: 'pin', control: null, text: 'Pin it.', when: { pinned: false } }];
   eq(P.welcomeCallouts({ pinned: false }, table).map((c) => c.id), ['a', 'pin'], 'a line with `when` shows when every fact it names matches');
@@ -1233,6 +1246,7 @@ check(/setAttribute\('role', 'dialog'\)/.test(welcomeSrc) && /setAttribute\('ari
 check(welcomeSrc && !/innerHTML/.test(welcomeSrc), 'the welcome is built from text nodes, never markup');
 check(/addEventListener\('keydown', \(e\) => \{ if \(e\.key === 'Escape'\) e\.stopPropagation\(\); \}\)/.test(welcomeSrc),
   'Esc stops at the welcome: the talk reader\'s listener on #btx-root never sees it');
+check(/welcomeCallouts\(welcomeFacts\)/.test(welcomeSrc), 'the welcome is built from the facts the worker answered');
 check(/persist\(\{ welcomeSeen: true \}\)/.test(panelSrcText), 'Got it writes the flag through __BTX.settings');
 check(/PANEL_HANDLED_KEYS = \[[^\]]*'welcomeSeen'/.test(panelSrcText),
   'welcomeSeen is panel-handled: a write from another context shows or hides the welcome, no re-render');

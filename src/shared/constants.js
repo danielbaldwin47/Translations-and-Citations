@@ -44,6 +44,7 @@
       LIST_BIBLES: 'LIST_BIBLES',
       OPEN_OPTIONS: 'OPEN_OPTIONS',
       TOGGLE_PANEL: 'TOGGLE_PANEL',
+      GET_TOOLBAR_PIN: 'GET_TOOLBAR_PIN',
     },
 
     // --- Error codes returned in { error: { code } } ---
