@@ -209,6 +209,18 @@ Citations stored, on a Bible chapter (the **bundled Bible** always offers
 one), or once dismissed. The **arrangement** answers it (`note`); the panel's
 note slot renders it, above the mounted view and never inside it.
 
+**Welcome**:
+A new reader's introduction, laid over the panel's body as a labelled dialog:
+a short list of **callouts**, each one line of copy and the panel control it
+points at (`WELCOME_CALLOUTS` and `CONTROL_NAMES` in the panel's pure core;
+the toolbar icon's line names the browser's icon in words). It shows on any
+panel shown while the synced `welcomeSeen` setting is false (`welcomeDue`),
+so it greets on every chapter until **Got it**, which writes the setting true.
+Collapsing hides it without counting as seen. Install leaves the setting false
+and opens Alma 5; an update writes it true, so updates never greet; "Show the
+welcome again" writes it false. The page beside the panel stays usable while
+it shows.
+
 **Effective mode**:
 The mode actually showing: the **arrangement**'s mode. It differs from the
 stored mode only on a chapter nothing offers while Church languages are on
@@ -417,8 +429,8 @@ One user preference in the synced `btxSettings` object (`chrome.storage.sync`)
 — api key, enabled translations, citation layout, panel mode, panel width,
 collapsed, … Owned end-to-end by `__BTX.settings`: schema, defaults,
 normalization, reads, writes and change events. The panel's own state
-(`panelMode`, `panelCollapsed`, `citationView`, `sidebarWidth`) is settings
-too: in the reader only `__BTX.panel` writes it, and the panel adopts any
+(`panelMode`, `panelCollapsed`, `citationView`, `sidebarWidth`, `welcomeSeen`)
+is settings too: in the reader only `__BTX.panel` writes it, and the panel adopts any
 external write (the options page edits `sidebarWidth`; `citationView`'s only
 editor is the panel's toggle).
 What stays per-machine in `chrome.storage.local` (selected translation,

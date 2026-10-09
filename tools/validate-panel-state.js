@@ -10,7 +10,9 @@
  * what the panel body shows for a chapter, its texts, the stored mode and
  * this visit's click, as table-driven journeys — plus the view host's caching rules, which used to be the
  * orchestrator's citCache/transCache bookkeeping, the copy the Translation
- * cards and errors show (setupCopy / besideCopy / errorCopy), and a few
+ * cards and errors show (setupCopy / besideCopy / errorCopy), the welcome's
+ * due rule and callouts table (welcomeDue, WELCOME_CALLOUTS against
+ * CONTROL_NAMES), and a few
  * DOM-shell and orchestrator rules read from the source (toggle state and
  * aria-pressed move together; icons are built from nodes; the talk view is
  * cached; the citation-list hooks are guarded).
@@ -832,6 +834,90 @@ for (let next = step(walk, 1); next !== null; next = step(walk, 1)) {
 eq(walk, SCALE.max, 'stepping up from the minimum ends at the maximum');
 eq(notches, Math.round((SCALE.max - SCALE.min) / SCALE.step), 'the walk hits every notch on the grid, once');
 
+// ---- The welcome (GLOSSARY: Welcome) ----
+// When it's due: on any panel shown while the synced flag says not seen, so a
+// reader who closes the tab without Got it meets it again on the next chapter.
+// Collapsing hides it without counting as seen; expanding brings it back.
+console.log('welcomeDue:');
+const ALMA_5 = { key: 'bofm/alma/5', texts: [], picks: [], languages: [] };
+{
+  const w = fresh(); // a fresh profile: welcomeSeen never written
+  eq(P.welcomeDue(w), false, 'not due before a panel shows');
+  P.setChapter(w, ALMA_5);
+  eq(P.welcomeDue(w), true, 'a fresh profile: due on the first panel shown');
+  P.setChapter(w, { key: 'bofm/alma/6', texts: [], picks: [], languages: [] });
+  eq(P.welcomeDue(w), true, 'still due on the next chapter until Got it');
+  w.collapsed = true;
+  eq(P.welcomeDue(w), false, 'a collapsed panel shows no welcome');
+  w.collapsed = false;
+  eq(P.welcomeDue(w), true, '...and collapsing did not count as seen: expanding brings it back');
+  eq(P.setWelcomeSeen(w, true), true, 'Got it changes the flag (the caller writes it)');
+  eq(P.welcomeDue(w), false, 'not due after Got it');
+  P.setChapter(w, ALMA_5);
+  eq(P.welcomeDue(w), false, '...nor on a later chapter or reload');
+  eq(P.setWelcomeSeen(w, true), false, 'a second Got it changes nothing');
+  eq(P.setWelcomeSeen(w, false), true, '"Show the welcome again" writes the flag false');
+  eq(P.welcomeDue(w), true, 'due again once the flag is written false');
+}
+eq(P.welcomeDue(fresh({ welcomeSeen: true })), false, 'a profile that pressed Got it (the synced flag) starts not due');
+{
+  const w = fresh({ welcomeSeen: true });
+  P.setChapter(w, ALMA_5);
+  eq(P.welcomeDue(w), false, '...on any chapter: a second computer does not repeat it');
+}
+for (const bad of ['true', 1, null, {}]) {
+  const w = fresh({ welcomeSeen: bad });
+  P.setChapter(w, ALMA_5);
+  eq(P.welcomeDue(w), true, `a stored ${JSON.stringify(bad)} is not seen`);
+}
+
+// The callouts table: what the welcome says, each line against the panel
+// control it points at (#113 draws them there). Names come from the panel's
+// own list of the controls it builds; the toolbar icon is no panel control,
+// so its line names it in words with the extension's icon drawn inline.
+console.log('welcome callouts:');
+check(Array.isArray(P.CONTROL_NAMES) && P.CONTROL_NAMES.length > 0, 'the panel exports the names of the controls it builds');
+eq(new Set(P.CONTROL_NAMES).size, P.CONTROL_NAMES.length, 'control names are unique');
+for (const c of P.WELCOME_CALLOUTS) {
+  check(c.control === null || P.CONTROL_NAMES.includes(c.control), `callout "${c.id}" points at a control the panel builds (${c.control})`);
+}
+eq(P.WELCOME_CALLOUTS.map((c) => [c.id, c.control]), [
+  ['translation', 'translation-tab'],
+  ['citations', 'citations-tab'],
+  ['languages', 'translation-tab'],
+  ['settings', 'settings'],
+  ['text-size', 'text-size'],
+  ['toolbar-icon', null],
+], 'the six callouts, in reading order, against their controls');
+eq(new Set(P.WELCOME_CALLOUTS.map((c) => c.id)).size, P.WELCOME_CALLOUTS.length, 'callout ids are unique');
+const sentences = (t) => t.split(/(?<=\.)\s+/).filter(Boolean);
+for (const c of P.WELCOME_CALLOUTS) {
+  const n = sentences(c.text).length;
+  check(/\.$/.test(c.text) && n >= 1 && n <= (c.id === 'settings' ? 2 : 1), `callout "${c.id}" is one whole sentence (Settings: one or two)`);
+  check(sentences(c.text).every((x) => x.length <= 90), `callout "${c.id}": every sentence is short (90 characters at most)`);
+}
+const byId = (id) => P.WELCOME_CALLOUTS.find((c) => c.id === id) || { text: '' };
+// Spec A's model: Citations is where the panel opens, and a language you add
+// reads beside the page's text whatever the panel shows.
+check(/talks/.test(byId('citations').text) && /opens/.test(byId('citations').text), 'Citations: the talks that quote each verse, and the panel opens there');
+check(/beside the page/.test(byId('languages').text) && /Translation/.test(byId('languages').text), 'languages read beside the page, changed under Translation');
+check(/shows and hides the panel/.test(byId('toolbar-icon').text), 'the toolbar icon shows and hides the panel');
+// The toolbar line draws the extension's icon inline, where its text marks it.
+eq(P.calloutParts({ text: 'The {icon} button hides it.' }), ['The ', { icon: true }, ' button hides it.'], 'calloutParts: the marker becomes the icon, in place');
+eq(P.calloutParts({ text: 'Plain text.' }), ['Plain text.'], 'calloutParts: a line with no marker is one text part');
+eq(P.calloutParts(byId('toolbar-icon')).filter((x) => typeof x !== 'string').length, 1, 'the toolbar line draws the icon once');
+check(P.WELCOME_CALLOUTS.filter((c) => c.id !== 'toolbar-icon').every((c) => !/\{icon\}/.test(c.text)), 'only the toolbar line draws the icon');
+check(typeof P.WELCOME_COPY.title === 'string' && P.WELCOME_COPY.title && P.WELCOME_COPY.gotIt === 'Got it', 'the welcome has a title and closes on Got it');
+// Which lines show, from what the panel knows (`when`: facts the line needs;
+// #114's pinning line needs { pinned: false }). Every line here needs none.
+eq(P.welcomeCallouts({}).map((c) => c.id), P.WELCOME_CALLOUTS.map((c) => c.id), 'every line of the table shows, with no facts known');
+{
+  const table = [{ id: 'a', control: null, text: 'A.' }, { id: 'pin', control: null, text: 'Pin it.', when: { pinned: false } }];
+  eq(P.welcomeCallouts({ pinned: false }, table).map((c) => c.id), ['a', 'pin'], 'a line with `when` shows when every fact it names matches');
+  eq(P.welcomeCallouts({ pinned: true }, table).map((c) => c.id), ['a'], '...not when one differs');
+  eq(P.welcomeCallouts({}, table).map((c) => c.id), ['a'], '...nor when the fact is unknown (say nothing unsure)');
+}
+
 // ---- What the Translation cards and errors say ----
 // Copy rules the DOM shell renders verbatim: which heading, which action.
 console.log('noteCopy:');
@@ -1134,6 +1220,22 @@ check(!/innerHTML/.test((panelSrcText.match(/function buildNote[\s\S]*?\n {2}\}\
   'the note is built from text nodes, never markup');
 check(!/PANEL_HANDLED_KEYS = \[[^\]]*noTranslationLineDismissed/.test(panelSrcText),
   'the dismissal is not a panel-handled key: another computer\'s × re-renders the chapter');
+
+// The welcome's DOM shell: the controls it may point at are the ones the
+// panel builds, it is a labelled dialog of text nodes, Esc stops at it, and
+// Got it is a settings write the panel handles itself.
+const controlsLit = (panelSrcText.match(/const controls = \{([\s\S]*?)\};/) || ['', ''])[1];
+eq((controlsLit.match(/'[a-z-]+'(?=:)|\b[a-z]+(?=:)/g) || []).map((k) => k.replace(/'/g, '')).sort(), P.CONTROL_NAMES.slice().sort(),
+  'the shell maps exactly the exported control names to the nodes it built');
+const welcomeSrc = (panelSrcText.match(/function buildWelcome\(\) \{[\s\S]*?\n {2}\}\n/) || [''])[0];
+check(/setAttribute\('role', 'dialog'\)/.test(welcomeSrc) && /setAttribute\('aria-labelledby', /.test(welcomeSrc),
+  'the welcome is a labelled dialog');
+check(welcomeSrc && !/innerHTML/.test(welcomeSrc), 'the welcome is built from text nodes, never markup');
+check(/addEventListener\('keydown', \(e\) => \{ if \(e\.key === 'Escape'\) e\.stopPropagation\(\); \}\)/.test(welcomeSrc),
+  'Esc stops at the welcome: the talk reader\'s listener on #btx-root never sees it');
+check(/persist\(\{ welcomeSeen: true \}\)/.test(panelSrcText), 'Got it writes the flag through __BTX.settings');
+check(/PANEL_HANDLED_KEYS = \[[^\]]*'welcomeSeen'/.test(panelSrcText),
+  'welcomeSeen is panel-handled: a write from another context shows or hides the welcome, no re-render');
 
 if (failures) {
   console.error(`\n${failures} check(s) failed.`);

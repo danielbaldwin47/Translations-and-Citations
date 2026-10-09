@@ -235,6 +235,12 @@
     // `true` reads as not dismissed. Written by the orchestrator, read into the
     // panel's arrangement.
     noTranslationLineDismissed: { def: false, norm: bool(false) },
+    // The reader pressed Got it on the welcome (GLOSSARY: Welcome). Synced:
+    // the welcome introduces the extension to a person, not to a computer.
+    // Anything but a stored `true` reads as not seen, so the welcome is due.
+    // Written true by the panel's Got it and by the worker on an update (an
+    // update never greets); written false by "Show the welcome again".
+    welcomeSeen: { def: false, norm: bool(false) },
   };
 
   const KEYS = Object.keys(SCHEMA);

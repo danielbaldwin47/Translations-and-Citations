@@ -77,7 +77,7 @@ src/
   shared/settings.js       __BTX.settings  THE owner of synced `btxSettings`: schema, one normalizer per key, get/patch/replace, subscribe({next,prev,changed,own})
   shared/books.js          __BTX.books     66 Bible (slug→USFM/name) + BoM/D&C/PGP registry
   background/
-    service-worker.js      classic worker; importScripts; onMessage router (OPEN_OPTIONS {section} → storage.session); toolbar icon = TOGGLE_PANEL, else opens options; install opens Alma 5 (`C.FIRST_RUN_URL`)
+    service-worker.js      classic worker; importScripts; onMessage router (OPEN_OPTIONS {section} → storage.session); toolbar icon = TOGGLE_PANEL, else opens options; install opens Alma 5 (`C.FIRST_RUN_URL`), update marks the welcome seen
     api.js                 __BTX.api       api.bible fetch + JSON→IR (403 "Invalid API key" → INVALID_KEY; 429 → remote + retryAfterMs; partial version lists); fetchBundledChapter serves the World English Bible from src/bible/
     cache.js               __BTX.cache     chapter cache + LRU; version list keyed by a key fingerprint, 7-day TTL (storage.local; the options page reads it too)
     ratelimit.js           __BTX.rate      15/30s + 5000/day, persisted
@@ -89,7 +89,7 @@ src/
     page-hook.js           page-world history patch, injected via web-accessible <script src>
     theme.js               __BTX.theme     mirror(resolveTarget) → {refresh}: site colors/fonts/header onto the panel; pure policies nextAlignDelay / dominantTextStyle / sameVars
     sanitize.js            __BTX.sanitize  IR → DOM (text nodes only)
-    panel.js               __BTX.panel     deep module: panel state (mode/layout/collapsed/width, the visit's mode click) + its persistence, the arrangement (what the body shows), DOM (setup / beside cards included), scroll-sync, drag-resize, AND the view host; pure cores exported for Node
+    panel.js               __BTX.panel     deep module: panel state (mode/layout/collapsed/width, the visit's mode click) + its persistence, the arrangement (what the body shows), DOM (setup / beside cards and the welcome included), scroll-sync, drag-resize, AND the view host; pure cores exported for Node
     panel.css
     content.js             orchestrator: detect → worker/citations → panel content only (no panel state, no theme policy)
   citations/
@@ -221,7 +221,7 @@ Who owns what. Mechanism and reasoning live in the module headers and their
 validators — go there before changing behaviour.
 
 - **Panel state** (`panelMode`, `panelCollapsed`, `citationView`,
-  `sidebarWidth`) has one owner in the reader, `__BTX.panel`, persisted via
+  `sidebarWidth`, `welcomeSeen`) has one owner in the reader, `__BTX.panel`, persisted via
   `__BTX.settings`. `panelMode` defaults to Citations in the settings
   normalizer (a missing or unreadable stored value falls there; a stored
   Translation stays), and the panel's `createState` fallback agrees. `panel.HANDLED_KEYS` lists what the panel handles itself
@@ -231,6 +231,10 @@ validators — go there before changing behaviour.
   those keys, and the panel fires `renderMode` when an external write stales
   its content. The old `chrome.storage.local` `btxPanelMode`/`btxPanelCollapsed`
   keys are migrated once by `panel.init` — nothing else may name them.
+  `welcomeSeen` (GLOSSARY: Welcome) is written true by the panel's Got it and
+  by the worker on an update, and false by "Show the welcome again"; when the
+  welcome shows is the pure `welcomeDue`, what it says the callouts table
+  (`WELCOME_CALLOUTS`), whose controls must be in the panel's `CONTROL_NAMES`.
 - **Options page** autosaves: every change is one `SETTINGS.patch` (never
   `replace`, so panel keys absent from the form survive), and it `subscribe`s
   so an open form adopts changes made elsewhere (`fillForm(changed)`, skipping
