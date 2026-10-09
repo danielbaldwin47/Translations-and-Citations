@@ -78,7 +78,7 @@ src/
   shared/books.js          __BTX.books     66 Bible (slug→USFM/name) + BoM/D&C/PGP registry
   background/
     service-worker.js      classic worker; importScripts; onMessage router (OPEN_OPTIONS {section} → storage.session; OPEN_WELCOME → the Alma 5 tab); toolbar icon = TOGGLE_PANEL, else opens options; install opens Alma 5 (`C.FIRST_RUN_URL`, through `openWelcome`, which OPEN_WELCOME shares), update marks the welcome seen
-    api.js                 __BTX.api       api.bible fetch + JSON→IR (403 "Invalid API key" → INVALID_KEY; 429 → remote + retryAfterMs; partial version lists); fetchBundledChapter serves the World English Bible from src/bible/
+    api.js                 __BTX.api       api.bible fetch (host `rest.api.bible`, C.API_BIBLE_BASE) + JSON→IR (403 "Invalid API key" → INVALID_KEY; 429 → remote + retryAfterMs; partial version lists); fetchBundledChapter serves the World English Bible from src/bible/
     cache.js               __BTX.cache     chapter cache + LRU; version list keyed by a key fingerprint, 7-day TTL (storage.local; the options page reads it too)
     ratelimit.js           __BTX.rate      15/30s + 5000/day, persisted
     fums.js                __BTX.fums      api.bible usage report (FUMS v3 GET) on every api.bible display, cache hits too; device id minted on a successful Connect (storage.local), session id per worker lifetime

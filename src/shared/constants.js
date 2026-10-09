@@ -13,7 +13,7 @@
 
   const CONST = {
     // --- API endpoints ---
-    API_BIBLE_BASE: 'https://api.scripture.api.bible/v1',
+    API_BIBLE_BASE: 'https://rest.api.bible/v1',
     // api.bible usage reports (background/fums.js); a host permission.
     FUMS_BASE: 'https://fums.api.bible',
 
