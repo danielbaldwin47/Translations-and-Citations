@@ -439,13 +439,23 @@ eq(F.WELCOME_AGAIN.label, 'Show the welcome again', 'the About card\'s button re
 eq(F.WELCOME_AGAIN.patch, { welcomeSeen: false }, '...and its write is the welcome-seen flag false, nothing else');
 check(settingKeys.indexOf('welcomeSeen') >= 0 && S.normalize(F.WELCOME_AGAIN.patch).welcomeSeen === false,
   '...a key __BTX.settings owns, which its normalizer keeps false');
+// All or nothing: its own line under the button says which half failed, and
+// pressing the button again is the retry (both halves, in order). It never
+// joins the page's "Couldn't save" retry, which would re-send the flag alone.
+eq(F.welcomeAgainError({ saved: false }), 'Couldn’t show the welcome. Try again.',
+  'the flag didn\'t save: the line says the welcome didn\'t come (no tab was asked for)');
+eq(F.welcomeAgainError({ saved: true, reply: { ok: true } }), null, 'saved and the tab opened: no line');
+for (const reply of [{ error: { code: 'UNKNOWN', message: 'x' } }, null, undefined, {}]) {
+  eq(F.welcomeAgainError({ saved: true, reply }), 'Couldn’t open the welcome tab. Try again.',
+    `saved but the worker answered ${JSON.stringify(reply)}: the line says the tab didn't open`);
+}
 
 // ---- the DOM shell stays out of Node ----
 console.log('Shell:');
 eq(Object.keys(F).sort(), [
   'aboutCopy', 'commitPatch', 'connectedText', 'dedupeVersions', 'failedWrites', 'fillPlan', 'groupCount', 'initialChecks', 'isAdded',
   'keyControls', 'keyErrorText', 'languageGroups', 'languageList', 'languageTick', 'listGuesses', 'matchesLanguage', 'mergeVersions', 'moreLabel', 'offeredLanguages',
-  'patchLanded', 'pickDefaultId', 'stableGroups', 'translationPatch', 'versionGroups', 'versionLabel', 'withStored',
+  'patchLanded', 'pickDefaultId', 'stableGroups', 'translationPatch', 'versionGroups', 'versionLabel', 'welcomeAgainError', 'withStored',
   'WELCOME_AGAIN', 'yoursNote',
 ].sort(), 'requiring the page in Node exposes the pure core and nothing else');
 
@@ -640,6 +650,13 @@ check(/write\(WELCOME_AGAIN\.patch,/.test(welcomeAgainBody), 'pressing it writes
 check(/C\.MSG\.OPEN_WELCOME/.test(welcomeAgainBody), 'then asks the worker to open the Alma 5 tab (C.MSG.OPEN_WELCOME)');
 check(welcomeAgainBody.indexOf('write(') >= 0 && welcomeAgainBody.indexOf('write(') < welcomeAgainBody.indexOf('OPEN_WELCOME'),
   'the flag is written before the tab is asked for, so the new tab sees the welcome due');
+check(/write\(WELCOME_AGAIN\.patch, \[\], true, true\)/.test(welcomeAgainBody),
+  'its write stands alone: a failure never joins `failed`, so the page\'s Try again cannot re-send the flag without the tab');
+check(/if \(!alone\)/.test(bodyOf('write')) && /failed = failedWrites/.test(bodyOf('write')),
+  'write() keeps an alone write out of the generic retry');
+check(/welcomeAgainError\(/.test(welcomeAgainBody) && /els\.welcomeAgainStatus/.test(welcomeAgainBody),
+  'a failed save or a failed open is said under the button, never silent');
+check(/<p id="welcomeAgainStatus"[^>]*role="status"/.test(aboutCard), 'the About card has the button\'s status line, announced');
 check(/getElementById|\$\('welcomeAgain'\)|welcomeAgain:/.test(shell) && /showWelcomeAgain/.test(bodyOf('init')),
   'init wires the button');
 check(!/els\.about/.test(fieldsTable), 'no FIELDS row reads or writes the About card');

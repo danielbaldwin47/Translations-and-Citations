@@ -153,6 +153,10 @@
     // numbers), efi kaz ben sot and the 17 "Selections from the Book of Mormon"
     // languages (a minority of chapters). Grouped by coverage, then English name
     // — which is the order the options page and the dropdown list them in.
+    // English's code: a page with no `lang` is read in it. The options
+    // checklist leaves it out (it is the page's own language), and a page
+    // read in another language offers it in the dropdown (churchText.textsFor).
+    ENGLISH_LANG: 'eng',
     CHURCH_LANGUAGES: (() => {
       const ALL = ['ot', 'nt', 'bofm', 'dc-testament', 'pgp'];
       const BIBLE_BOFM = ['ot', 'nt', 'bofm'];

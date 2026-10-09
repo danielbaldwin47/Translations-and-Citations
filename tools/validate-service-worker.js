@@ -88,7 +88,7 @@ const CHAPTER = {
 };
 const LIST = { data: [{ id: 'niv', name: 'New International Version', abbreviationLocal: 'NIV', description: 'Holy Bible' }] };
 
-function boot(disk, net, action) {
+function boot(disk, net, action, tabsApi) {
   const listeners = [];
   const installed = [];
   const tabs = [];
@@ -111,7 +111,7 @@ function boot(disk, net, action) {
         openOptionsPage: async () => { opened.push(1); },
       },
       action: Object.assign({ onClicked: { addListener() {} } }, action || {}),
-      tabs: { sendMessage: async () => ({}), create: async (props) => { tabs.push(props); return {}; } },
+      tabs: Object.assign({ sendMessage: async () => ({}), create: async (props) => { tabs.push(props); return {}; } }, tabsApi || {}),
     },
     fetch: async (url) => {
       url = String(url);
@@ -311,6 +311,29 @@ async function run() {
       await flush();
       check(u.tabs.length === 0 && u.opened.length === 0, `"${reason}" opens no tab and no settings page`);
     }
+  }
+
+  // ---- a tab that won't open is no unhandled rejection (#111) ----
+  // chrome.tabs.create can reject (a policy, a closing browser): install's
+  // own call has no one to answer, so the worker catches it; OPEN_WELCOME
+  // answers with the error, which the options page says under its button.
+  {
+    const unhandled = [];
+    const onUnhandled = (e) => unhandled.push(e);
+    process.on('unhandledRejection', onUnhandled);
+    const warn = console.warn;
+    const warned = [];
+    console.warn = (...a) => warned.push(a.join(' '));
+    const refuse = { create: async () => { throw new Error('Tabs cannot be edited right now'); } };
+    boot({ local: {}, sync: {} }, apiBible(), undefined, refuse).install('install');
+    const reply = await boot({ local: {}, sync: {} }, apiBible(), undefined, refuse).send({ type: C.MSG.OPEN_WELCOME });
+    await flush();
+    await new Promise((r) => setImmediate(r));
+    process.removeListener('unhandledRejection', onUnhandled);
+    console.warn = warn;
+    eq(unhandled.length, 0, 'install whose tab is refused leaves no unhandled rejection');
+    check(warned.some((w) => /welcome tab/.test(w)), '...it is logged instead');
+    check(reply && reply.error && reply.ok !== true, 'OPEN_WELCOME whose tab is refused answers with an error, not ok');
   }
 
   // ---- OPEN_WELCOME opens the same Alma 5 tab install does (#115) ----

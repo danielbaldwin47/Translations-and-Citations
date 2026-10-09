@@ -131,7 +131,7 @@
   const PROVIDER = 'church';
   const ID_PREFIX = 'church:';
   const API_PATH = '/study/api/v3/language-pages/type/content';
-  const ENGLISH = 'eng'; // detect's language for a page with no `lang`
+  const ENGLISH = C.ENGLISH_LANG; // detect's language for a page with no `lang`
 
   const LANG_BY_CODE = {};
   for (const l of C.CHURCH_LANGUAGES) LANG_BY_CODE[l.code] = l;

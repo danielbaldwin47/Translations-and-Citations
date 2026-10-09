@@ -7,7 +7,9 @@
  * scroll sync),
  * and `about` (version, pack vintage, source lines, privacy and support
  * links: text, plus one button, "Show the welcome again", which writes the
- * welcome-seen flag false and asks the worker to open Alma 5; aboutCopy).
+ * welcome-seen flag false and asks the worker to open Alma 5, all or nothing:
+ * a failure of either half is said on its own line, welcomeAgainError, and
+ * never joins Try again; aboutCopy).
  *
  * The form is an editor of the stored settings, not a second copy of them.
  * Every change is written as it happens, through __BTX.settings.patch (never
@@ -17,7 +19,8 @@
  * screen and not yet written (a slider mid-drag, a write waiting out its
  * debounce, a key being typed). A write that doesn't land puts its controls
  * back to what storage holds; "Try again" re-sends every failed write
- * (failedWrites), and any write that lands retires the error.
+ * (failedWrites) but the About button's, and any write that lands retires
+ * the error.
  *
  * A Church language ticked here also leads the pick memory (the panel's
  * most-recently-used list, chrome.storage.local under C.SELECTION_KEY, not a
@@ -294,7 +297,7 @@
   // The checklist's languages: the table minus English, which is the page's
   // own language.
   function offeredLanguages(table) {
-    return (table || []).filter((l) => l.code !== 'eng');
+    return (table || []).filter((l) => l.code !== C.ENGLISH_LANG);
   }
 
   // Grouped by what each language publishes, so a reader can see before
@@ -411,9 +414,19 @@
   // stays text.
   const WELCOME_AGAIN = { label: 'Show the welcome again', patch: { welcomeSeen: false } };
 
+  // The button's own line, after a press: the flag didn't save (no tab was
+  // asked for), or it saved and the worker didn't open the tab (its reply
+  // isn't { ok: true }). Null when both halves worked. Pressing the button
+  // again is the retry, both halves in order.
+  function welcomeAgainError(o) {
+    const c = o || {};
+    if (!c.saved) return 'Couldn’t show the welcome. Try again.';
+    return c.reply && c.reply.ok === true ? null : 'Couldn’t open the welcome tab. Try again.';
+  }
+
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = {
-      WELCOME_AGAIN, aboutCopy, isAdded, dedupeVersions, versionGroups, stableGroups, mergeVersions, listGuesses, withStored, initialChecks, pickDefaultId,
+      WELCOME_AGAIN, welcomeAgainError, aboutCopy, isAdded, dedupeVersions, versionGroups, stableGroups, mergeVersions, listGuesses, withStored, initialChecks, pickDefaultId,
       translationPatch, commitPatch, patchLanded, failedWrites, fillPlan, keyControls,
       versionLabel, moreLabel, connectedText, yoursNote, keyErrorText,
       offeredLanguages, languageGroups, languageList, languageTick, groupCount, matchesLanguage,
@@ -461,6 +474,7 @@
     aboutSources: $('aboutSources'),
     aboutLinks: $('aboutLinks'),
     welcomeAgain: $('welcomeAgain'),
+    welcomeAgainStatus: $('welcomeAgainStatus'),
   };
 
   let settings = SETTINGS.defaults();
@@ -545,8 +559,10 @@
   // The one path to storage. `quiet` skips the "Saved" flash. A write that
   // doesn't land puts its controls back to what storage holds and joins
   // `failed`; any write that lands (or a change adopted from elsewhere)
-  // retires the error.
-  async function write(partial, keys, quiet) {
+  // retires the error. An `alone` write (an action that says its own failure,
+  // "Show the welcome again") never joins `failed`: Try again would re-send
+  // half of it.
+  async function write(partial, keys, quiet, alone) {
     let ok = true;
     if (Object.keys(partial).length) {
       let result;
@@ -558,7 +574,7 @@
     if (ok) {
       if (failed) { failed = null; hideSaveError(); }
       if (!quiet && Object.keys(partial).length) showSaved();
-    } else {
+    } else if (!alone) {
       failed = failedWrites(failed, partial, keys);
       showSaveError();
       adopt(keys);
@@ -1088,11 +1104,14 @@
   }
 
   // "Show the welcome again": the flag first, so the tab the worker opens finds
-  // the welcome due. A write that doesn't land shows the page's usual save
-  // error and opens nothing.
+  // the welcome due. All or nothing: a write that doesn't land opens nothing,
+  // and either failure is said on the button's own line (welcomeAgainError);
+  // pressing again redoes both halves.
   async function showWelcomeAgain() {
-    if (!(await write(WELCOME_AGAIN.patch, [], true))) return;
-    await send({ type: C.MSG.OPEN_WELCOME });
+    els.welcomeAgainStatus.textContent = '';
+    const saved = await write(WELCOME_AGAIN.patch, [], true, true);
+    const reply = saved ? await send({ type: C.MSG.OPEN_WELCOME }) : null;
+    els.welcomeAgainStatus.textContent = welcomeAgainError({ saved, reply }) || '';
   }
 
   // ---- Deep links ----
