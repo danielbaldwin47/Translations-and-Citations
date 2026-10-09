@@ -133,7 +133,7 @@
 
   function createState(init) {
     return {
-      mode: init.mode === 'citations' ? 'citations' : 'translation',
+      mode: init.mode === 'translation' ? 'translation' : 'citations', // agrees with the settings default
       citationView: init.citationView === 'verse' ? 'verse' : 'source',
       collapsed: init.collapsed === true,
       translatable: true,

@@ -139,7 +139,9 @@ distinct talks.
 
 **Mode**:
 The user's preferred panel feature: Translation or Citations. Stored as the
-`panelMode` setting, owned by the panel.
+`panelMode` setting, owned by the panel. The default is Citations: a fresh
+install, and any missing or unreadable stored value, opens on it. A stored
+Translation stays.
 
 **Translatable** (of a chapter):
 Some enabled text offers it: on a Bible chapter always (the bundled World

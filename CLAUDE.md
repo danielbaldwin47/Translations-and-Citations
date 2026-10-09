@@ -222,7 +222,9 @@ validators — go there before changing behaviour.
 
 - **Panel state** (`panelMode`, `panelCollapsed`, `citationView`,
   `sidebarWidth`) has one owner in the reader, `__BTX.panel`, persisted via
-  `__BTX.settings`. `panel.HANDLED_KEYS` lists what the panel handles itself
+  `__BTX.settings`. `panelMode` defaults to Citations in the settings
+  normalizer (a missing or unreadable stored value falls there; a stored
+  Translation stays), and the panel's `createState` fallback agrees. `panel.HANDLED_KEYS` lists what the panel handles itself
   (incl. read-only `scrollSync`, and `fontScale`, which the toolbar's stepper
   also writes);
   `content.js` reads that list — its subscriber skips changes touching only
