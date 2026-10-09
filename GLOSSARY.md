@@ -139,7 +139,9 @@ distinct talks.
 
 **Mode**:
 The user's preferred panel feature: Translation or Citations. Stored as the
-`panelMode` setting, owned by the panel.
+`panelMode` setting, owned by the panel. The default is Citations: a fresh
+install, and any missing or unreadable stored value, opens on it. A stored
+Translation stays.
 
 **Translatable** (of a chapter):
 Some enabled text offers *this chapter*: on a Bible chapter always (the
@@ -196,8 +198,8 @@ becomes a row in the translation dropdown after the api.bible versions, minus
 the page's own language and any language that hasn't published the chapter's
 collection. A chapter a language lacks is "not available", not an error to
 retry. In the reader, *translation* code (the `translation` view,
-`findTranslation`, `populateTranslations`, `btxSelectedTranslation` — a
-most-recently-used list of row ids, newest first) handles both kinds of row —
+`findTranslation`, `populateTranslations`, `C.SELECTION_KEY`, the pick memory — a
+most-recently-used list of row ids, newest first; a language ticked in settings or added on the setup card goes first) handles both kinds of row —
 tell them apart by `provider` (`'church'`). In settings,
 the options page and the worker, *translation* (`enabledTranslations`,
 `defaultTranslationId`) means a Bible version: api.bible's, or the bundled

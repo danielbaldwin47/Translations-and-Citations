@@ -83,7 +83,7 @@ src/
     ratelimit.js           __BTX.rate      15/30s + 5000/day, persisted
     fums.js                __BTX.fums      api.bible usage report (FUMS v3 GET) on every api.bible display, cache hits too; device id minted on a successful Connect (storage.local), session id per worker lifetime
   content/
-    church-text.js         __BTX.churchText which texts a chapter offers + which shows (textsFor/pickText; the chapter check's chapterOffer); dropdown rows (labelFor/menuFor); setup-card list (languagesToAdd); pick memory (mruFrom/rememberPick); same-origin Church-language chapter → IR with element ids (chapterFrom; its block walk blockElements also reads the English side for the split)
+    church-text.js         __BTX.churchText which texts a chapter offers + which shows (textsFor/pickText; the chapter check's chapterOffer); dropdown rows (labelFor/menuFor); setup-card list (languagesToAdd); pick memory (mruFrom/rememberPick; rememberTicked for a tick in settings; stored under C.SELECTION_KEY, written by content.js and the options page); same-origin Church-language chapter → IR with element ids (chapterFrom; its block walk blockElements also reads the English side for the split)
     page-split.js/.css     __BTX.pageSplit show/hide the page split (columns | interlinear), paired by element id; pure cores wantsSplit / fitWidth / effectiveLayout / groupRows / soloIds / rowRules / readingRight / collapseFits
     detect.js              __BTX.detect    URL parse (all standard works, isBible) + SPA nav
     page-hook.js           page-world history patch, injected via web-accessible <script src>
@@ -222,7 +222,9 @@ validators — go there before changing behaviour.
 
 - **Panel state** (`panelMode`, `panelCollapsed`, `citationView`,
   `sidebarWidth`) has one owner in the reader, `__BTX.panel`, persisted via
-  `__BTX.settings`. `panel.HANDLED_KEYS` lists what the panel handles itself
+  `__BTX.settings`. `panelMode` defaults to Citations in the settings
+  normalizer (a missing or unreadable stored value falls there; a stored
+  Translation stays), and the panel's `createState` fallback agrees. `panel.HANDLED_KEYS` lists what the panel handles itself
   (incl. read-only `scrollSync`, and `fontScale`, which the toolbar's stepper
   also writes);
   `content.js` reads that list — its subscriber skips changes touching only
@@ -240,7 +242,10 @@ validators — go there before changing behaviour.
   new translations" is the explicit refresh; a refresh only moves checkmarks
   or appends rows to "more" (`stableGroups`). Single-value fields live in one
   `FIELDS` table (the Church-language checklist is one row: its `change`
-  events bubble to the container; the language search sits outside it).
+  events bubble to the container; the language search sits outside it). A
+  newly ticked language also goes to the front of the pick memory
+  (`chrome.storage.local`, `C.SELECTION_KEY`) through `churchText.rememberTicked`,
+  written before the setting so open tabs have it by their re-render.
 - **Settings writes** carry a `__btxWrite` tag (how `own` is detected) and
   pass through unknown keys, so a newer version's setting on another machine
   isn't deleted. Sidebar width bounds (280–900) live only in `__BTX.settings`.

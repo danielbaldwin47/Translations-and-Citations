@@ -182,6 +182,18 @@ eq(T.rememberPick(['niv'], ''), ['niv'], 'an empty pick changes nothing');
     'back on the Book of Mormon the newest pick it offers wins, not its first row');
 }
 
+console.log('rememberTicked (a tick in settings goes to the front):');
+eq(T.rememberTicked(['niv'], [], ['spa']), ['church:spa', 'niv'], 'one tick goes in front of an earlier Bible pick');
+eq(T.rememberTicked(['niv'], ['jpn'], ['jpn', 'spa']), ['church:spa', 'niv'], '...only the language newly on counts, not one already on');
+eq(T.rememberTicked(['niv'], [], ['jpn', 'spa']), ['church:spa', 'church:jpn', 'niv'], 'two ticks at once: the last ticked is at the front');
+eq(T.rememberTicked(['church:spa', 'niv'], ['spa'], []), ['church:spa', 'niv'], 'an untick leaves the list as it was');
+eq(T.rememberTicked(['church:jpn', 'church:spa', 'niv'], ['jpn', 'spa'], ['jpn']), ['church:jpn', 'church:spa', 'niv'], '...order and all');
+eq(T.rememberTicked(['church:jpn', 'church:spa', 'niv'], [], ['spa']), ['church:spa', 'church:jpn', 'niv'], 'a re-tick of a language already in the list moves it to the front, once');
+eq(T.rememberTicked('niv', [], ['spa']), ['church:spa', 'niv'], '...a migrated single id included');
+eq(T.rememberTicked(['niv'], ['spa'], ['spa']), ['niv'], 'no change to the languages, no change to the list');
+eq(T.rememberTicked(['niv'], undefined, ['spa']), ['church:spa', 'niv'], 'nothing stored before counts as none on');
+eq(T.rememberTicked(['niv'], [], ['spa', 'xx-nope']), ['church:spa', 'niv'], 'a code that is no Church language is not remembered');
+
 console.log('labelFor / menuFor:');
 const SPA_ROW = T.rowFor('spa');
 eq(T.labelFor(NIV, [NIV]), 'NIV — New International Version', 'an api.bible row reads "abbr — name"');
@@ -203,12 +215,24 @@ eq(sameDesc.map((r) => T.labelFor(r, sameDesc)), [
 eq(T.labelFor(WEBU('x-01', { description: 'Protestant' }), [NIV]), 'WEBU — World English Bible Updated',
   'a row with no twin carries no suffix, description or not');
 
-eq(T.menuFor([NIV, SPA_ROW]), [
-  { label: 'Bible translations', items: [{ id: 'niv', label: 'NIV — New International Version' }] },
-  { label: 'Church languages', items: [{ id: 'church:spa', label: 'Español — Spanish' }] },
-], 'both kinds on offer: two headed groups, Bible translations first');
-eq(T.menuFor([SPA_ROW]), [{ label: null, items: [{ id: 'church:spa', label: 'Español — Spanish' }] }],
-  'one kind: one group with no heading');
+const WEB_ROW = { id: 'bundled:engwebp', abbr: 'WEB', name: 'World English Bible', provider: C.PROVIDER_BUNDLED || 'bundled' };
+const JPN_ROW = T.rowFor('jpn');
+eq(T.menuFor([WEB_ROW], { isBible: true }), [
+  { label: 'Bible versions', items: [{ id: 'bundled:engwebp', label: 'WEB — World English Bible' }] },
+], 'Bible chapter, one Bible version and no language: still headed "Bible versions"');
+eq(T.menuFor([NIV, SPA_ROW], { isBible: true }), [
+  { label: 'Bible versions', items: [{ id: 'niv', label: 'NIV — New International Version' }] },
+  { label: 'Languages', items: [{ id: 'church:spa', label: 'Español — Spanish' }] },
+], 'Bible chapter, both kinds on offer: "Bible versions" then "Languages"');
+eq(T.menuFor([SPA_ROW], { isBible: true }), [
+  { label: 'Languages', items: [{ id: 'church:spa', label: 'Español — Spanish' }] },
+], 'Bible chapter, no Bible rows offered: "Languages" alone, no empty Bible heading');
+eq(T.menuFor([SPA_ROW, JPN_ROW], { isBible: false }), [
+  { label: null, items: [
+    { id: 'church:spa', label: 'Español — Spanish' },
+    { id: 'church:jpn', label: '日本語 — Japanese' },
+  ] },
+], 'off the Bible: language rows stay unheaded, no Bible group');
 eq(T.menuFor([]), [], 'nothing on offer: an empty menu (the select hides)');
 
 console.log('languagesToAdd:');
