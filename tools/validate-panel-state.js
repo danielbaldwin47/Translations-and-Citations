@@ -825,14 +825,15 @@ console.log('besideCopy:');
   const b = (o) => P.besideCopy(Object.assign({ name: 'Spanish' }, o));
   const WIDEN = 'Collapse panel for wider columns';
   eq(b({ layout: 'columns', effective: 'columns' }),
-    { status: 'Spanish is shown side by side.', note: '', collapse: WIDEN }, 'columns that fit: side by side, and collapsing widens them');
+    { status: 'Spanish is shown side by side.', note: '', collapse: WIDEN, pressed: 'columns' }, 'columns that fit: side by side, and collapsing widens them');
   eq(b({ layout: 'columns', effective: 'interlinear', collapseFits: true }),
-    { status: 'Spanish is shown under each verse.', note: 'Not enough room for side by side.', collapse: WIDEN },
-    'columns asked for but not fitting: the card says what the page really shows, and why — and collapsing makes room');
-  eq(b({ layout: 'columns', effective: 'interlinear', collapseFits: false }).collapse, null,
-    'collapsing is not offered where it would not make room for columns either');
+    { status: 'Spanish is shown under each verse.', note: 'Collapse the panel for side by side.', collapse: WIDEN, pressed: 'interlinear' },
+    'columns asked for but not fitting: the card says what the page really shows, and what would make room');
+  eq(b({ layout: 'columns', effective: 'interlinear', collapseFits: false }),
+    { status: 'Spanish is shown under each verse.', note: 'Not enough room for side by side.', collapse: null, pressed: 'interlinear' },
+    '...where collapsing would not make room either: only that there is not enough room, and no collapse button');
   eq(b({ layout: 'interlinear', effective: 'interlinear' }),
-    { status: 'Spanish is shown under each verse.', note: '', collapse: null }, 'under each verse: nothing to widen');
+    { status: 'Spanish is shown under each verse.', note: '', collapse: null, pressed: 'interlinear' }, 'under each verse: nothing to widen');
   eq(b({ layout: 'columns', effective: null }).status, 'Spanish is shown side by side.',
     'before the split has mounted, the card states what was asked for');
   eq(b({ layout: 'interlinear', effective: 'columns' }).status, 'Spanish is shown side by side.',
@@ -840,10 +841,37 @@ console.log('besideCopy:');
   // The narrow window's bottom sheet covers the page the text is in, and no
   // collapse makes room for columns there.
   eq(b({ layout: 'columns', effective: 'interlinear', collapseFits: false, sheet: true }),
-    { status: 'Spanish is shown under each verse.', note: '', collapse: 'Hide panel' },
+    { status: 'Spanish is shown under each verse.', note: '', collapse: 'Hide panel', pressed: 'interlinear' },
     'in the bottom sheet: no room note nothing can fix, and the offer is to hide the panel');
+  eq(b({ layout: 'columns', effective: 'interlinear', collapseFits: false, sheet: true, nudged: true }).note, 'Not enough room for side by side.',
+    '...but a click on Side by side there is answered: there is no room, and collapsing would not give it');
   eq(b({ layout: 'interlinear', effective: 'interlinear', sheet: true }).collapse, 'Hide panel',
     '...whatever the layout');
+  // The pressed segment is the layout the page shows, not the setting.
+  eq(b({ layout: 'columns', effective: null }).pressed, 'columns', 'before the split has mounted, the setting is pressed');
+  eq(b({ layout: 'interlinear', effective: 'columns' }).pressed, 'columns', 'the effective layout is pressed, whatever the setting');
+  eq(P.pressedLayout('columns', 'interlinear'), 'interlinear', 'pressedLayout: columns wanted, none fits: Under each verse');
+  eq(P.pressedLayout('columns', 'columns'), 'columns', '...room: Side by side');
+  eq(P.pressedLayout('columns', null), 'columns', '...not measured yet: the setting');
+  eq(P.pressedLayout('panel', 'interlinear'), 'panel', 'In the panel is never overridden by a split fit');
+  // What a click on a segment does. The setting is what a pick is compared
+  // with, never the pressed (effective) layout.
+  const click = (layout, effective, value) => P.layoutClick({ layout, effective, value });
+  eq(click('columns', 'interlinear', 'columns'), 'explain',
+    'Side by side while it has no room: the setting stays, the reader is told what would make room');
+  eq(click('columns', 'interlinear', 'interlinear'), 'write',
+    'Under each verse (pressed, but not the setting) is written: the preference changes');
+  eq(click('columns', 'columns', 'columns'), 'none', 'the pressed setting again: nothing');
+  eq(click('columns', null, 'columns'), 'none', '...also before the split has mounted');
+  eq(click('interlinear', 'interlinear', 'columns'), 'write', 'Side by side from Under each verse: written');
+  eq(click('columns', 'interlinear', 'panel'), 'write', 'In the panel: written');
+  // The room note alone, for the line's Change control (it has no status text).
+  eq(P.roomHint({ layout: 'columns', effective: 'interlinear', collapseFits: true }), 'Collapse the panel for side by side.',
+    'roomHint: collapsing makes room');
+  eq(P.roomHint({ layout: 'columns', effective: 'interlinear', collapseFits: false }), 'Not enough room for side by side.',
+    '...it would not');
+  eq(P.roomHint({ layout: 'columns', effective: 'columns', collapseFits: true }), '', '...no hint where columns fit');
+  eq(P.roomHint({ layout: 'interlinear', effective: 'interlinear', collapseFits: true }), '', '...or where they were not asked for');
   // One vocabulary for the layouts, on the card and on the options page.
   eq(P.LAYOUTS, [['columns', 'Side by side'], ['interlinear', 'Under each verse'], ['panel', 'In the panel']],
     'the layouts are named Side by side, Under each verse, In the panel');
@@ -971,6 +999,19 @@ check(/position: fixed; top: 0; right: 0; z-index: 0; pointer-events: none;/.tes
   "the cap sits outside #btx-root, beneath the site's header, and never takes a click");
 check(/topCap\.style\.width = pageReserve \+ 'px';/.test(cap) && /topCap\.style\.height = top \+ 'px';/.test(cap),
   'the cap covers the page reserve from the window top to the panel top');
+
+// The layout control presses the layout the page shows and judges a click by
+// the setting (#88): both hosts (the beside card, the line's Change) pass the
+// split's fit, and the open control is restated in place, never rebuilt.
+const lc = bodyOf('layoutControl');
+check(/pressedLayout\(current\(\), effective\(\)\)/.test(lc) && /layoutClick\(\{ layout: current\(\), effective: effective\(\), value \}\)/.test(lc),
+  'layoutControl presses by pressedLayout and judges a click by layoutClick against the setting');
+check(/effective: \(\) => card\.effective/.test(bodyOf('buildBeside')) && /effective: \(\) => splitFit\.effective/.test(bodyOf('openNoteLayouts')),
+  'the beside card and the line\'s Change control both give the control the split fit');
+check(/function updateBeside[\s\S]*?pressNote\(\)/.test(panelSrc) && /splitFit\.effective = c\.effective/.test(bodyOf('updateBeside')),
+  'a fit reported by the page split reaches the open Change control too, even with no beside card on screen');
+check(!/refocusLayout = true/.test(bodyOf('pressNote')) && /pressNote\(\);\s*refocusLayout = false/.test(panelSrc),
+  'restating the open Change control keeps its node (and so keyboard focus)');
 
 // Orchestrator wiring for the talk reader and the citation list.
 const contentSrc = fs.readFileSync(path.join(ROOT, 'src/content/content.js'), 'utf8');
