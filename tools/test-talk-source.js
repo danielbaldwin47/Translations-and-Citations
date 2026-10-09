@@ -268,6 +268,45 @@ test('pickSessionUrl: no candidates yields null rather than a guess', () => {
   );
 });
 
+// #87: BYU stored two 2012 slugs with a trailing "!" the Church's link lacks.
+const MAY_2012_INDEX = [
+  '/study/ensign/2012/05?lang=eng',
+  '/study/ensign/2012/05/general-young-women-meeting/now-is-the-time-to-arise-and-shine?lang=eng',
+  '/study/ensign/2012/05/saturday-afternoon-session/abide-in-the-lords-territory?lang=eng',
+  '/study/ensign/2012/05/saturday-morning-session/arise-and-shine-forth?lang=eng',
+];
+
+test('pickSessionUrl: a trailing "!" in our slug still finds the Church link (#87)', () => {
+  const landed = `${ORIGIN}/study/ensign/2012/05?lang=eng`;
+  assert.strictEqual(
+    talkSource.pickSessionUrl({
+      originalUrl: `${ORIGIN}/study/ensign/2012/05/now-is-the-time-to-arise-and-shine!?lang=eng`,
+      landedUrl: landed,
+      hrefs: MAY_2012_INDEX,
+    }),
+    `${ORIGIN}/study/ensign/2012/05/general-young-women-meeting/now-is-the-time-to-arise-and-shine?lang=eng`,
+  );
+  assert.strictEqual(
+    talkSource.pickSessionUrl({
+      originalUrl: `${ORIGIN}/study/ensign/2012/05/abide-in-the-lords-territory!?lang=eng`,
+      landedUrl: landed,
+      hrefs: MAY_2012_INDEX,
+    }),
+    `${ORIGIN}/study/ensign/2012/05/saturday-afternoon-session/abide-in-the-lords-territory?lang=eng`,
+  );
+});
+
+test('pickSessionUrl: a "!" slug with no matching link still yields null (#87)', () => {
+  assert.strictEqual(
+    talkSource.pickSessionUrl({
+      originalUrl: `${ORIGIN}/study/ensign/2012/05/now-is-the-time!?lang=eng`,
+      landedUrl: `${ORIGIN}/study/ensign/2012/05?lang=eng`,
+      hrefs: MAY_2012_INDEX,
+    }),
+    null,
+  );
+});
+
 test('fullTalkUrl: no anchor leaves the URL alone', () => {
   const url = `${ORIGIN}/study/general-conference/2019/10/12nelson?lang=eng`;
   assert.strictEqual(talkSource.fullTalkUrl(url, ''), url);

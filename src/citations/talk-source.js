@@ -155,12 +155,15 @@
   // Given the links on that landing page, find the session-qualified URL for our
   // talk: same origin, same conference directory, exactly [session, slug] below
   // it. Returns null (never a guess) when nothing matches. Pure — no DOM, no
-  // network — so the repair is testable in Node.
+  // network — so the repair is testable in Node. A trailing "!" is not part of
+  // the Church's slug: BYU stored two 2012 talks with one, the index links them
+  // without (#87), so the comparison drops it.
+  const churchSlug = (s) => s.replace(/!+$/, '');
   function pickSessionUrl({ originalUrl, landedUrl, hrefs, origin }) {
     const orig = new URL(originalUrl);
     const base = landedUrl || originalUrl;
     const wanted = origin || new URL(base).origin;
-    const slug = lastSlug(orig.pathname);
+    const slug = churchSlug(lastSlug(orig.pathname));
     const dir = orig.pathname.replace(/\/[^/]+\/?$/, ''); // /study/ensign/2012/11
     for (const href of hrefs || []) {
       let p;
@@ -169,7 +172,7 @@
       const path = p.pathname.replace(/\/+$/, '');
       if (!path.startsWith(dir + '/') || path === dir + '/' + slug) continue; // skip the self-link
       const rest = path.slice(dir.length + 1).split('/'); // [session, slug]
-      if (rest.length === 2 && rest[1] === slug) {
+      if (rest.length === 2 && churchSlug(rest[1]) === slug) {
         const u = new URL(path, wanted);
         u.search = orig.search; // preserve ?lang=eng
         return u.href;
