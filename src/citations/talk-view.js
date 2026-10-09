@@ -302,7 +302,9 @@
     if (rootEl.classList.contains('btx-collapsed')) return;
     if (e.target && e.target.closest && e.target.closest('input, select, textarea')) return;
     const back = rootEl.querySelector('.btx-talk-view .btx-talk-back');
-    if (!back) return;
+    // Under the panel's welcome the talk is inert: Esc from the header's
+    // controls must not page it back unseen.
+    if (!back || back.closest('[inert]')) return;
     e.preventDefault();
     const hl = highlights();
     if (hl && hl.dismiss()) return;

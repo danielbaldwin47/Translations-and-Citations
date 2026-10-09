@@ -106,16 +106,14 @@
  *                                  says what would make room (roomHint).
  *   populateTranslations(menu, selectedId)  the dropdown, from
  *                                  __BTX.churchText.menuFor; hidden when empty
- *   controlNodes(name)             the node(s) a CONTROL_NAMES name stands for
- *                                  (the A− / A+ stepper is two): what a welcome
- *                                  callout points at; [] before init
  *   retryWait(error, attempts)     pure: whether a rate-limited load retries by
  *                                  itself (ms to wait) or shows the error card
  *                                  (null)
  *   getRootEl()
  *
  * handlers: { renderMode(mode), onTranslationChange(id), onGear(section),
- *   onRetry, onAddLanguage(code), onLayoutChange(layout, pick), onDismissNote }.
+ *   onRetry, onAddLanguage(code), onLayoutChange(layout, pick), onDismissNote,
+ *   askToolbarPin }.
  *   `renderMode` fires whenever the panel invalidated its own body content
  *   (mode toggle, citation-layout toggle, a synced change from another
  *   context); the orchestrator answers by rendering that mode's content.
@@ -127,7 +125,9 @@
  *   the note's picks; the panel writes no setting for them, the orchestrator
  *   does. `onLayoutChange`'s `pick` is the row the choice makes the pick, or
  *   null (the pure layoutChoice: "In the panel" moves the page's language
- *   into the panel in the Bible version's place).
+ *   into the panel in the Bible version's place). `askToolbarPin()` resolves
+ *   to the worker's raw GET_TOOLBAR_PIN reply, which the welcome reads
+ *   through welcomeFactsFrom before it opens.
  *
  * Body scroll has exactly one owner and one writer. Each view either *owns* its
  * position (Citations, the talk reader: restored on the way back to where it
@@ -165,8 +165,13 @@
  * not showing) is a plain line. Placement is the pure calloutPlacement over
  * rects measured inside the layer (separateRings keeps the joined tabs'
  * rings apart), redone on any resize of the panel, its chrome or its
- * controls. Only Got it closes it: it writes the flag true and focuses the panel's
- * first control. Esc stops at the layer, so the talk reader never sees it.
+ * controls. While it shows, the body under it is inert (out of Tab's and
+ * Esc's reach). It takes focus as it opens only in the tab in front
+ * (welcomeTakesFocus: not in each background tab "Show the welcome again"
+ * reaches), and an expand that brings it back leaves focus to it
+ * (focusOnToggle). Only Got it closes it: it writes the flag true and focuses
+ * the panel's first control. Esc stops at the layer, so the talk reader
+ * never sees it.
  *
  * The panel's top: 0, except while the site's header band, laid out for the
  * full window while the panel was away, runs under the open panel — then the
@@ -411,6 +416,25 @@
     return true;
   }
 
+  // Whether the welcome takes focus as it opens: only in the tab the reader
+  // is looking at (`hidden` false, its window `focused`). Every open tab
+  // shows the welcome when "Show the welcome again" writes the flag, and a
+  // tab can load behind another; those leave focus where it is.
+  function welcomeTakesFocus(page) {
+    const p = page || {};
+    return p.hidden === false && p.focused === true;
+  }
+
+  // Where focus goes after a collapse or an expand (the state after it), for
+  // a keyboard user whose focus was in the panel: the tab on collapse,
+  // Collapse on expand — unless the expand brings the welcome back (null:
+  // the welcome takes focus when it opens).
+  //   -> 'tab' | 'collapse' | null
+  function focusOnToggle(s) {
+    if (s.collapsed) return 'tab';
+    return welcomeDue(s) ? null : 'collapse';
+  }
+
   // The controls the panel builds, by name: what a welcome callout may point
   // at. The DOM shell maps each name to its node(s) (controlNodes), and
   // validate-panel-state holds the callouts table to this list.
@@ -473,15 +497,15 @@
   // box): `control` the control's measured rect (null, or a box of no size —
   // a control not showing, or a line with no control — gives a plain line
   // across the list: no caret, no ring), `list` the list's content box
-  // ({left, width}), `panel` ({width}). Out, whole pixels: `card` {left
+  // ({left, width}), `panel` ({width, height}). Out, whole pixels: `card` {left
   // (relative to the list), width}, `caret` (x within the card, or null),
   // `ring` (a rect, or null). The bubble is the list's width up to
   // `cardMax`, centred under the control and kept inside the list; the
   // caret stays `caretInset` in from the bubble's corners; the ring sits
   // `ringPad` out from the control and stops at the panel's edges.
   const CALLOUT_GEOMETRY = { cardMax: 300, caretInset: 16, ringPad: 3 };
-  function calloutPlacement({ control, list, panel }, geometry) {
-    const g = Object.assign({}, CALLOUT_GEOMETRY, geometry);
+  function calloutPlacement({ control, list, panel }) {
+    const g = CALLOUT_GEOMETRY;
     const listW = Math.round(list.width);
     if (!control || !(control.width > 0) || !(control.height > 0)) {
       return { card: { left: 0, width: listW }, caret: null, ring: null };
@@ -494,7 +518,7 @@
     const x0 = Math.max(0, Math.round(control.left - g.ringPad));
     const y0 = Math.max(0, Math.round(control.top - g.ringPad));
     const x1 = Math.min(Math.round(panel.width), Math.round(control.left + control.width + g.ringPad));
-    const y1 = Math.round(control.top + control.height + g.ringPad);
+    const y1 = Math.min(Math.round(panel.height), Math.round(control.top + control.height + g.ringPad));
     return {
       card: { left: left - Math.round(list.left), width },
       caret,
@@ -1081,7 +1105,7 @@
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = {
       createState, arrangement, layoutChoice, arrangementOf, effectiveMode, selectMode, selectText, selectCitationView, setChapter, sameChapter,
-      welcomeDue, setWelcomeSeen, CONTROL_NAMES, WELCOME_COPY, WELCOME_CALLOUTS, welcomeCallouts, welcomeFactsFrom, calloutParts,
+      welcomeDue, setWelcomeSeen, welcomeTakesFocus, focusOnToggle, CONTROL_NAMES, WELCOME_COPY, WELCOME_CALLOUTS, welcomeCallouts, welcomeFactsFrom, calloutParts,
       CALLOUT_GEOMETRY, calloutPlacement, welcomeRings, separateRings, unionRect,
       stepFontScale, setupCopy, noteCopy, besideCopy, pressedLayout, layoutClick, roomHint, errorCopy, retryWait, LAYOUTS, RETRY_MAX_WAIT_MS, RETRY_MAX,
       createViews, saveViewScroll, selectView, keepView, settleView, dropViews, SAME_CHAPTER_VIEWS,
@@ -1337,8 +1361,9 @@
   // A layer over the body (header and toolbar stay in view and usable), shown
   // while welcomeDue says so. It is a labelled dialog *within* the panel, not
   // a modal: the page beside it stays fully usable, and only Got it closes it
-  // — a click elsewhere, a scroll or Esc leave it up. Focus moves into it when
-  // it appears, and to the panel's first control on Got it.
+  // — a click elsewhere, a scroll or Esc leave it up. The body under it is
+  // inert meanwhile. Focus moves into it when it appears in the tab in front
+  // (welcomeTakesFocus), and to the panel's first control on Got it.
   let welcome = null; // { layer, sheet, list, items, rings, observer, frame } while it shows
   let welcomeFacts = welcomeFactsFrom(null); // what the worker last said (is the icon pinned?)
   let welcomeAsking = false;
@@ -1358,7 +1383,7 @@
     if (welcomeAsking) return;
     welcomeAsking = true;
     Promise.resolve()
-      .then(() => (cbs.welcomeFacts ? cbs.welcomeFacts() : null))
+      .then(() => (cbs.askToolbarPin ? cbs.askToolbarPin() : null))
       .catch(() => null)
       .then((reply) => {
         welcomeAsking = false;
@@ -1482,8 +1507,14 @@
       for (const name of CONTROL_NAMES) for (const node of controlNodes(name)) observer.observe(node);
       welcome.observer = observer;
     }
+    // What the sheet covers is out of reach while it shows: Tab from Got it
+    // never lands on a row or talk control the reader can't see, and Esc
+    // never reaches a talk open under it.
+    ui.body.inert = true;
     placeWelcome();
-    welcome.layer.querySelector('[role="dialog"]').focus({ preventScroll: true });
+    if (welcomeTakesFocus({ hidden: document.hidden, focused: document.hasFocus() })) {
+      welcome.layer.querySelector('[role="dialog"]').focus({ preventScroll: true });
+    }
   }
 
   // Collapse, hide or Got it on another computer. Focus inside it goes to
@@ -1495,6 +1526,7 @@
     if (observer) observer.disconnect();
     if (frame) cancelAnimationFrame(frame);
     layer.remove();
+    ui.body.inert = false;
     if (hadFocus && visible && !state.collapsed) firstControl().focus({ preventScroll: true });
   }
 
@@ -1502,10 +1534,10 @@
     return ui.controls['translation-tab'][0];
   }
 
+  // Closing moves focus (closeWelcome): Got it had it.
   function onGotIt() {
     if (setWelcomeSeen(state, true)) persist({ welcomeSeen: true });
     applyWelcomeUI();
-    firstControl().focus({ preventScroll: true });
   }
 
   // The nodes a CONTROL_NAMES name stands for (empty for an unknown name or
@@ -1666,7 +1698,8 @@
     const hadFocus = ui.rootEl.contains(document.activeElement);
     state.collapsed = c;
     applyCollapsedUI(); // an expand may bring the welcome back, which takes focus
-    if (hadFocus && !(welcome && !c)) (c ? ui.tab : ui.collapse).focus();
+    const target = hadFocus ? focusOnToggle(state) : null;
+    if (target) (target === 'tab' ? ui.tab : ui.collapse).focus();
     persist({ panelCollapsed: c });
   }
 
@@ -2778,7 +2811,6 @@
       setNote,
       updateBeside,
       populateTranslations,
-      controlNodes,
       getRootEl,
     },
   });
