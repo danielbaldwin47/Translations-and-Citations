@@ -29,15 +29,19 @@
  *                                  saves, note, noteLang, page, pageNext };
  *                                  the orchestrator applies `body` and `note`
  *                                  to the panel and `page` to the page split
- *   setNote({ kind, language, chapter } | null)
+ *   setNote({ kind, language, chapter, layout } | null)
  *                                  the note slot: one quiet line at the top of
  *                                  the body, above the mounted view (copy: the
  *                                  pure noteCopy). It shows while the view it
  *                                  belongs to is mounted (the no-translation
- *                                  line: Citations) and goes with any other; a
+ *                                  line: Citations; the beside-the-page line:
+ *                                  Translation) and goes with any other; a
  *                                  line coming or going keeps the reader's
  *                                  place. Its buttons: Add a language = a
- *                                  Translation click, × = onDismissNote
+ *                                  Translation click, × = onDismissNote,
+ *                                  Change = the layout control in the line's
+ *                                  place, pressing `layout` (the same line
+ *                                  again re-presses it in place)
  *   hide()
  *   toggleCollapsed(force)         collapse to the edge tab or expand — flip,
  *                                  or `force` true/false like classList.toggle
@@ -94,7 +98,7 @@
  *   getRootEl()
  *
  * handlers: { renderMode(mode), onTranslationChange(id), onGear(section),
- *   onRetry, onAddLanguage(code), onLayoutChange(layout), onDismissNote }.
+ *   onRetry, onAddLanguage(code), onLayoutChange(layout, pick), onDismissNote }.
  *   `renderMode` fires whenever the panel invalidated its own body content
  *   (mode toggle, citation-layout toggle, a synced change from another
  *   context); the orchestrator answers by rendering that mode's content.
@@ -104,7 +108,9 @@
  *   card and the key errors; none from the header's Settings button).
  *   `onAddLanguage`, `onLayoutChange` and `onDismissNote` are the cards' and
  *   the note's picks; the panel writes no setting for them, the orchestrator
- *   does.
+ *   does. `onLayoutChange`'s `pick` is the row the choice makes the pick, or
+ *   null (the pure layoutChoice: "In the panel" moves the page's language
+ *   into the panel in the Bible version's place).
  *
  * Body scroll has exactly one owner and one writer. Each view either *owns* its
  * position (Citations, the talk reader: restored on the way back to where it
@@ -173,7 +179,7 @@
   //     body:  'citations' | 'loading' | 'setup' | 'beside' | 'text'
   //     text:  row id | null    the row the Translation tab is about ('beside', 'text')
   //     saves: 'translation' | 'citations' | null   what the click writes to panelMode
-  //     note:  'no-translation' | null   the one quiet line above the body
+  //     note:  'no-translation' | 'beside-page' | null   the one quiet line above the body
   //     noteLang: Church code | null     the language the line names
   //     page:  Church row id | null      the page split's language, in either mode
   //     pageNext: lang | null            a language the check must ask before `page` is known
@@ -200,8 +206,8 @@
   // the no-translation line (note) unless it was dismissed. The page's
   // language is churchText.pageLanguage, whatever the mode; the text it
   // names shows as the beside card ('beside' means text === page), any other
-  // text in the panel (NIV beside Español on the page).
-  // Later answers (the beside-the-page note) join this object.
+  // text in the panel (NIV beside Español on the page), with the
+  // beside-the-page line naming the page's language.
   function arrangement(input) {
     const o = input || {};
     const click = o.click === 'translation' || o.click === 'citations' ? o.click : null;
@@ -221,7 +227,13 @@
       if (row.offered === null) return show('translation', 'loading');
       if (row.offered !== true) continue;
       // The text the tab is about holds the page: the beside card says so.
-      return show('translation', row.id === page.id ? 'beside' : 'text', row.id);
+      if (row.id === page.id) return show('translation', 'beside', row.id);
+      // A Bible version in the panel while a language holds the page: the
+      // line says where the language went (Bible rows never hold the page).
+      if (page.id && row.provider !== CT().PROVIDER) {
+        return show('translation', 'text', row.id, 'beside-page', page.id.slice(CT().ID_PREFIX.length));
+      }
+      return show('translation', 'text', row.id);
     }
     const anyLanguage = Array.isArray(o.languages) && o.languages.length > 0;
     if (!anyLanguage || click === 'translation') return show('translation', 'setup');
@@ -240,6 +252,18 @@
       if (languages.includes(code)) return code;
     }
     return languages[0];
+  }
+
+  // What a pick on the layout control writes (the beside card, the
+  // beside-the-page line's Change, the control above a language read in the
+  // panel): the split layout, and the row it makes the pick, or null. Moving
+  // the page's language into the panel makes it the text the Translation tab
+  // shows, in the place of the Bible version beside it (the dropdown then
+  // selects it); every other pick leaves the pick memory alone.
+  //   layoutChoice(arrangement, layout) -> { layout, pick }
+  function layoutChoice(a, layout) {
+    const page = a && a.page;
+    return { layout, pick: layout === 'panel' && page ? page : null };
   }
 
   // The arrangement of the panel's state: its stored mode and this visit's
@@ -353,8 +377,19 @@
   // "Doctrine and Covenants 76"). -> { view, text, actions: [{ id, label,
   // title? }] } or null. `view` is the named view the line sits above: it is
   // shown only while that view is mounted. The actions' ids are the shell's
-  // verbs: 'add' opens the setup card for this visit, 'dismiss' is the ×.
+  // verbs: 'add' opens the setup card for this visit, 'dismiss' is the ×,
+  // 'change' opens the layout control in the line's place.
+  // Kinds: 'no-translation' (above Citations: nothing offers the chapter) and
+  // 'beside-page' (above a Bible version in the panel: the language holding
+  // the page, named as the dropdown leads its row, "Español").
   function noteCopy(note) {
+    if (note && note.kind === 'beside-page') {
+      return {
+        view: 'translation',
+        text: `${note.language || 'A language'} is beside the page text ·`,
+        actions: [{ id: 'change', label: 'Change' }],
+      };
+    }
     if (!note || note.kind !== 'no-translation') return null;
     const named = note.language && note.chapter;
     return {
@@ -794,7 +829,7 @@
 
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = {
-      createState, arrangement, arrangementOf, effectiveMode, selectMode, selectCitationView, setChapter, sameChapter,
+      createState, arrangement, layoutChoice, arrangementOf, effectiveMode, selectMode, selectCitationView, setChapter, sameChapter,
       stepFontScale, setupCopy, noteCopy, besideCopy, errorCopy, retryWait, LAYOUTS, RETRY_MAX_WAIT_MS, RETRY_MAX,
       createViews, saveViewScroll, selectView, keepView, settleView, dropViews, SAME_CHAPTER_VIEWS,
       viewRestoresScroll, wantsScrollSync,
@@ -1444,8 +1479,12 @@
   // orchestrator names the arrangement's note (setNote); the line shows while
   // the view it belongs to (noteCopy's `view`) is the one mounted, and goes
   // with any other. Its buttons are the panel's own verbs: Add a language is a
-  // Translation click on this visit, × asks the orchestrator to dismiss.
-  let note = null; // { key, copy, node }: what the orchestrator last named
+  // Translation click on this visit, × asks the orchestrator to dismiss,
+  // Change swaps the line for the layout control (the beside card's) in the
+  // same place, open until the line goes.
+  // { key, copy, node, layout, control }: what the orchestrator last named;
+  // `control` is the layout control once Change opened it.
+  let note = null;
   let shownNote = null; // the line's node while it is on the body
 
   function buildNote(copy) {
@@ -1463,6 +1502,25 @@
   function onNoteAction(id) {
     if (id === 'add') onModeClick('translation');
     else if (id === 'dismiss' && cbs.onDismissNote) cbs.onDismissNote();
+    else if (id === 'change') openNoteLayouts();
+  }
+
+  // Change: the layout control in the line's place, no new row. Focus goes
+  // to its pressed choice, where the keyboard user's Change was; the body
+  // stays where it is (setBodyScroll is its one writer, so focus() must not
+  // scroll it).
+  function openNoteLayouts() {
+    if (!note || note.control) return;
+    const control = layoutControl(() => note.layout, `Where to show ${note.language}`);
+    const node = el('div', 'btx-note btx-note-tools');
+    node.appendChild(control.group);
+    const was = note.node;
+    Object.assign(note, { node, control });
+    if (shownNote === was) {
+      was.replaceWith(node);
+      shownNote = node;
+      focusPressedLayout(control, { preventScroll: true });
+    }
   }
 
   // Take the line off the body (focus stays in the panel when the button the
@@ -1481,17 +1539,26 @@
     }
   }
 
-  // Show `n` ({ kind, language, chapter }) or, with null, no line. The same
-  // line again changes nothing; one coming or going keeps the reader's place.
+  // Show `n` ({ kind, language, chapter, layout }) or, with null, no line.
+  // `layout` is the split layout an opened Change control presses. The same
+  // line again changes nothing but that: an open control re-presses in place
+  // (focus stays on it). One coming or going keeps the reader's place.
   function setNote(n) {
     ensureRoot();
     const copy = noteCopy(n);
     const key = copy ? JSON.stringify(copy) : null;
-    if ((note ? note.key : null) === key) return;
+    if ((note ? note.key : null) === key) {
+      if (note) note.layout = n.layout;
+      if (note && note.control) {
+        note.control.press();
+        refocusLayout = false; // restated in place: focus never left
+      }
+      return;
+    }
     const view = views.active && views.entries[views.active];
     const top = () => (view && view.node ? view.node.getBoundingClientRect().top : 0);
     const before = top();
-    note = copy ? { key, copy, node: buildNote(copy) } : null;
+    note = copy ? { key, copy, node: buildNote(copy), layout: n.layout, language: n.language, control: null } : null;
     placeNote();
     const moved = top() - before;
     if (moved && ui.body.scrollTop > 0) setBodyScroll(ui.body.scrollTop + moved);
@@ -1654,15 +1721,18 @@
   // in the panel) takes it instead.
   let refocusLayout = false;
 
+  // The pick goes to the orchestrator with the row it makes the pick
+  // (layoutChoice: the page's language, moving into the panel).
   function pickLayout(value) {
     refocusLayout = !!ui && ui.rootEl.contains(document.activeElement);
-    if (cbs.onLayoutChange) cbs.onLayoutChange(value);
+    if (cbs.onLayoutChange) cbs.onLayoutChange(value, layoutChoice(arrangementOf(state), value).pick);
   }
 
   // Where a Church language shows (LAYOUTS), as one segmented control: on the
-  // beside card, and above the text when it is read in the panel. `current()`
-  // is the layout showing; picking it again does nothing.
-  function layoutControl(current) {
+  // beside card, above the text when it is read in the panel, and in the
+  // beside-the-page line's place (its Change). `current()` is the layout
+  // showing; picking it again does nothing.
+  function layoutControl(current, label) {
     const choices = LAYOUTS.map(([value, text]) => {
       const b = button('btx-seg-btn', text, () => { if (value !== current()) pickLayout(value); });
       b.dataset.btxLayout = value;
@@ -1670,12 +1740,14 @@
     });
     const press = () => { for (const b of choices) setPressed(b, b.dataset.btxLayout === current()); };
     press();
-    return { group: segmented('btx-seg', 'Where to show it', choices), choices, press };
+    return { group: segmented('btx-seg', label || 'Where to show it', choices), choices, press };
   }
 
-  function focusPressedLayout(control) {
+  // `opts` is focus()'s: { preventScroll } where the control replaces what
+  // the reader pressed in place, so moving focus must not move the body.
+  function focusPressedLayout(control, opts) {
     const pressed = control.choices.find((b) => b.getAttribute('aria-pressed') === 'true');
-    if (pressed) pressed.focus();
+    if (pressed) pressed.focus(opts);
   }
 
   function buildBeside(card) {

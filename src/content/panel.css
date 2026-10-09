@@ -481,7 +481,8 @@
 #btx-root .btx-card-add { flex: 0 0 auto; align-self: auto; height: 34px; padding: 0 16px; }
 
 /* The note slot: one quiet line at the top of the body, above the view (the
-   no-translation line). UI text at fixed px, like the cards' hints. */
+   no-translation line, the beside-the-page line). UI text at fixed px, like
+   the cards' hints. */
 #btx-root .btx-note {
   margin: 0 0 12px;
   font-size: 13px;
@@ -489,6 +490,9 @@
   color: var(--btx-muted);
 }
 #btx-root .btx-note .btx-note-link { font-size: inherit; line-height: inherit; padding: 0; }
+/* The beside-the-page line's Change: the layout control in the line's place. */
+#btx-root .btx-note-tools { display: flex; }
+#btx-root .btx-note-tools .btx-seg { flex: 1 1 auto; }
 #btx-root .btx-note-x {
   appearance: none;
   margin-inline-start: 6px;

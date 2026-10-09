@@ -175,10 +175,12 @@ layout, whether the **no-translation line** is dismissed, the stored **mode**
 and this visit's mode click. Answer: the effective mode, the body (Citations,
 loading, the **setup card**, the **beside card**, or a text), the text the
 Translation tab is about, the page's language (the **page split**'s, in
-either mode, or none), the note (`no-translation` or none, with the language
-it names) and the mode a click saves. With Translation stored:
+either mode, or none), the note (`no-translation`, `beside-page` or none,
+with the language it names) and the mode a click saves. With Translation
+stored:
 - a text offers the chapter: the latest pick that does (the beside card when
-  that text is the page's language);
+  that text is the page's language; a Bible version beside a page's language
+  carries the beside-the-page line);
 - a language not yet checked stands before it: the loading state;
 - nothing offers it and no Church language is on: the setup card;
 - nothing offers it and languages are on: Citations with the **no-translation
@@ -217,6 +219,16 @@ Translation mode's body while the text the tab is about is the page split's
 language: where the text is (by the
 layout that actually fits), the split-layout control, and "Collapse panel for
 wider columns" when collapsing would make room (`pageSplit.collapseFits`).
+Its one-line form is the **beside-the-page line**, above a Bible version shown
+in the panel while a Church language holds the page: "Español is beside the
+page text · **Change**" (the language named as the dropdown leads its row).
+Change swaps the line for the same split-layout control, in its place. "In the
+panel" there moves the language into the panel in the Bible version's place:
+the split layout becomes `panel` and the language goes to the front of the
+pick memory, so the dropdown selects it (`layoutChoice` in the panel's pure
+core). Picking that language in the dropdown shows the full card instead. The
+**arrangement** answers the line (`note: 'beside-page'`); the panel's note slot
+renders it.
 
 **Bundled Bible**:
 The World English Bible (ebible.org `engwebp`), shipped as IR files under
@@ -250,7 +262,7 @@ that offers the chapter, while the **split layout** is columns or
 interlinear. A Bible version never holds the page, so on John 3 NIV can show
 in the panel with Español on the page. The next chapter keeps the language if
 it offers it, else the next pick that does, else no split. Taking it off the
-page is "In the panel" on the **beside card**. The alternative to showing the
+page is "In the panel" on the **beside card** or its beside-the-page line. The alternative to showing the
 text in the panel.
 _Avoid_: overlay (that's its mechanism, not the feature)
 
