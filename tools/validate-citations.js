@@ -23,7 +23,9 @@
  * (J), which are Wikisource permalinks (the J corpus in depth:
  * tools/validate-jod.js); through chapterIndex, every verse the panel shows a cite under
  * is one its `v` lists (stray index rows are a warning until a rebuild skips
- * them). With both packs present, they carry the same vintage.
+ * them). With both packs present, they carry the same vintage. A descriptor
+ * carries no `sourceNote` at all (a pack built before the notes) or one per
+ * source type, the same on every corpus of that type.
  * Exits non-zero on failure.
  */
 'use strict';
@@ -270,6 +272,21 @@ function checkDescriptorShape(d, where) {
   }
 }
 
+// Source-type notes (issue #121): the hover text of a source-type header. A
+// descriptor either carries none (a pack built before the notes) or one per
+// source type, the same for every corpus of that type.
+function checkSourceNotes(d, where) {
+  const corpora = Object.entries((d && d.corpora) || {});
+  const noted = corpora.filter(([, e]) => 'sourceNote' in e);
+  if (!noted.length) { console.log(`  (${where}: no source notes)`); return; }
+  const byType = {};
+  for (const [c, e] of corpora) (byType[e.sourceType] = byType[e.sourceType] || []).push([c, e.sourceNote]);
+  for (const [type, list] of Object.entries(byType)) {
+    check(list.every(([, n]) => typeof n === 'string' && n.length > 0), `${where}: every ${type} corpus carries a source note`);
+    check(new Set(list.map(([, n]) => n)).size === 1, `${where}: ${type} has one note, the same for ${list.map(([c]) => c).join(' and ')}`);
+  }
+}
+
 function descriptorChecks() {
   console.log('Pack descriptor (build, both modes):');
   const facts = { vintage: '2026-04', base: { db: 'core.53.db', updated: '2026-05-18' }, derived: [] };
@@ -277,6 +294,8 @@ function descriptorChecks() {
   const per = build.packDescriptor('personal', facts);
   checkDescriptorShape(pub, 'public mode');
   checkDescriptorShape(per, 'personal mode');
+  checkSourceNotes(pub, 'public mode');
+  checkSourceNotes(per, 'personal mode');
   eq(pub && pub.flavor, 'public', 'public mode writes flavor public');
   eq(per && per.flavor, 'personal', 'personal mode writes flavor personal');
   if (pub && per) {
@@ -296,6 +315,40 @@ function descriptorChecks() {
     deep(Object.values(pub.corpora).map((e) => e.inclusion), ['all', 'all', 'all'], 'with no inclusion input every corpus records all');
   }
   eq(build.packDescriptor('nonsense', facts), null, 'an unknown pack mode writes no descriptor');
+
+  console.log('Source-type notes (build):');
+  if (pub && per) {
+    deep(Object.values(pub.corpora).map((e) => e.sourceNote), [
+      'Talks from the Church\u2019s general conferences',
+      'Talks from the Church\u2019s general conferences',
+      'Sermons by early Church leaders, published 1854\u20131886'],
+    'the build writes each corpus its source type\u2019s note (G and E share one)');
+    check(typeof per.corpora.T.sourceNote === 'string' && per.corpora.T.sourceNote.length > 0,
+      'the personal pack\u2019s Teachings corpus has a note too');
+    check(Object.keys(build.SOURCE_NOTES).every((t) => Object.values(per.corpora).some((e) => e.sourceType === t)),
+      'every note in the build\u2019s table names a source type some corpus files under');
+  }
+  {
+    // How many checks a fixture descriptor fails, without counting them against the run.
+    const failsOn = (d) => {
+      const before = failures, log = console.error;
+      console.error = () => {};
+      checkSourceNotes(d, 'fixture');
+      console.error = log;
+      const n = failures - before;
+      failures = before;
+      return n;
+    };
+    const G = { sourceType: 'General Conference' };
+    eq(failsOn({ corpora: { G: Object.assign({ sourceNote: 'A' }, G), E: Object.assign({ sourceNote: 'A' }, G) } }), 0,
+      'one note shared by a source type\u2019s corpora passes');
+    eq(failsOn({ corpora: { G: Object.assign({ sourceNote: 'A' }, G), E: Object.assign({ sourceNote: 'B' }, G) } }), 1,
+      'two notes for one source type fail');
+    eq(failsOn({ corpora: { G: Object.assign({ sourceNote: 'A' }, G), J: { sourceType: 'Journal of Discourses' } } }), 1,
+      'a source type without a note fails once another has one');
+    eq(failsOn({ corpora: { G: Object.assign({ sourceNote: '' }, G) } }), 1, 'an empty note fails');
+    eq(failsOn({ corpora: { G, J: { sourceType: 'Journal of Discourses' } } }), 0, 'a descriptor with no notes passes (today\u2019s pack)');
+  }
 
   console.log('Inclusion rule input (fixtures):');
   {
@@ -412,6 +465,7 @@ function checkPack(dir, expectFlavor) {
   console.log(`Pack descriptor (${where} on disk):`);
   const d = index.pack;
   checkDescriptorShape(d, where);
+  checkSourceNotes(d, where);
   if (!d) return null;
   eq(d.flavor, expectFlavor, `${where}: its descriptor names its flavor`);
   const corpora = d.corpora || {};
