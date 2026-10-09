@@ -38,8 +38,8 @@ function zipName(manifest) {
 // export-ignored and the Store stamp stands in its place.
 function storeZip({ ref = 'HEAD', out }) {
   fs.mkdirSync(path.dirname(out), { recursive: true });
-  const stamp = `--add-virtual-file=${citData.STAMP_PATH}:${JSON.stringify(citData.STORE_STAMP)}\n`;
-  execFileSync('git', ['archive', '--format=zip', `--output=${out}`, stamp, ref], { cwd: ROOT });
+  const stampArg = `--add-virtual-file=${citData.STAMP_PATH}:${JSON.stringify(citData.STORE_STAMP)}\n`;
+  execFileSync('git', ['archive', '--format=zip', `--output=${out}`, stampArg, ref], { cwd: ROOT });
   return out;
 }
 

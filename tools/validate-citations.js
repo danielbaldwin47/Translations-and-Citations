@@ -163,6 +163,7 @@ console.log('Excerpt character count (fixtures):');
 async function chapterDataChecks() {
   console.log('chapterData (stub pack):');
   const pack = {
+    'src/citations/store-stamp.json': { storeZip: true },
     'src/citations/data/index.json': { pack: { flavor: 'public', corpora: { G: { sourceType: 'General Conference' } } } },
     'src/citations/data/citations/alma.json': {
       fullName: 'Alma',
@@ -173,11 +174,14 @@ async function chapterDataChecks() {
   };
   const saved = { chrome: global.chrome, fetch: global.fetch };
   global.chrome = { runtime: { getURL: (p) => p } };
-  global.fetch = async (url) => (url in pack
+  const fetched = [];
+  global.fetch = async (url) => (fetched.push(url), url in pack
     ? { ok: true, json: async () => pack[url] }
     : { ok: false, status: 404, json: async () => null });
   try {
     const data = await citData.chapterData('alma', 5);
+    eq(fetched[0], 'src/citations/store-stamp.json', 'loadPack reads the stamp first');
+    deep(fetched.filter((u) => !(u in pack)), [], 'under the Store stamp, every fetch finds its file (no personal probe)');
     const derived = data && data.entries[900001];
     const base = data && data.entries[15674];
     eq(derived && derived.talkId, 'gc/2026/10/12holland', 'a derived talk keeps its string id');
