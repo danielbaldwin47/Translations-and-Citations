@@ -32,6 +32,10 @@
  * saved together with the translation list only when that succeeds. Connect
  * rests while the field holds the connected key — a list costs ~39 calls of
  * a monthly quota — and "Check for new translations" refetches it on demand.
+ * Every explicit try (Connect, Enter, that button) visibly re-runs: it holds
+ * "Checking…" for checkingWait, then its answer goes through statusChange,
+ * which re-announces a repeat in the status's live region. A rejected key's
+ * line links api.bible's dashboard and sign-up (keyErrorLinks, linkedParts).
  *
  * On open, the page stays hidden until the first fill, which draws the stored
  * rows plus the worker's cached list (chrome.storage.local, any age); the
@@ -211,6 +215,13 @@
     return { partial: Object.assign({}, p.partial, partial), keys: union };
   }
 
+  // The key in the field, as if pasted cleanly: spaces, line breaks and the
+  // invisible characters a web page copies along are dropped from both ends.
+  const KEY_EDGE = /^[\s\u200b-\u200d\u2060\ufeff]+|[\s\u200b-\u200d\u2060\ufeff]+$/g;
+  function keyFromField(value) {
+    return String(value == null ? '' : value).replace(KEY_EDGE, '');
+  }
+
   // The key row's two buttons. Connect tries the key in the field; it rests
   // while the field holds the key already connected (a refresh costs ~39
   // api.bible calls) unless that key's list came back `partial`, which the
@@ -224,6 +235,30 @@
       connect: !!field && keyState !== 'checking' && !(connected && !partial),
       recheck: connected || (storedField && keyState === 'checking' && !!listed),
     };
+  }
+
+  // Every explicit Connect visibly re-runs, the same key included: it shows
+  // "Checking…" for at least CHECKING_MIN_MS, so an answer api.bible gives in
+  // a few milliseconds (a wrong key's 403) can't make the click look ignored,
+  // and the line changes ("Checking…", then the answer) for a screen reader
+  // to announce. This is how long the answer still waits. An automatic try
+  // (paste, change) shows its answer at once.
+  const CHECKING_MIN_MS = 600;
+  function checkingWait({ explicit, since, now }) {
+    return explicit ? Math.max(0, CHECKING_MIN_MS - (now - since)) : 0;
+  }
+
+  // What writing `text` to a status line does, given the line `shown`. A live
+  // region is announced only when its text changes, so a line asked to be
+  // announced (`announce`) that matches what is shown is cleared, and set
+  // again once the clear has been rendered (REANNOUNCE_MS: past a frame, so
+  // Chrome's accessibility tree sees the empty line; one animation frame is
+  // not enough). An unasked repeat writes nothing, so it is never announced
+  // twice. 'set' | 'reannounce' | 'keep'.
+  const REANNOUNCE_MS = 150;
+  function statusChange({ shown, text, announce }) {
+    if (text !== shown) return 'set';
+    return announce && text ? 'reannounce' : 'keep';
   }
 
   // What an incoming settings change is allowed to repaint. `changed` is the
@@ -280,16 +315,46 @@
   }
 
   // A failed connect, in words that say what to do. api.bible answers a
-  // wrong key with 403, which the worker reports as INVALID_KEY.
+  // wrong key with 403, which the worker reports as INVALID_KEY. A rejected
+  // key names both fixes — a miscopy, or no account yet — and links each
+  // (keyErrorLinks: phrases of this sentence, rendered by linkedParts).
+  const API_BIBLE_DASHBOARD_URL = 'https://api.bible/team';
+  const API_BIBLE_SIGN_UP_URL = 'https://api.bible/sign-up';
+  const keyRejected = (error) => !!error && (error.code === C.ERR.INVALID_KEY || error.code === C.ERR.FORBIDDEN);
   function keyErrorText(error) {
     const code = error && error.code;
-    if (code === C.ERR.INVALID_KEY || code === C.ERR.FORBIDDEN) {
-      return 'api.bible didn’t accept that key. Check that you copied all of it.';
+    if (keyRejected(error)) {
+      return 'api.bible didn’t accept that key. Copy it again from your api.bible account page, or create a free account first.';
     }
     if (code === C.ERR.NETWORK) return 'Couldn’t reach api.bible. Check your connection and try again.';
     if (code === C.ERR.RATE_LIMITED) return 'api.bible is busy. Try again in a minute.';
     const detail = (error && error.message && error.message !== code ? error.message : code) || 'no answer';
     return `Couldn’t check the key (${detail}). Try again.`;
+  }
+  function keyErrorLinks(error) {
+    if (!keyRejected(error)) return [];
+    return [
+      { text: 'your api.bible account page', href: API_BIBLE_DASHBOARD_URL },
+      { text: 'create a free account', href: API_BIBLE_SIGN_UP_URL },
+    ];
+  }
+
+  // A status line as parts to render, in reading order: plain strings, and
+  // each link (`{ text, href }`) where its phrase first appears in `text`. A
+  // link whose phrase isn't there links nothing. The parts' text joined is
+  // exactly `text`, so the line reads (and is announced) as the sentence.
+  function linkedParts(text, links) {
+    const parts = [];
+    let rest = String(text || '');
+    for (const link of links || []) {
+      const at = rest.indexOf(link.text);
+      if (!link.text || at < 0) continue;
+      if (at) parts.push(rest.slice(0, at));
+      parts.push(link);
+      rest = rest.slice(at + link.text.length);
+    }
+    if (rest || !parts.length) parts.push(rest);
+    return parts;
   }
 
   // ---- Church languages ----
@@ -427,8 +492,9 @@
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = {
       WELCOME_AGAIN, welcomeAgainError, aboutCopy, isAdded, dedupeVersions, versionGroups, stableGroups, mergeVersions, listGuesses, withStored, initialChecks, pickDefaultId,
-      translationPatch, commitPatch, patchLanded, failedWrites, fillPlan, keyControls,
-      versionLabel, moreLabel, connectedText, yoursNote, keyErrorText,
+      translationPatch, commitPatch, patchLanded, failedWrites, fillPlan, keyFromField, keyControls,
+      CHECKING_MIN_MS, checkingWait, REANNOUNCE_MS, statusChange,
+      versionLabel, moreLabel, connectedText, yoursNote, keyErrorText, keyErrorLinks, linkedParts,
       offeredLanguages, languageGroups, languageList, languageTick, groupCount, matchesLanguage,
     };
   }
@@ -486,11 +552,15 @@
   let connectSeq = 0; // the newest list request owns the status line
   let lastTried = ''; // the key a paste/change last tried, so a blur doesn't retry it
   let connectTimer = 0;
+  let statusShown = ''; // the key's status line as written (statusChange compares against it)
+  let statusTimer = 0; // a re-announce waiting out its clear
   let listRefresh = Promise.resolve(); // the newest refreshList, settled once its result is on screen
 
   // Keys changed on screen and not yet written. They outrank a change
   // arriving from elsewhere, so those controls are left alone.
   const dirty = new Set();
+
+  const sleep = (ms) => (ms > 0 ? new Promise((resolve) => setTimeout(resolve, ms)) : Promise.resolve());
 
   function send(message) {
     return new Promise((resolve) => {
@@ -713,13 +783,44 @@
     queueCommit(LIST_KEYS);
   }
 
-  function setKeyStatus(text, kind) {
-    els.keyStatus.textContent = text;
-    els.keyStatus.className = 'status' + (kind ? ' ' + kind : '');
+  // The key's status line, its one writer. The text goes in as linkedParts
+  // (its `links` as elements, the rest as text nodes); statusChange decides
+  // whether the live region is written at all, and re-announces a repeat
+  // asked to be announced (`announce`: the answer to an explicit Connect).
+  function setKeyStatus(text, kind, opts) {
+    const o = opts || {};
+    const node = els.keyStatus;
+    node.className = 'status' + (kind ? ' ' + kind : '');
+    clearTimeout(statusTimer); // a write supersedes a re-announce still waiting
+    const change = statusChange({ shown: statusShown, text, announce: !!o.announce });
+    if (change === 'keep') return;
+    if (change === 'set') { writeKeyStatus(text, o.links); return; }
+    // Cleared for a rendered frame, then set again; the line keeps its room
+    // meanwhile, so nothing below it moves.
+    node.style.minHeight = `${node.offsetHeight}px`;
+    node.style.marginTop = getComputedStyle(node).marginTop;
+    writeKeyStatus('', []);
+    statusTimer = setTimeout(() => {
+      writeKeyStatus(text, o.links);
+      node.style.minHeight = '';
+      node.style.marginTop = '';
+    }, REANNOUNCE_MS);
   }
 
-  function showKeyState() {
-    if (keyState === 'connected') setKeyStatus(connectedText(checkedTranslations()), 'ok');
+  function writeKeyStatus(text, links) {
+    els.keyStatus.replaceChildren(...(text ? linkedParts(text, links) : []).map((part) => {
+      if (typeof part === 'string') return document.createTextNode(part);
+      const a = el('a', null, part.text);
+      a.href = part.href;
+      a.target = '_blank';
+      a.rel = 'noopener';
+      return a;
+    }));
+    statusShown = text;
+  }
+
+  function showKeyState(opts) {
+    if (keyState === 'connected') setKeyStatus(connectedText(checkedTranslations()), 'ok', opts);
     else if (keyState === 'checking') setKeyStatus('Checking…', 'busy');
     else if (keyState === 'none') setKeyStatus('', '');
     updateConnect();
@@ -727,7 +828,7 @@
 
   function updateConnect() {
     const c = keyControls({
-      field: els.apiKey.value.trim(), storedKey: settings.apiKey, keyState, partial: listPartial, listed: versionsLoaded,
+      field: keyFromField(els.apiKey.value), storedKey: settings.apiKey, keyState, partial: listPartial, listed: versionsLoaded,
     });
     els.connectKey.disabled = !c.connect;
     els.recheckKey.hidden = !c.recheck;
@@ -763,7 +864,7 @@
     if (seq !== connectSeq) return;
     if (res.error) {
       keyState = 'error';
-      setKeyStatus(keyErrorText(res.error), 'error');
+      setKeyStatus(keyErrorText(res.error), 'error', { links: keyErrorLinks(res.error) });
       updateConnect();
       return;
     }
@@ -781,34 +882,39 @@
   }
 
   // Try the key in the field; on success save it with the list it unlocks.
-  // `explicit` (Connect, Enter) fetches afresh — the reader may have just added
-  // a version at api.bible — where an automatic try takes the cache.
+  // `explicit` (Connect, Enter, "Check for new translations") fetches afresh —
+  // the reader may have just added a version at api.bible — where an automatic
+  // try takes the cache. An explicit try visibly re-runs: "Checking…" holds
+  // for checkingWait, then the answer is announced (`announce`).
   async function connect(explicit) {
     clearTimeout(connectTimer);
-    const key = els.apiKey.value.trim();
+    const key = keyFromField(els.apiKey.value);
     if (!key) return;
     const from = document.activeElement;
     lastTried = key;
     const seq = ++connectSeq;
     keyState = 'checking';
     showKeyState();
+    const since = Date.now();
     const res = await send({ type: C.MSG.LIST_BIBLES, key, refresh: !!explicit });
     if (seq !== connectSeq) return;
+    await sleep(checkingWait({ explicit, since, now: Date.now() }));
+    if (seq !== connectSeq) return;
     const stored = key === settings.apiKey;
+    const announce = !!explicit;
 
     if (res.error) {
       keyState = 'error';
       // A rejected key, or a key that isn't the stored one: the list on screen
       // no longer belongs to anything. A stored key that merely couldn't be
       // reached keeps its list.
-      const rejected = res.error.code === C.ERR.INVALID_KEY || res.error.code === C.ERR.FORBIDDEN;
-      if (rejected || !stored) {
+      if (keyRejected(res.error) || !stored) {
         available = [];
         versionsLoaded = false;
         shown = null;
         renderTranslations([], '');
       }
-      setKeyStatus(keyErrorText(res.error), 'error');
+      setKeyStatus(keyErrorText(res.error), 'error', { links: keyErrorLinks(res.error), announce });
       updateConnect();
       settleKeyFocus(from);
       return;
@@ -823,7 +929,7 @@
     shown = null; // a new list, or one the reader asked for: grouped afresh
     keyState = 'connected';
     renderTranslations(initialChecks(available, settings.enabledTranslations, !stored, listPartial), settings.defaultTranslationId);
-    showKeyState();
+    showKeyState({ announce });
     const partial = Object.assign({ apiKey: key }, translationPatch(listState()));
     if (SETTINGS.diff(settings, Object.assign({}, settings, partial)).length) await write(partial, ['apiKey'].concat(LIST_KEYS));
     else dirty.delete('apiKey');
@@ -848,7 +954,7 @@
   function scheduleConnect() {
     clearTimeout(connectTimer);
     connectTimer = setTimeout(() => {
-      const key = els.apiKey.value.trim();
+      const key = keyFromField(els.apiKey.value);
       if (key && key !== lastTried && !(keyState === 'connected' && key === settings.apiKey)) connect(false);
     }, CONNECT_DELAY_MS);
   }
@@ -1037,7 +1143,7 @@
   // is not here — it is built from the key, not from one control — but it
   // goes through the same dirty flag, the same write and the same fill plan.
   const FIELDS = [
-    { key: 'apiKey', node: els.apiKey, read: () => els.apiKey.value.trim(), write: (v) => { els.apiKey.value = v; } },
+    { key: 'apiKey', node: els.apiKey, read: () => keyFromField(els.apiKey.value), write: (v) => { els.apiKey.value = v; } },
     // A group of checkboxes, but one setting: its change events bubble to the
     // container, which is what writes it.
     { key: 'churchLanguages', node: els.churchLanguages, read: checkedLanguages, write: checkLanguages },
@@ -1162,7 +1268,7 @@
   // change (and the stored key's list and status come back). Anything else
   // is a pending change, which a key adopted from elsewhere won't overwrite.
   function onKeyInput() {
-    const v = els.apiKey.value.trim();
+    const v = keyFromField(els.apiKey.value);
     if (!v && !settings.apiKey) { clearKey(); return; }
     if (v && v === settings.apiKey) {
       clearTimeout(connectTimer);
@@ -1210,7 +1316,7 @@
     els.apiKey.addEventListener('input', onKeyInput);
     els.apiKey.addEventListener('paste', () => setTimeout(scheduleConnect, 0));
     els.apiKey.addEventListener('change', () => {
-      if (!els.apiKey.value.trim()) clearKey();
+      if (!keyFromField(els.apiKey.value)) clearKey();
       else scheduleConnect();
     });
     // Enter is Connect, and rests with it (the connected key refetches only
