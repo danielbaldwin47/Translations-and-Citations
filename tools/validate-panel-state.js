@@ -1191,14 +1191,29 @@ console.log('errorCopy:');
   for (const k of ['NO_KEY', 'INVALID_KEY', 'FORBIDDEN', 'NOT_FOUND', 'NETWORK', 'UNKNOWN']) eq(C.ERR[k], k, `C.ERR.${k} is '${k}'`);
   eq(e('INVALID_KEY').action, 'settings', 'a rejected key points to settings');
   eq(e('INVALID_KEY').message, 'api.bible didn’t accept your key.', '...in plain words, not a licensing problem');
-  eq(e('FORBIDDEN').message, 'NIV isn’t included with your api.bible key.', 'an unlicensed version names the version');
-  eq(e('FORBIDDEN', { alternatives: true }).hint, 'Add it in your api.bible dashboard, or choose another translation above.',
-    '...says where to add it, by the site\'s own name, and offers the dropdown only when it has something else');
-  eq(e('FORBIDDEN').hint, 'Add it in your api.bible dashboard.', '...not when it has nothing else');
+  // The fix the settings page names (#124), not the retired "check that you
+  // copied all of it", with the dashboard one click away.
+  const DASH = { text: 'Open your api.bible dashboard', href: 'https://api.bible/team' };
+  eq(e('INVALID_KEY'), {
+    message: 'api.bible didn’t accept your key.',
+    hint: 'Copy it again from your api.bible dashboard and paste it in settings, or create a free account first.',
+    action: 'settings',
+    link: DASH,
+  }, '...names both fixes, links the dashboard, and keeps Open settings');
+  check(!/copied all of it/.test(JSON.stringify(e('INVALID_KEY'))), '...never the retired miscopy advice');
+  eq(e('FORBIDDEN').message, 'NIV isn’t on your api.bible key yet.', 'an unlicensed version names the version, and says it can be added');
+  eq(e('FORBIDDEN', { alternatives: true }).hint,
+    'Add it in your api.bible dashboard: Plan, then Edit Plan, then Edit Bible Licenses. Or choose another translation from the menu at the top of the panel.',
+    '...says where to add it, by the dashboard\'s own menus, and offers the menu by name only when it has something else');
+  eq(e('FORBIDDEN').hint, 'Add it in your api.bible dashboard: Plan, then Edit Plan, then Edit Bible Licenses.', '...not when it has nothing else');
+  check(e('FORBIDDEN').hint.indexOf(C.API_BIBLE_ADD_BIBLES) >= 0, '...the path is C.API_BIBLE_ADD_BIBLES, written once');
+  eq([e('FORBIDDEN').action, e('FORBIDDEN').link], ['settings', DASH], '...with the dashboard link beside Open settings');
   eq(e('NOT_FOUND'), { message: 'NIV doesn’t include Psalm 23.', hint: '', action: null }, 'a missing api.bible chapter: no action to take');
   eq(e('NOT_FOUND', { church: true, name: 'Chinese, Simplified (Mandarin)', alternatives: true }),
-    { message: 'Psalm 23 isn’t available in Chinese, Simplified (Mandarin).', hint: 'Choose another language above.', action: null },
-    'a missing Church chapter names the language in English');
+    { message: 'Psalm 23 isn’t available in Chinese, Simplified (Mandarin).', hint: 'Choose another language from the menu at the top of the panel.', action: null },
+    'a missing Church chapter names the language in English, and the menu by where it is');
+  check(!Object.values(C.ERR).some((code) => / above\./.test(JSON.stringify(e(code, { alternatives: true, rate: { state: 'paused', until: '2026-11-01' }, others: { bundled: true, church: 1 } })))),
+    'no card points "above": the menu is named');
   eq(e('NETWORK').action, 'retry', 'a network failure can be retried');
   eq(e('NETWORK', { church: true }).message, 'Couldn’t reach churchofjesuschrist.org.', '...and names the site that failed');
   eq(e('UNKNOWN'), { message: 'Something went wrong loading NIV.', hint: '', action: 'retry' }, 'anything else: retry');
@@ -1209,8 +1224,10 @@ console.log('errorCopy:');
     'a local rate limit with no wait left: busy, try again');
   check(!/today/i.test(JSON.stringify(e('RATE_LIMITED', { retryAfterMs: 5 * 3600 * 1000 }))), '...never "today’s allowance": there is no daily cap');
   eq(e('RATE_LIMITED', { remote: true }),
-    { message: 'Your api.bible key has used its allowance for now.', hint: 'Chapters you read recently still open. Try again later.', action: 'retry' },
-    'api.bible refusing the key (a 429 with no short Retry-After): its allowance, and a Try again');
+    { message: 'Your api.bible key has used its allowance for now.',
+      hint: 'Chapters you read recently still open. Try again later. If you use this key on another computer too, api.bible’s monthly limit may be used up.',
+      action: 'retry' },
+    'api.bible refusing the key (a 429 with no short Retry-After): its allowance, what else it may be (the count is this computer\'s alone), and a Try again');
   eq(e('RATE_LIMITED', { remote: true, retryAfterMs: 30000 }).action, 'retry',
     '...also once its short waits have run out');
   eq(e('RATE_LIMITED', { retryAfterMs: 20000 }), { message: 'api.bible is busy.', hint: 'Try again in a minute.', action: 'retry' },
@@ -1230,19 +1247,30 @@ console.log('errorCopy:');
   // (`others`: the World English Bible, how many Church languages): every
   // api.bible translation is paused with the month, and the cache holds too
   // little to promise "chapters you've read".
+  // The hint says what comes back on that day (the version, and the reader's
+  // other api.bible translations when there are more: `others.apiBible`
+  // counts the dropdown's api.bible rows, this one included), then what works
+  // now and where to choose it.
   const pausedWith = (others) => e('RATE_LIMITED', { remote: true, rate: paused, alternatives: true, others });
-  eq(pausedWith({ bundled: true, church: 2 }),
-    { message: 'api.bible’s free monthly limit is reached. Back on November 1.', hint: 'The World English Bible and your Church languages still work. Choose one above.', action: null },
-    'api.bible refusing in a paused month: the paused line, what still works above, no Try again');
-  eq(pausedWith({ bundled: true, church: 1 }).hint, 'The World English Bible and your Church language still work. Choose one above.', '...one Church language');
-  eq(pausedWith({ bundled: true, church: 0 }).hint, 'The World English Bible still works. Choose it above.', '...the World English Bible alone');
-  eq(pausedWith({ bundled: false, church: 1 }).hint, 'Your Church language still works. Choose it above.', '...a Church language alone');
-  eq(pausedWith({ bundled: false, church: 3 }).hint, 'Your Church languages still work. Choose one above.', '...Church languages alone');
-  eq(pausedWith({ bundled: false, church: 0 }).hint, '', '...nothing else offered: no hint');
-  eq(e('RATE_LIMITED', { remote: true, rate: paused }).hint, '', '...nor with no `others` known');
-  check(![{ bundled: true, church: 2 }, { bundled: false, church: 0 }].some((o) => /already read|other translations/i.test(pausedWith(o).hint)),
-    '...never promises chapters already read, nor other api.bible translations');
-  check(!/\d{3}|NIV/.test(JSON.stringify(e('RATE_LIMITED', { remote: true, rate: paused }))), '...no version name, no call counts');
+  const MENU = 'from the menu at the top of the panel.';
+  eq(pausedWith({ bundled: true, church: 2, apiBible: 3 }),
+    { message: 'api.bible’s free monthly limit is reached. Back on November 1.',
+      hint: `NIV and your other api.bible translations come back on that day. The World English Bible and your Church languages still work. Choose one ${MENU}`,
+      action: null },
+    'api.bible refusing in a paused month: the paused line, what comes back, what still works and where, no Try again');
+  eq(pausedWith({ bundled: true, church: 1, apiBible: 1 }).hint,
+    `NIV comes back on that day. The World English Bible and your Church language still work. Choose one ${MENU}`, '...one api.bible translation, one Church language');
+  eq(pausedWith({ bundled: true, church: 0, apiBible: 2 }).hint,
+    `NIV and your other api.bible translations come back on that day. The World English Bible still works. Choose it ${MENU}`, '...the World English Bible alone');
+  eq(pausedWith({ bundled: false, church: 1 }).hint, `NIV comes back on that day. Your Church language still works. Choose it ${MENU}`, '...a Church language alone');
+  eq(pausedWith({ bundled: false, church: 3 }).hint, `NIV comes back on that day. Your Church languages still work. Choose one ${MENU}`, '...Church languages alone');
+  eq(pausedWith({ bundled: false, church: 0 }).hint, 'NIV comes back on that day.', '...nothing else offered: only what comes back');
+  eq(e('RATE_LIMITED', { remote: true, rate: paused }).hint, 'NIV comes back on that day.', '...nor with no `others` known');
+  eq(e('RATE_LIMITED', { remote: true, rate: paused, name: '' }).hint, 'This translation comes back on that day.', '...a version with no name still reads as a sentence');
+  check(![{ bundled: true, church: 2 }, { bundled: false, church: 0 }].some((o) => /already read|still open/i.test(pausedWith(o).hint)),
+    '...never promises chapters already read');
+  check(!/\d{3}|NIV/.test(e('RATE_LIMITED', { remote: true, rate: paused }).message), '...the paused line: no version name, no call counts');
+  check(!/\d{3}/.test(pausedWith({ bundled: true, church: 2, apiBible: 3 }).hint), '...nor call counts in the hint');
   eq(e('RATE_LIMITED', { remote: true, rate: { state: 'near', month: '2026-10' } }).message, 'Your api.bible key has used its allowance for now.',
     'a 429 that is not a pause stays the burst copy');
 
@@ -1276,6 +1304,16 @@ console.log('errorCopy:');
       'renderContent hands the state to showNearLine, whose nearLine decides (no second guard)');
     const contentSrc = fs.readFileSync(path.join(ROOT, 'src/content/content.js'), 'utf8');
     check(/others: \{/.test(contentSrc), 'content.js tells the error card what else the dropdown offers (`others`)');
+    check(/apiBible: texts\.filter\(\(t\) => t\.provider === C\.PROVIDER_APIBIBLE\)\.length/.test(contentSrc),
+      '...and how many api.bible translations it has (what comes back on the paused line\'s day)');
+    const renderErr = (panelSrc.match(/function renderError\([^)]*\) \{[\s\S]*?\n {2}\}\n/) || [''])[0];
+    check(/if \(copy\.link\)/.test(renderErr) && /el\('a', 'btx-link btx-card-link', copy\.link\.text\)/.test(renderErr)
+      && /\.href = copy\.link\.href/.test(renderErr) && /target = '_blank'/.test(renderErr) && /rel = 'noopener'/.test(renderErr) && !/innerHTML/.test(renderErr),
+      'the error card renders its link as a text-only anchor to a new tab (safe DOM)');
+    check(/labelled\(x, 'Dismiss this notice'\)/.test(show), 'the near line\'s × is named "Dismiss this notice"');
+    const css = fs.readFileSync(path.join(ROOT, 'src/content/panel.css'), 'utf8');
+    const xRule = (css.match(/#btx-root \.btx-note-x \{[^}]*\}/) || [''])[0];
+    check(/min-width: 24px/.test(xRule) && /min-height: 24px/.test(xRule), 'every note\'s × is at least a 24px target');
     const manifest = JSON.parse(fs.readFileSync(path.join(ROOT, 'manifest.json'), 'utf8'));
     const js = manifest.content_scripts[0].js;
     check(js.indexOf('src/shared/rate-copy.js') >= 0 && js.indexOf('src/shared/rate-copy.js') < js.indexOf('src/content/panel.js'),

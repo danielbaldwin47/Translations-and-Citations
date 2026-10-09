@@ -62,23 +62,30 @@
       <!-- Setup, from no account to NIV showing. The addresses are
            C.API_BIBLE_PAGES; options.js fills #addBiblesPath from
            C.API_BIBLE_ADD_BIBLES (checked by tools/validate-options-form.js). -->
+      <!-- The steps fold once a key is stored (options.js setupOpen), so the
+           connected state leads; the add-later line's button clause shows only
+           while that button can be used (#addLaterCheck, updateConnect). -->
       <div class="hint setup" id="bibleSetup">
-        <p>The World English Bible is built in. For more translations, such as NIV and NKJV, connect a free api.bible key:</p>
-        <ol>
-          <li><a href="https://api.bible/sign-up" target="_blank" rel="noopener">Create a free account</a> at api.bible.
-            Sign-up asks about your app, such as what it’s for and how many people use it, and your organisation.</li>
-          <li>Pick up to 3 Bibles, such as NIV, on the free plan.</li>
-          <li>Copy the key from the top right of your
-            <a href="https://api.bible/team" target="_blank" rel="noopener">api.bible dashboard</a>, and paste it below.</li>
-        </ol>
-        <p>To add Bibles later, open your <a href="https://api.bible/team" target="_blank" rel="noopener">dashboard</a>
-          and choose <span id="addBiblesPath"></span>, then choose Check for new translations below.</p>
+        <p>The World English Bible is built in and needs no key. For more translations, such as NIV and NKJV, you can connect a free api.bible key.</p>
+        <details id="setupSteps" class="setup-steps" open>
+          <summary>How to set up api.bible</summary>
+          <ol>
+            <li><a href="https://api.bible/sign-up" target="_blank" rel="noopener">Create a free account</a> at api.bible.
+              Sign-up asks a few questions about how you’ll use it.</li>
+            <li>Choose up to 3 Bibles, such as NIV, on the free plan.</li>
+            <li>Copy the key from the top right of your
+              <a href="https://api.bible/team" target="_blank" rel="noopener">api.bible dashboard</a>, and paste it below.
+              It’s a long string of letters and numbers.</li>
+          </ol>
+          <p>To add Bibles later, open your <a href="https://api.bible/team" target="_blank" rel="noopener">dashboard</a>
+            and choose <span id="addBiblesPath"></span><span id="addLaterCheck">, then choose Check for new translations below</span>.</p>
+        </details>
       </div>
 
       <label class="field-label" for="apiKey">api.bible key</label>
       <div class="key-row">
         <div class="key-box">
-          <input type="password" id="apiKey" placeholder="Paste your key" autocomplete="off"
+          <input type="password" id="apiKey" placeholder="A long string of letters and numbers" autocomplete="off"
                  spellcheck="false" autocapitalize="off" autocorrect="off" aria-describedby="keyStatus" />
           <button id="toggleKey" type="button" class="reveal" aria-controls="apiKey" aria-pressed="false">Show</button>
         </div>
@@ -88,8 +95,11 @@
       <p class="hint disclosure" id="keyDisclosure">Connecting sends the chapters you open, your key, and an anonymous usage report to API.Bible.</p>
       <div class="status-row">
         <p id="keyStatus" class="status" role="status" aria-live="polite"></p>
-        <button id="recheckKey" type="button" class="text-button" hidden>Check for new translations</button>
+        <button id="recheckKey" type="button" class="text-button" aria-describedby="keyPause" hidden>Check for new translations</button>
       </div>
+      <!-- The connected key's paused month (options.js pausedNote): a second
+           line under "Connected.", and the reason the button above rests. -->
+      <p id="keyPause" class="status note" role="status" aria-live="polite"></p>
 
       <div id="versions" class="versions" hidden>
         <fieldset class="checklist" id="translationsList">

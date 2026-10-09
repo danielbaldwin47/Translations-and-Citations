@@ -202,6 +202,8 @@ input:focus-visible, select:focus-visible { outline-offset: 1px; }
 .status.ok { color: var(--ok); }
 .status.error { color: var(--error); }
 .status.warn { color: var(--warn); }
+/* A calm notice (api.bible's paused month): body colour, nothing to fix. */
+.status.note { color: var(--fg); }
 .status.busy { color: var(--muted); }
 .status.busy::before {
   content: '';
@@ -230,6 +232,9 @@ input:focus-visible, select:focus-visible { outline-offset: 1px; }
   text-underline-offset: 2px;
 }
 .text-button:hover { text-decoration: underline; }
+/* Resting in a paused month: aria-disabled, so it keeps focus and its
+   description (the paused line) while it reads as off. */
+.text-button[aria-disabled='true'] { color: var(--muted); cursor: default; text-decoration: none; }
 
 /* ---- Check and radio rows ---- */
 /* The whole row is the target; its hover wash bleeds 8px past the text so the
@@ -259,6 +264,11 @@ input:focus-visible, select:focus-visible { outline-offset: 1px; }
 .setup p { margin: 0; }
 .setup ol { margin: 8px 0; padding-left: 22px; color: var(--fg); font-size: 14px; }
 .setup li + li { margin-top: 4px; }
+/* "How to set up api.bible": open on a fresh card, folded once a key is
+   stored. */
+.setup-steps { margin-top: 6px; }
+.setup-steps > summary { color: var(--accent); }
+.setup-steps > ol { margin-top: 4px; }
 
 /* Disclosure groups: "more free translations", the language groups. */
 details > summary {

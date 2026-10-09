@@ -774,6 +774,7 @@
       others: {
         bundled: texts.some((t) => t.provider === C.PROVIDER_BUNDLED),
         church: texts.filter((t) => t.provider === churchText.PROVIDER).length,
+        apiBible: texts.filter((t) => t.provider === C.PROVIDER_APIBIBLE).length,
       },
       remote: error.remote === true,
       retryAfterMs: error.retryAfterMs,

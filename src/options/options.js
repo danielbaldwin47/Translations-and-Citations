@@ -38,6 +38,18 @@
  * which re-announces a repeat in the status's live region. A rejected key's
  * line links api.bible's dashboard and sign-up (keyErrorText, linked text).
  *
+ * A paused api.bible month (the `rate` every LIST_BIBLES reply carries,
+ * pausedUntil) never reads as a key problem. The stored key stays connected
+ * with its list: "Connected." keeps its look, the paused line sits under it
+ * in its own live region (#keyPause, pausedNote), and "Check for new
+ * translations" rests aria-disabled until the day (keyControls
+ * recheckUsable). Another key refused that month isn't saved, and its line
+ * says when to try Connect again, in the calm 'note' look (keyErrorKind).
+ *
+ * The setup steps ("How to set up api.bible") are open on a fresh card and
+ * folded when the page opens with a key stored (setupOpen); the add-later
+ * line names "Check for new translations" only while that button is usable.
+ *
  * On open, the page stays hidden until the first fill, which draws the stored
  * rows plus the worker's cached list (chrome.storage.local, any age); the
  * refresh that follows only moves checkmarks or adds rows at the end of
@@ -232,13 +244,26 @@
   // page asks the reader to retry. "Check for new translations" is the
   // deliberate refresh of a connected key, and stays put while that key's
   // listed versions (`listed`) are rechecked, so the focus on it isn't lost.
-  function keyControls({ field, storedKey, keyState, partial, listed }) {
+  // In a `paused` month it stays in view but rests (`recheckUsable` false:
+  // aria-disabled, so it keeps focus and its reason, the paused line); a
+  // refresh would only be refused again.
+  function keyControls({ field, storedKey, keyState, partial, listed, paused }) {
     const storedField = !!field && field === storedKey;
     const connected = storedField && keyState === 'connected';
+    const recheck = connected || (storedField && keyState === 'checking' && !!listed);
     return {
       connect: !!field && keyState !== 'checking' && !(connected && !partial),
-      recheck: connected || (storedField && keyState === 'checking' && !!listed),
+      recheck,
+      recheckUsable: recheck && !paused,
     };
+  }
+
+  // The setup steps ("How to set up api.bible") are open on a fresh card and
+  // folded once a key is stored, so the connected state leads. Decided when
+  // the page opens only: folding them under a reader who just connected would
+  // move the key row.
+  function setupOpen(storedKey) {
+    return !storedKey;
   }
 
   // Every explicit Connect visibly re-runs, the same key included: it shows
@@ -292,8 +317,10 @@
     return t.abbr && t.abbr !== t.name ? `${t.abbr} — ${t.name}` : (t.name || t.abbr || t.id);
   }
 
+  // The free versions' summary says what they are: on a key with none added
+  // there is nothing above it to be "more" than.
   function moreLabel(n) {
-    return `${plural(n, 'more free translation', 'more free translations')}`;
+    return n === 1 ? '1 free translation that comes with every key' : `${n} free translations that come with every key`;
   }
 
   // The key's status line once connected, from the versions turned on: their
@@ -310,42 +337,79 @@
   // The note under "Your translations", as linked text (strings, and
   // { text, href } for a link; [] is no note): a list the worker couldn't
   // fully check is a guess, and says so; an empty group links the api.bible
-  // dashboard that fills it.
-  function yoursNote({ partial, yours }) {
+  // dashboard that fills it, and says what the free plan allows. In a paused
+  // month (`pausedUntil`, 'YYYY-MM-DD') "Check for new translations" rests,
+  // so the note sends the reader to it from that day.
+  function yoursNote({ partial, yours, pausedUntil }) {
     if (partial) return ['Couldn’t check which translations are yours. Try Connect again later.'];
     if (!yours) {
+      const day = pausedUntil ? RATE_COPY.monthDay(pausedUntil) : '';
+      const then = day ? `Then, from ${day}, choose Check for new translations.` : 'Then choose Check for new translations.';
       return [
-        'This key has no NIV, NKJV or other copyrighted translations yet. Add them in your ',
+        'No translations are added to this key yet. On the free plan you can add up to 3, such as NIV and NKJV, in your ',
         { text: 'api.bible dashboard', href: C.API_BIBLE_PAGES.dashboard },
-        ` (${C.API_BIBLE_ADD_BIBLES}), then choose Check for new translations — or turn on a free one below.`,
+        ` (${C.API_BIBLE_ADD_BIBLES}). ${then} Or turn on one of the free translations below.`,
       ];
     }
     return [];
   }
 
+  // The day a reply's month comes back, 'YYYY-MM-DD', when the month's state
+  // the worker attached to it (`rate`) is paused, else ''. A reply of any
+  // kind: a cached list on open says so as well as a refused Connect.
+  function pausedUntil(res) {
+    const rate = res && res.rate;
+    return rate && rate.state === 'paused' ? String(rate.until || '') : '';
+  }
+
+  // The connected key's second line in a paused month, under "Connected."
+  // (which keeps its look: nothing is wrong with the key): the panel's
+  // paused sentence, then why "Check for new translations" rests. [] when
+  // the month isn't paused.
+  function pausedNote(rate) {
+    if (!rate || rate.state !== 'paused') return [];
+    return [`${RATE_COPY.pausedLine(rate.until)} Your key is still connected, and the World English Bible still works.`
+      + ' You can use Check for new translations again on that day.'];
+  }
+
   // A failed connect, as linked text, in words that say what to do. api.bible
   // answers a wrong key with 403, which the worker reports as INVALID_KEY; a
   // rejected key names both fixes — a miscopy, or no account yet — and links
-  // each to its api.bible page. `rate` is the month's state the worker
-  // attaches to the reply: a 429 in a paused month is the monthly limit, said
-  // in the panel's words with the day it comes back (rate-copy pausedLine).
+  // each to its api.bible page ("dashboard": the card's one name for that
+  // page). `rate` is the month's state the worker attaches to the reply: a
+  // 429 in a paused month is the monthly limit, said in the panel's words
+  // with the day it comes back (rate-copy pausedLine), then when to try this
+  // key again. Such a key isn't saved: api.bible listed nothing, so it is
+  // unchecked, and saving it would replace the connected key's translations
+  // with none. (The connected key's own refusal is pausedNote instead.)
   const keyRejected = (error) => !!error && (error.code === C.ERR.INVALID_KEY || error.code === C.ERR.FORBIDDEN);
+  const isPausedRefusal = (error, rate) => !!error && error.code === C.ERR.RATE_LIMITED && !!rate && rate.state === 'paused';
   function keyErrorText(error, rate) {
     const code = error && error.code;
     if (keyRejected(error)) {
       return [
         'api.bible didn’t accept that key. Copy it again from ',
-        { text: 'your api.bible account page', href: C.API_BIBLE_PAGES.dashboard },
+        { text: 'your api.bible dashboard', href: C.API_BIBLE_PAGES.dashboard },
         ', or ',
         { text: 'create a free account', href: C.API_BIBLE_PAGES.signUp },
         ' first.',
       ];
     }
     if (code === C.ERR.NETWORK) return ['Couldn’t reach api.bible. Check your connection and try again.'];
-    if (code === C.ERR.RATE_LIMITED && rate && rate.state === 'paused') return [RATE_COPY.pausedLine(rate.until)];
+    if (isPausedRefusal(error, rate)) {
+      const day = RATE_COPY.monthDay(rate.until);
+      return [`${RATE_COPY.pausedLine(rate.until)} Try Connect again ${day ? `on ${day}` : 'next month'}. The World English Bible still works.`];
+    }
     if (code === C.ERR.RATE_LIMITED) return ['api.bible is busy. Try again in a minute.'];
     const detail = (error && error.message && error.message !== code ? error.message : code) || 'no answer';
     return [`Couldn’t check the key (${detail}). Try again.`];
+  }
+
+  // The status line's look for keyErrorText: a paused month is a calm notice
+  // ('note': the body colour, like the panel's paused card), never the red
+  // of a key problem; everything else is 'error'.
+  function keyErrorKind(error, rate) {
+    return isPausedRefusal(error, rate) ? 'note' : 'error';
   }
 
   // Linked text as the words it reads (and a live region announces).
@@ -499,9 +563,9 @@
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = {
       WELCOME_AGAIN, welcomeAgainError, aboutCopy, isAdded, dedupeVersions, versionGroups, stableGroups, mergeVersions, listGuesses, withStored, initialChecks, pickDefaultId,
-      translationPatch, commitPatch, patchLanded, failedWrites, fillPlan, keyFromField, keyControls,
+      translationPatch, commitPatch, patchLanded, failedWrites, fillPlan, keyFromField, keyControls, setupOpen,
       CHECKING_MIN_MS, checkingWait, REANNOUNCE_MS, statusChange,
-      versionLabel, moreLabel, connectedText, yoursNote, keyErrorText, plainText,
+      versionLabel, moreLabel, connectedText, yoursNote, keyErrorText, keyErrorKind, pausedUntil, pausedNote, plainText,
       offeredLanguages, languageGroups, languageList, languageTick, groupCount, matchesLanguage,
     };
   }
@@ -523,7 +587,10 @@
     toggleKey: $('toggleKey'),
     connectKey: $('connectKey'),
     keyStatus: $('keyStatus'),
+    keyPause: $('keyPause'),
     recheckKey: $('recheckKey'),
+    setupSteps: $('setupSteps'),
+    addLaterCheck: $('addLaterCheck'),
     versions: $('versions'),
     yoursNote: $('yoursNote'),
     yoursRows: $('yoursRows'),
@@ -559,6 +626,7 @@
   let listPartial = false; // did the grouping on screen have to guess (a `partial` list)?
   let shown = null; // { yours: [ids], more: [ids] } as last drawn; null = draw from scratch
   let keyState = 'none'; // 'none' | 'checking' | 'connected' | 'error'
+  let paused = null; // the month's rate state from the newest reply, while api.bible's month is paused; else null
   let connectSeq = 0; // the newest list request owns the status line
   let lastTried = ''; // the key a paste/change last tried, so a blur doesn't retry it
   let connectTimer = 0;
@@ -774,16 +842,22 @@
     for (const t of yours) els.yoursRows.appendChild(versionRow(t, on.has(t.id)));
     for (const t of more) els.moreRows.appendChild(versionRow(t, on.has(t.id)));
     els.versions.hidden = !available.length;
-    const note = yoursNote({ partial: listPartial, yours: yours.length });
-    linkedText(els.yoursNote, note);
-    els.yoursNote.hidden = !note.length;
-    els.yoursNote.classList.toggle('warn', listPartial);
+    showYoursNote();
     els.moreVersions.hidden = !more.length;
     els.moreSummary.textContent = moreLabel(more.length);
     refreshDefaultOptions(wanted);
     // A keyboard reader on a row keeps their place when the rows are rebuilt.
     const again = focused && versionInputs().find((c) => c.value === focused.value);
     if (again) again.focus({ preventScroll: true });
+  }
+
+  // The note under "Your translations", for the rows as last drawn; redrawn
+  // on its own when only the month's state moved.
+  function showYoursNote() {
+    const note = yoursNote({ partial: listPartial, yours: shown ? shown.yours.length : 0, pausedUntil: paused ? paused.until : '' });
+    linkedText(els.yoursNote, note);
+    els.yoursNote.hidden = !note.length;
+    els.yoursNote.classList.toggle('warn', listPartial);
   }
 
   // `wanted` is the id to preselect — passed in, never read back off the
@@ -844,15 +918,27 @@
     if (keyState === 'connected') setKeyStatus(connectedText(checkedTranslations()), 'ok', opts);
     else if (keyState === 'checking') setKeyStatus('Checking…', 'busy');
     else if (keyState === 'none') setKeyStatus('', '');
+    showKeyPause();
     updateConnect();
+  }
+
+  // The connected key's paused line (pausedNote), under "Connected.": its own
+  // live region, written only when its words change, so it is heard once.
+  function showKeyPause() {
+    const parts = keyState === 'connected' ? pausedNote(paused) : [];
+    if (plainText(parts) === els.keyPause.textContent) return;
+    linkedText(els.keyPause, parts);
   }
 
   function updateConnect() {
     const c = keyControls({
-      field: keyFromField(els.apiKey.value), storedKey: settings.apiKey, keyState, partial: listPartial, listed: versionsLoaded,
+      field: keyFromField(els.apiKey.value), storedKey: settings.apiKey, keyState, partial: listPartial, listed: versionsLoaded, paused: !!paused,
     });
     els.connectKey.disabled = !c.connect;
     els.recheckKey.hidden = !c.recheck;
+    if (c.recheckUsable) els.recheckKey.removeAttribute('aria-disabled');
+    else els.recheckKey.setAttribute('aria-disabled', 'true');
+    els.addLaterCheck.hidden = !(c.recheck && c.recheckUsable);
   }
 
   // The worker's cached version list for the stored key, however old — the
@@ -883,9 +969,19 @@
     if (!available.length) { keyState = 'checking'; showKeyState(); }
     const res = await send({ type: C.MSG.LIST_BIBLES });
     if (seq !== connectSeq) return;
+    paused = pausedUntil(res) ? res.rate : null;
+    if (res.error && paused && available.length) {
+      // The stored key in a paused month: still connected, with its list;
+      // the paused line says why nothing refreshes.
+      keyState = 'connected';
+      showYoursNote();
+      showKeyState();
+      return;
+    }
     if (res.error) {
       keyState = 'error';
-      setKeyStatus(keyErrorText(res.error, res.rate), 'error');
+      setKeyStatus(keyErrorText(res.error, res.rate), keyErrorKind(res.error, res.rate));
+      showKeyPause();
       updateConnect();
       return;
     }
@@ -923,7 +1019,18 @@
     if (seq !== connectSeq) return;
     const stored = key === settings.apiKey;
     const announce = !!explicit;
+    paused = pausedUntil(res) ? res.rate : null;
 
+    if (res.error && stored && paused && available.length) {
+      // The connected key's refresh, refused in a paused month: it stays
+      // connected with its list ("Connected." keeps its look), the paused
+      // line under it, and "Check for new translations" rests until the day.
+      keyState = 'connected';
+      showYoursNote();
+      showKeyState({ announce });
+      settleKeyFocus(from);
+      return;
+    }
     if (res.error) {
       keyState = 'error';
       // A rejected key, or a key that isn't the stored one: the list on screen
@@ -935,7 +1042,8 @@
         shown = null;
         renderTranslations([], '');
       }
-      setKeyStatus(keyErrorText(res.error, res.rate), 'error', { announce });
+      setKeyStatus(keyErrorText(res.error, res.rate), keyErrorKind(res.error, res.rate), { announce });
+      showKeyPause();
       updateConnect();
       settleKeyFocus(from);
       return;
@@ -1325,6 +1433,7 @@
     els.fontScale.max = String(SETTINGS.FONT_SCALE_MAX);
     els.fontScale.step = String(SETTINGS.FONT_SCALE_STEP);
     els.addBiblesPath.textContent = C.API_BIBLE_ADD_BIBLES;
+    els.setupSteps.open = setupOpen(settings.apiKey);
     buildLanguageList();
     showStoredList(cached);
     fillForm();
@@ -1358,8 +1467,9 @@
       if (!els.connectKey.disabled) connect(true);
     });
     els.connectKey.addEventListener('click', () => connect(true));
-    // Shown (so it keeps focus) while its own recheck runs: a second press waits.
-    els.recheckKey.addEventListener('click', () => { if (keyState !== 'checking') connect(true); });
+    // Shown (so it keeps focus) while its own recheck runs: a second press
+    // waits. In a paused month it rests (aria-disabled; the paused line says why).
+    els.recheckKey.addEventListener('click', () => { if (keyState !== 'checking' && !paused) connect(true); });
     els.toggleKey.addEventListener('click', () => {
       const show = els.apiKey.type === 'password';
       els.apiKey.type = show ? 'text' : 'password';

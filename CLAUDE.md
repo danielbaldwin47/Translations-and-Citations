@@ -248,7 +248,10 @@ validators — go there before changing behaviour.
   key is saved only together with the list it unlocks, on a successful
   connect; Connect is disabled for the already-connected key and "Check for
   new translations" is the explicit refresh; a refresh only moves checkmarks
-  or appends rows to "more" (`stableGroups`). Single-value fields live in one
+  or appends rows to "more" (`stableGroups`). In a paused api.bible month the
+  stored key stays connected (the paused line under it, `pausedNote`; the
+  refresh rests aria-disabled), and a new key refused then is not saved
+  (`keyErrorText` says when to try Connect again). Single-value fields live in one
   `FIELDS` table (the Church-language checklist is one row: its `change`
   events bubble to the container; the language search sits outside it). A
   newly ticked language also goes to the front of the pick memory

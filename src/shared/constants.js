@@ -112,18 +112,21 @@
         local: {
           head: 'On this computer',
           items: [
-            'Your highlights, and whether you’ve made one yet',
+            'Your highlights, and whether to keep showing the highlighting tip',
             'api.bible chapters you’ve read, so they open faster',
             'The list of translations your api.bible key unlocks',
             'A random id that api.bible’s usage report uses',
-            'This month’s count of api.bible requests, and the times of the last few',
+            'This computer’s own count of api.bible requests this month, and the times of the last few',
             'The month you last saw the api.bible limit notice',
             'The translation or language you picked last',
           ],
         },
         synced: {
           head: 'Synced through your Chrome account',
-          items: ['Your settings, including your api.bible key and your languages'],
+          items: [
+            'Your settings, including your api.bible key and your languages',
+            'Anyone signed in to Chrome with this account can see your api.bible key',
+          ],
         },
         sites: {
           head: 'Sites it contacts',

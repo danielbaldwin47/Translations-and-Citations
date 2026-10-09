@@ -97,9 +97,11 @@
  *                                  api.bible chapter, see isPaused: paused
  *                                  turns a RATE_LIMITED card into the paused
  *                                  line, pausedLine, its hint naming what
- *                                  still works (pausedHint over `others`:
+ *                                  comes back that day and what still works
+ *                                  (pausedHint over `name` and `others`:
  *                                  { bundled, church } the dropdown offers
- *                                  without api.bible); near puts the near line
+ *                                  without api.bible, `apiBible` how many
+ *                                  api.bible rows it has); near puts the near line
  *                                  above a chapter's text once a month,
  *                                  nearLine)
  *   updateBeside({ layout, effective, collapseFits })  restate the layout
@@ -768,20 +770,32 @@
   const pausedLine = RATE_COPY.pausedLine;
   const nearLine = RATE_COPY.nearLine;
 
-  // A paused month's hint: only what the dropdown offers that doesn't need
-  // api.bible (`others`: { bundled, church } — the World English Bible is
-  // offered, how many Church languages are). Every api.bible translation is
-  // paused with the month, and the cache is too small to promise chapters
-  // already read.
-  function pausedHint(others) {
+  // The panel's dropdown, as the cards name it: it has no visible label, so
+  // a card says where it is rather than "above".
+  const MENU = 'from the menu at the top of the panel';
+
+  // A paused month's hint: what comes back on the paused line's day (`name`,
+  // and the reader's other api.bible translations when the dropdown has more:
+  // `others.apiBible` counts its api.bible rows), then only what the dropdown
+  // offers that doesn't need api.bible (`others`: { bundled, church } — the
+  // World English Bible is offered, how many Church languages are). Every
+  // api.bible translation is paused with the month, and the cache is too
+  // small to promise chapters already read.
+  function pausedHint(name, others) {
     const o = others || {};
+    const n = String(name || 'this translation');
+    const who = n.charAt(0).toUpperCase() + n.slice(1);
+    const back = Number(o.apiBible) > 1
+      ? `${who} and your other api.bible translations come back on that day.`
+      : `${who} comes back on that day.`;
     const church = Number(o.church) > 0 ? Number(o.church) : 0;
     const langs = church === 1 ? 'your Church language' : 'your Church languages';
-    if (o.bundled && church) return `The World English Bible and ${langs} still work. Choose one above.`;
-    if (o.bundled) return 'The World English Bible still works. Choose it above.';
-    if (church === 1) return 'Your Church language still works. Choose it above.';
-    if (church) return 'Your Church languages still work. Choose one above.';
-    return '';
+    let now = '';
+    if (o.bundled && church) now = `The World English Bible and ${langs} still work. Choose one ${MENU}.`;
+    else if (o.bundled) now = `The World English Bible still works. Choose it ${MENU}.`;
+    else if (church === 1) now = `Your Church language still works. Choose it ${MENU}.`;
+    else if (church) now = `Your Church languages still work. Choose one ${MENU}.`;
+    return now ? `${back} ${now}` : back;
   }
 
   // A chapter that failed to load. `code` is a C.ERR code; `church` says it
@@ -791,42 +805,55 @@
   // RATE_LIMITED error that reaches the card (retryWait said stop) is
   // api.bible refusing: the month used up (`rate` paused: the paused line,
   // in the api.bible text's place) or the key's allowance for now (`remote`);
-  // or the local burst window's wait kept recurring.
-  // action: 'settings' | 'retry' | null.
+  // or the local burst window's wait kept recurring (the "allowance" card
+  // also names the monthly limit: this computer's count can't see the same
+  // key used on another).
+  // action: 'settings' | 'retry' | null; `link` (a key problem): { text, href },
+  // api.bible's dashboard, beside Open settings.
   function errorCopy(o) {
     const e = o || {};
     const name = e.name || 'this translation';
     const chapter = e.chapter || 'this chapter';
     const other = e.church ? 'language' : 'translation';
+    const dashboard = { text: 'Open your api.bible dashboard', href: C.API_BIBLE_PAGES.dashboard };
     switch (e.code) {
       case 'NO_KEY':
         return { message: 'Bible translations need an api.bible key.', hint: '', action: 'settings' };
       case 'INVALID_KEY':
-        return { message: 'api.bible didn’t accept your key.', hint: 'Check that you copied all of it.', action: 'settings' };
-      case 'FORBIDDEN':
         return {
-          message: `${name} isn’t included with your api.bible key.`,
-          hint: e.alternatives ? 'Add it in your api.bible dashboard, or choose another translation above.' : 'Add it in your api.bible dashboard.',
+          message: 'api.bible didn’t accept your key.',
+          hint: 'Copy it again from your api.bible dashboard and paste it in settings, or create a free account first.',
           action: 'settings',
+          link: dashboard,
         };
+      case 'FORBIDDEN': {
+        const add = `Add it in your api.bible dashboard: ${C.API_BIBLE_ADD_BIBLES}.`;
+        return {
+          message: `${name} isn’t on your api.bible key yet.`,
+          hint: e.alternatives ? `${add} Or choose another translation ${MENU}.` : add,
+          action: 'settings',
+          link: dashboard,
+        };
+      }
       case 'NOT_FOUND':
         return {
           message: e.church ? `${chapter} isn’t available in ${name}.` : `${name} doesn’t include ${chapter}.`,
-          hint: e.alternatives ? `Choose another ${other} above.` : '',
+          hint: e.alternatives ? `Choose another ${other} ${MENU}.` : '',
           action: null,
         };
       case 'RATE_LIMITED':
         if (isPaused(e.rate)) {
           return {
             message: pausedLine(e.rate.until),
-            hint: pausedHint(e.others),
+            hint: pausedHint(e.name, e.others),
             action: null,
           };
         }
         if (e.remote) {
           return {
             message: 'Your api.bible key has used its allowance for now.',
-            hint: 'Chapters you read recently still open. Try again later.',
+            hint: 'Chapters you read recently still open. Try again later. '
+              + 'If you use this key on another computer too, api.bible’s monthly limit may be used up.',
             action: 'retry',
           };
         }
@@ -2546,6 +2573,13 @@
     if (copy.hint) wrap.appendChild(el('p', 'btx-state-hint', copy.hint));
     if (copy.action === 'settings') wrap.appendChild(button('btx-cta', 'Open settings', () => cbs.onGear && cbs.onGear('bible')));
     if (copy.action === 'retry') wrap.appendChild(button('btx-cta', 'Try again', () => cbs.onRetry && cbs.onRetry()));
+    if (copy.link) {
+      const a = el('a', 'btx-link btx-card-link', copy.link.text);
+      a.href = copy.link.href;
+      a.target = '_blank';
+      a.rel = 'noopener';
+      wrap.appendChild(a);
+    }
     host.appendChild(wrap);
   }
 
@@ -2611,12 +2645,14 @@
       if (article.parentNode !== host) return; // the view moved on: the line waits for the next chapter
       nearSeen = rate.month;
       try { chrome.storage.local.set({ [key]: rate.month }); } catch (e) { /* shown, not remembered */ }
-      const node = el('p', 'btx-note');
+      // Its own row, the × beside the text at a full target, with room
+      // under it before the first verse.
+      const node = el('p', 'btx-note btx-note-near');
       node.setAttribute('role', 'status');
       node.appendChild(el('span', 'btx-note-text', text));
       node.appendChild(document.createTextNode(' '));
       const x = button('btx-note-x', '×', () => node.remove());
-      labelled(x, 'Dismiss');
+      labelled(x, 'Dismiss this notice');
       node.appendChild(x);
       // Above the text without moving it: the body scrolls by the line's height.
       const before = article.getBoundingClientRect().top;
