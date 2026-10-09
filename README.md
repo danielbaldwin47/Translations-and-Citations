@@ -13,11 +13,12 @@ Doctrine and Covenants, Pearl of Great Price) it shows, in a panel beside the pa
   paragraph; each talk reads inline, opened at the cited passage.
 
 Citations and the World English Bible need no setup. Church languages need no
-key. Other Bible translations need a free key from scripture.api.bible.
+key. Other Bible translations need a free key from api.bible.
 
 **Current version: 1.0.0** — see [CHANGELOG.md](CHANGELOG.md). Free, no ads, no
-account, no analytics; the [privacy policy](docs/privacy.md) lists what is
-stored and what is sent where.
+account. No analytics of our own. Only api.bible's required usage report, and
+only once you connect a key. The [privacy policy](docs/privacy.md) lists what
+is stored and what is sent where.
 
 ## Install
 
@@ -68,9 +69,9 @@ one is loaded.
 ### Bible translations beyond the World English Bible (optional)
 
 Copyrighted translations can't be bundled, so the extension reads them from
-**[scripture.api.bible](https://scripture.api.bible/)** with your own free key:
+**[api.bible](https://api.bible/sign-up)** with your own free key:
 
-1. Create a free account at <https://scripture.api.bible/> and add the
+1. Create a free account at <https://api.bible/sign-up> and add the
    translations you want to your key (NIV, NKJV and NIrV, for example).
 2. Open the extension's settings (the gear in the panel, or the toolbar icon on
    any page that isn't showing a chapter) and paste the key under **Bible

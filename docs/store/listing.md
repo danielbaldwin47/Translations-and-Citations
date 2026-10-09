@@ -37,7 +37,7 @@ Citations
 
 The panel follows the site's theme, font and text size, scrolls with the page, and can be resized or collapsed.
 
-Free, no ads, no account, no analytics. The privacy policy lists what is stored and what is sent where.
+Free, no ads, no account. No analytics of our own. Only api.bible's required usage report, and only once you connect a key. The privacy policy lists what is stored and what is sent where.
 
 Citation data compiled with reference to the BYU Scripture Citation Index. Not affiliated with or endorsed by BYU or The Church of Jesus Christ of Latter-day Saints.
 ```

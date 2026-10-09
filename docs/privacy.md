@@ -9,9 +9,10 @@ later; the version you have is shown on the About card of the extension's
 settings page.
 
 The extension has no server of its own. Nothing you do in it is sent to the
-developer. There is no analytics, no ads, no account, and no data is sold or
-shared with anyone beyond the parties named below, each of which is contacted
-only for the request described.
+developer. No analytics of our own. Only api.bible's required usage report,
+and only once you connect a key. There are no ads and no account, and no data
+is sold or shared with anyone beyond the parties named below, each of which is
+contacted only for the request described.
 
 The use of information received by this extension will adhere to the Chrome Web Store User Data Policy, including the Limited Use requirements.
 
@@ -72,8 +73,8 @@ and no identity.
 ### api.bible (`rest.api.bible`), only if you connect a key
 
 Bible translations beyond the built-in World English Bible come from
-api.bible with your own free key, which you create at scripture.api.bible
-and paste into settings. The sentence beside Connect says what connecting
+api.bible with your own free key, which you create at api.bible
+(<https://api.bible/sign-up>) and paste into settings. The sentence beside Connect says what connecting
 sends; clicking Connect is your consent. Until you connect, no request goes
 to api.bible.
 
