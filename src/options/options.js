@@ -347,6 +347,27 @@
     }
     return sections;
   }
+  // What a tick (or untick) in the checklist does to the search and the focus.
+  // A change to the enabled set clears the search, so the reader sees where the
+  // row went, and names the language (`focus`), its new place in the list
+  // (`place`, as a section's `yours` and `label`) and the coverage group to
+  // open when it went back to one (`openGroup`: a closed group would take the
+  // focus off the checkbox; "Your languages" is always open). A change that
+  // leaves the set as it was, or touches only codes the table lacks, keeps the
+  // search and moves nothing.
+  function languageTick(langs, before, after, q) {
+    const was = new Set(before || []);
+    const now = new Set(after || []);
+    const moved = (langs || []).find((l) => was.has(l.code) !== now.has(l.code));
+    if (!moved) return { search: q, focus: null, place: null, openGroup: null };
+    const section = languageList(langs, after, '').find((s) => s.langs.indexOf(moved) >= 0);
+    return {
+      search: '',
+      focus: moved.code,
+      place: { yours: section.yours, label: section.label },
+      openGroup: section.yours ? null : section.label,
+    };
+  }
   // A group's summary reads "{label} · {count}"; this is the count. `shown`
   // is how many of the group's languages a search leaves in view.
   function groupCount(group, shown) {
@@ -388,7 +409,7 @@
       aboutCopy, isAdded, dedupeVersions, versionGroups, stableGroups, mergeVersions, listGuesses, withStored, initialChecks, pickDefaultId,
       translationPatch, commitPatch, patchLanded, failedWrites, fillPlan, keyControls,
       versionLabel, moreLabel, connectedText, yoursNote, keyErrorText,
-      offeredLanguages, languageGroups, languageList, groupCount, matchesLanguage,
+      offeredLanguages, languageGroups, languageList, languageTick, groupCount, matchesLanguage,
     };
   }
   if (typeof document === 'undefined') return; // Node: the pure core only.
@@ -856,19 +877,20 @@
     renderLanguageList();
   }
 
-  // Lay the list out from the pure languageList: "Your languages" (the ticked
+  // Lay the list out from the pure languageList (`code` names the language to
+  // keep the focus on, else the focused checkbox keeps it): "Your languages" (the ticked
   // rows) above the coverage groups, each section a <details> named by its
   // summary ("Bible · 1 language"). A long label wraps; its count stays on one
   // line with its dot, and the label's last word goes with them (a no-break
   // space), so no line starts with the dot. Run on every tick, adopted
   // setting and search; the checkboxes themselves are the source of the
   // ticked set, so a tick not yet written shows where it will be.
-  function renderLanguageList() {
+  function renderLanguageList(code) {
     const q = els.langFilter.value;
     const filtering = !!q.trim();
     const focused = document.activeElement;
-    const focusCode = focused && focused.matches && focused.matches('input[type="checkbox"]') && els.churchLanguages.contains(focused)
-      ? focused.value : null;
+    const focusCode = code || (focused && focused.matches && focused.matches('input[type="checkbox"]') && els.churchLanguages.contains(focused)
+      ? focused.value : null);
     const sections = languageList(offeredLanguages(C.CHURCH_LANGUAGES), checkedLanguages(), q);
     if (!openLabels.size && !els.churchLanguages.firstChild && sections.length) openLabels.add(sections[0].label);
     els.churchLanguages.textContent = '';
@@ -927,7 +949,23 @@
   function checkLanguages(codes) {
     const want = new Set(codes || []);
     for (const cb of languageInputs()) cb.checked = want.has(cb.value);
+    ticked = checkedLanguages();
     renderLanguageList(); // the ticked ones move under "Your languages"
+    showLanguageSummary();
+  }
+
+  // A tick or untick by the reader: the search clears and the focus follows
+  // the language to its new place (the pure languageTick decides). `ticked`
+  // is the set the list was last laid out for, since the checkbox has already
+  // changed when its event arrives.
+  let ticked = [];
+  function onLanguageTick() {
+    const now = checkedLanguages();
+    const tick = languageTick(offeredLanguages(C.CHURCH_LANGUAGES), ticked, now, els.langFilter.value);
+    ticked = now;
+    els.langFilter.value = tick.search;
+    if (tick.openGroup) openLabels.add(tick.openGroup);
+    renderLanguageList(tick.focus);
     showLanguageSummary();
   }
 
@@ -1127,7 +1165,7 @@
         if (f.live) f.live(f.node.value);
       });
       f.node.addEventListener('change', () => {
-        if (f.key === 'churchLanguages') { renderLanguageList(); showLanguageSummary(); }
+        if (f.key === 'churchLanguages') onLanguageTick();
         queueCommit([f.key]);
       });
     }
@@ -1157,7 +1195,7 @@
 
     // Outside #churchLanguages on purpose: typing a search is not a change to
     // the language setting.
-    els.langFilter.addEventListener('input', renderLanguageList);
+    els.langFilter.addEventListener('input', () => renderLanguageList());
 
     // Another context (the panel, another synced machine) changed a setting ->
     // adopt it into the form. `own` writes are this page's, already on screen.

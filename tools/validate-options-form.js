@@ -363,6 +363,34 @@ eq(foundBoth[0].shown, 0, 'a section counts the rows its search leaves in view')
 eq(foundBoth.reduce((n, x) => n + x.shown, 0), foundBoth.reduce((n, x) => n + x.rows.filter((r) => r.hit).length, 0), 'shown is the count of hits');
 check(list(['spa'], '').every((x) => x.shown === x.rows.length && x.rows.every((r) => r.hit)), 'no search: every row is a hit');
 eq(F.groupCount(withYours[0], withYours[0].shown), plural1(withYours[0].rows.length), 'the section\'s count reads like a group\'s');
+
+// A tick during a search: the search clears and focus follows the language to
+// its new place (tester 16).
+const tick = (before, after, q) => F.languageTick(offered, before, after, q);
+const jpnTick = tick([], ['jpn'], 'jap');
+eq(jpnTick.search, '', 'ticking 日本語 during a search answers an empty search');
+eq(jpnTick.focus, 'jpn', 'and focus stays on 日本語');
+eq(jpnTick.place, { yours: true, label: 'Your languages' }, 'whose new place is under "Your languages"');
+eq(tick(['spa'], ['spa', 'jpn'], 'jap').place, { yours: true, label: 'Your languages' }, 'also when "Your languages" already holds others');
+const spaUntick = tick(['spa'], [], 'esp');
+eq(spaUntick.search, '', 'unticking during a search clears it too');
+eq(spaUntick.focus, 'spa', 'focus follows the language');
+eq(spaUntick.place, { yours: false, label: spaGroup }, 'back to its own coverage group');
+eq(spaUntick.openGroup, spaGroup, 'and that group is opened, so the checkbox itself keeps focus');
+eq(jpnTick.openGroup, null, 'a tick needs no group opened ("Your languages" is always open)');
+eq(tick(['spa', 'jpn'], ['spa'], '').place.label, F.languageList(offered, ['spa'], '').find((x) => codesOf(x).indexOf('jpn') >= 0).label,
+  'with no search, an untick still names the language\'s coverage group');
+eq(tick([], ['jpn'], '').search, '', 'a tick with no search leaves the search empty');
+eq(tick([], ['jpn'], '  ').search, '', 'a blank search is cleared to empty');
+const same = tick(['spa'], ['spa'], 'esp');
+eq([same.search, same.focus, same.place, same.openGroup], ['esp', null, null, null],
+  'a change event that leaves the enabled set as it was keeps the search and moves nothing');
+eq(tick(['spa'], ['spa'], '').search, '', 'no change, no search: still empty');
+eq(tick(['spa', 'jpn'], ['spa', 'jpn'], 'x').search, 'x', 'the enabled set compares as a set, not by order');
+eq(tick(['spa', 'jpn'], ['jpn', 'spa'], 'x').focus, null, 'a reorder alone is no tick');
+eq(tick([], ['xx-not-a-language'], 'jap'), { search: 'jap', focus: null, place: null, openGroup: null },
+  'a code the table lacks changes nothing the reader can see');
+eq(tick(undefined, ['jpn'], 'jap').focus, 'jpn', 'no earlier set counts as none enabled');
 check(!list(['spa'], '').some((x) => /common|popular|featured|suggested/i.test(x.label)),
   'no featured group exists: no language is set above another');
 function plural1(n) { return n === 1 ? '1 language' : `${n} languages`; }
@@ -409,7 +437,7 @@ check(!Object.keys(about).some((k) => settingKeys.indexOf(k) >= 0), 'nothing the
 console.log('Shell:');
 eq(Object.keys(F).sort(), [
   'aboutCopy', 'commitPatch', 'connectedText', 'dedupeVersions', 'failedWrites', 'fillPlan', 'groupCount', 'initialChecks', 'isAdded',
-  'keyControls', 'keyErrorText', 'languageGroups', 'languageList', 'listGuesses', 'matchesLanguage', 'mergeVersions', 'moreLabel', 'offeredLanguages',
+  'keyControls', 'keyErrorText', 'languageGroups', 'languageList', 'languageTick', 'listGuesses', 'matchesLanguage', 'mergeVersions', 'moreLabel', 'offeredLanguages',
   'patchLanded', 'pickDefaultId', 'stableGroups', 'translationPatch', 'versionGroups', 'versionLabel', 'withStored',
   'yoursNote',
 ].sort(), 'requiring the page in Node exposes the pure core and nothing else');
@@ -676,6 +704,12 @@ check(/languageList\(offeredLanguages\(C\.CHURCH_LANGUAGES\), checkedLanguages\(
   'the checklist is laid out by the pure languageList from the extension\'s own language table (minus English), the ticked languages and the search');
 check(/renderLanguageList\(\)/.test(fieldsTable + bodyOf('init')) && /renderLanguageList/.test(bodyOf('checkLanguages')),
   'a tick, an adopted setting and the search each lay the list out again');
+check(/languageTick\(offeredLanguages\(C\.CHURCH_LANGUAGES\), ticked, now, els\.langFilter\.value\)/.test(bodyOf('onLanguageTick'))
+  && /els\.langFilter\.value = tick\.search/.test(bodyOf('onLanguageTick'))
+  && /f\.key === 'churchLanguages'\) onLanguageTick\(\)/.test(bodyOf('init')),
+  'a tick or untick asks the pure languageTick, clears the search it answers, and the checklist\'s change handler runs it');
+check(/renderLanguageList\(tick\.focus\)/.test(bodyOf('onLanguageTick')) && /focusCode = code \|\|/.test(bodyOf('renderLanguageList')),
+  'the language the tick named gets the focus in its new place');
 check(/buildLanguageList\(\);[\s\S]{0,80}fillForm\(\);/.test(bodyOf('init')),
   'init builds the Church-language checklist before the first fillForm, key or no key');
 for (const name of ['connect', 'renderTranslations', 'refreshList']) {
