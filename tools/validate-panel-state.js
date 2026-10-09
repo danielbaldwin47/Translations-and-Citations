@@ -12,7 +12,7 @@
  * orchestrator's citCache/transCache bookkeeping, the copy the Translation
  * cards and errors show (setupCopy / besideCopy / errorCopy), the welcome's
  * due rule and callouts table (welcomeDue, WELCOME_CALLOUTS against
- * CONTROL_NAMES), and a few
+ * CONTROL_NAMES, where each callout is drawn: calloutPlacement), and a few
  * DOM-shell and orchestrator rules read from the source (toggle state and
  * aria-pressed move together; icons are built from nodes; the talk view is
  * cached; the citation-list hooks are guarded).
@@ -931,6 +931,79 @@ eq(P.welcomeCallouts({}).map((c) => c.id), allIds.filter((id) => id !== 'pin'), 
   eq(P.welcomeCallouts({}, table).map((c) => c.id), ['a'], '...nor when the fact is unknown (say nothing unsure)');
 }
 
+// Where each callout is drawn (#113): a bubble in the welcome's list, placed
+// under the control it names, its caret aimed at the control's centre, and a
+// ring round the control itself. All in the welcome layer's coordinates (the
+// panel's box); `list` is the list's content box, so the bubble's left comes
+// back relative to it. The shipped geometry: bubbles at most 300px wide, the
+// caret at least 16px in from a bubble's edge, the ring 3px out from the
+// control and never past the panel's edge.
+console.log('calloutPlacement:');
+{
+  const at = (control, list, panel) => P.calloutPlacement({ control, list, panel });
+  // 280px, the panel's narrowest: the list is 236px wide from x=22, so every
+  // bubble is the list's width and only the caret moves.
+  const NARROW = { width: 280, height: 700 };
+  const NARROW_LIST = { left: 22, width: 236 };
+  eq(at({ left: 10, top: 7, width: 80, height: 30 }, NARROW_LIST, NARROW),
+    { card: { left: 0, width: 236 }, caret: 28, ring: { left: 7, top: 4, width: 86, height: 36 } },
+    '280px, the Translation tab: a full-width bubble, the caret under the tab\'s centre, the tab ringed');
+  eq(at({ left: 214, top: 7, width: 30, height: 30 }, NARROW_LIST, NARROW),
+    { card: { left: 0, width: 236 }, caret: 207, ring: { left: 211, top: 4, width: 36, height: 36 } },
+    '280px, Settings: the caret moves right under the gear');
+  eq(at({ left: 222, top: 51, width: 56, height: 28 }, NARROW_LIST, NARROW),
+    { card: { left: 0, width: 236 }, caret: 220, ring: { left: 219, top: 48, width: 61, height: 34 } },
+    '280px, A− / A+ at the edge: the caret stops 16px in from the bubble\'s corner, the ring at the panel\'s edge');
+  for (const none of [null, { left: 0, top: 0, width: 0, height: 0 }]) {
+    eq(at(none, NARROW_LIST, NARROW), { card: { left: 0, width: 236 }, caret: null, ring: null },
+      `280px, ${none ? 'a control not showing (no box)' : 'no control (the toolbar icon)'}: a plain full-width line, no caret, no ring`);
+  }
+  // 900px, the widest: bubbles are 300px, each placed under its control,
+  // kept inside the list.
+  const WIDE = { width: 900, height: 700 };
+  const WIDE_LIST = { left: 22, width: 856 };
+  eq(at({ left: 10, top: 7, width: 200, height: 30 }, WIDE_LIST, WIDE),
+    { card: { left: 0, width: 300 }, caret: 88, ring: { left: 7, top: 4, width: 206, height: 36 } },
+    '900px, the Translation tab: a 300px bubble held at the list\'s left edge, the caret under the tab');
+  eq(at({ left: 210, top: 7, width: 200, height: 30 }, WIDE_LIST, WIDE).card, { left: 138, width: 300 },
+    '900px, the Citations tab: the bubble centred under the tab');
+  eq(at({ left: 210, top: 7, width: 200, height: 30 }, WIDE_LIST, WIDE).caret, 150, '...the caret at its middle');
+  eq(at({ left: 834, top: 7, width: 30, height: 30 }, WIDE_LIST, WIDE),
+    { card: { left: 556, width: 300 }, caret: 271, ring: { left: 831, top: 4, width: 36, height: 36 } },
+    '900px, Settings: the bubble held at the list\'s right edge, the caret under the gear');
+  eq(at(null, WIDE_LIST, WIDE), { card: { left: 0, width: 856 }, caret: null, ring: null },
+    '900px, no control: a plain line across the list');
+  // A tab from x=10.4 to 90.7: centre 50.55, so the caret at 28.55 from the
+  // list's edge; the ring from 7.4 to 93.7.
+  eq(at({ left: 10.4, top: 7.2, width: 80.3, height: 29.6 }, NARROW_LIST, NARROW),
+    { card: { left: 0, width: 236 }, caret: 29, ring: { left: 7, top: 4, width: 87, height: 36 } },
+    'measured fractions come back as whole pixels');
+}
+// Both Translation-tab lines point at one tab: one ring per control.
+eq(P.welcomeRings(P.WELCOME_CALLOUTS), ['translation-tab', 'citations-tab', 'settings', 'text-size'],
+  'welcomeRings: each control a line names, once, in reading order (the toolbar icon has none)');
+eq(P.unionRect([{ left: 212, top: 51, width: 28, height: 28 }, { left: 244, top: 51, width: 28, height: 28 }]),
+  { left: 212, top: 51, width: 60, height: 28 }, 'unionRect: A− and A+ are one box');
+eq(P.unionRect([{ left: 212, top: 51, width: 0, height: 0 }, { left: 244, top: 51, width: 28, height: 28 }]),
+  { left: 244, top: 51, width: 28, height: 28 }, '...a button not showing adds nothing');
+eq(P.unionRect([]), null, '...no nodes, no box');
+// The Translation and Citations tabs are joined halves, so their rings would
+// cross: rings that overlap side by side meet at the middle of the overlap,
+// 2px apart.
+eq(P.separateRings([
+  { left: 7, top: 4, width: 86, height: 36 }, // Translation tab, x 7–93
+  { left: 87, top: 4, width: 86, height: 36 }, // Citations tab, x 87–173
+  null, // a control not showing
+  { left: 211, top: 4, width: 36, height: 36 }, // Settings: clear of both
+  { left: 150, top: 48, width: 62, height: 34 }, // A− / A+, the row below: no overlap
+]), [
+  { left: 7, top: 4, width: 82, height: 36 },
+  { left: 91, top: 4, width: 82, height: 36 },
+  null,
+  { left: 211, top: 4, width: 36, height: 36 },
+  { left: 150, top: 48, width: 62, height: 34 },
+], 'separateRings: joined tabs\' rings meet at their middle, 2px apart; rings clear of each other stay');
+
 // ---- What the Translation cards and errors say ----
 // Copy rules the DOM shell renders verbatim: which heading, which action.
 console.log('noteCopy:');
@@ -1248,6 +1321,9 @@ check(/addEventListener\('keydown', \(e\) => \{ if \(e\.key === 'Escape'\) e\.st
   'Esc stops at the welcome: the talk reader\'s listener on #btx-root never sees it');
 check(/welcomeCallouts\(welcomeFacts\)/.test(welcomeSrc), 'the welcome is built from the facts the worker answered');
 check(/persist\(\{ welcomeSeen: true \}\)/.test(panelSrcText), 'Got it writes the flag through __BTX.settings');
+const placeSrc = (panelSrcText.match(/function placeWelcome\(\) \{[\s\S]*?\n {2}\}\n/) || [''])[0];
+check(/calloutPlacement\(/.test(placeSrc) && /separateRings\(/.test(placeSrc) && /controlNodes\(/.test(placeSrc),
+  'the shell places each callout and ring by the pure rule, from the controls\' measured nodes');
 check(/PANEL_HANDLED_KEYS = \[[^\]]*'welcomeSeen'/.test(panelSrcText),
   'welcomeSeen is panel-handled: a write from another context shows or hides the welcome, no re-render');
 
