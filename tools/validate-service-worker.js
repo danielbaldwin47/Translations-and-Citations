@@ -9,13 +9,22 @@
  * importScripts, chrome.storage and fetch stubbed, and the checks send it
  * messages through its onMessage router and read what it fetched.
  *
- * What it holds (spec #69, A12):
+ * What it holds (spec #69, A12; #111):
+ *   - `install` opens Alma 5 in a new tab and not the settings page; any other
+ *     onInstalled reason opens nothing;
+ *   - OPEN_WELCOME (the About card's "Show the welcome again", #115) opens that
+ *     same Alma 5 tab, through the code install uses;
+ *   - `update` writes the welcome seen (`welcomeSeen`, #112), keeping every
+ *     other setting; `install` leaves it unseen;
  *   - a chapter is requested with `fums-version=3`;
  *   - every display sends GET https://fums.api.bible/f3?t=…&sId=…[&dId=…],
  *     a cache hit too, with the token stored beside the cached chapter;
  *   - no device id exists until a successful Connect (LIST_BIBLES naming a
  *     key); after it, every report carries the same one, kept across worker
  *     restarts, while the session id is new per worker lifetime;
+ *   - GET_TOOLBAR_PIN answers `isOnToolbar` from chrome.action.getUserSettings
+ *     (the welcome's pinning line, #114), and null when the API is missing,
+ *     throws or says nothing;
  *   - the reply to the content script carries no FUMS script text or token,
  *     and the content script injects no script;
  *   - the bundled World English Bible (provider `bundled`, #78) is offered and
@@ -32,6 +41,7 @@ const vm = require('vm');
 
 const ROOT = path.resolve(__dirname, '..');
 const C = require(path.join(ROOT, 'src/shared/constants.js'));
+const S_NORM = require(path.join(ROOT, 'src/shared/settings.js')).normalize;
 
 let failures = 0;
 function check(cond, msg) {
@@ -78,8 +88,11 @@ const CHAPTER = {
 };
 const LIST = { data: [{ id: 'niv', name: 'New International Version', abbreviationLocal: 'NIV', description: 'Holy Bible' }] };
 
-function boot(disk, net) {
+function boot(disk, net, action, tabsApi) {
   const listeners = [];
+  const installed = [];
+  const tabs = [];
+  const opened = []; // openOptionsPage calls
   const ctx = {
     console,
     URL, URLSearchParams, setTimeout, clearTimeout, Promise,
@@ -94,11 +107,11 @@ function boot(disk, net) {
       runtime: {
         lastError: null,
         onMessage: { addListener: (fn) => listeners.push(fn) },
-        onInstalled: { addListener() {} },
-        openOptionsPage: async () => {},
+        onInstalled: { addListener: (fn) => installed.push(fn) },
+        openOptionsPage: async () => { opened.push(1); },
       },
-      action: { onClicked: { addListener() {} } },
-      tabs: { sendMessage: async () => ({}) },
+      action: Object.assign({ onClicked: { addListener() {} } }, action || {}),
+      tabs: Object.assign({ sendMessage: async () => ({}), create: async (props) => { tabs.push(props); return {}; } }, tabsApi || {}),
     },
     fetch: async (url) => {
       url = String(url);
@@ -121,7 +134,8 @@ function boot(disk, net) {
     const async = listeners.some((fn) => fn(msg, {}, resolve) === true);
     if (!async) resolve(undefined);
   });
-  return { send };
+  const install = (reason) => { for (const fn of installed) fn({ reason }); };
+  return { send, install, tabs, opened };
 }
 
 // The api.bible side: a chapter with its token, a version list, or a refusal.
@@ -280,6 +294,96 @@ async function run() {
     eq(web && web.copyright, C.BUNDLED_BIBLE.copyright, '...under the ebible.org public-domain line');
     check(calls.length > 0 && calls.every((u) => u.startsWith(C.BUNDLED_BIBLE.dir + '/')), 'it reads only the packaged files: no api.bible call, no usage report');
     eq(Object.keys(disk.local), [], 'nothing is cached or counted against the rate limit');
+  }
+
+  // ---- install opens Alma 5 in Gospel Library, not the settings page (#111) ----
+  {
+    const ALMA_5 = 'https://www.churchofjesuschrist.org/study/scriptures/bofm/alma/5?lang=eng';
+    const w = boot({ local: {}, sync: {} }, apiBible());
+    w.install('install');
+    await flush();
+    eq(w.tabs.map((t) => t.url), [ALMA_5], 'install opens one new tab at Alma 5 in English');
+    eq(w.opened.length, 0, 'install does not open the settings page');
+
+    for (const reason of ['update', 'chrome_update', 'shared_module_update']) {
+      const u = boot({ local: {}, sync: {} }, apiBible());
+      u.install(reason);
+      await flush();
+      check(u.tabs.length === 0 && u.opened.length === 0, `"${reason}" opens no tab and no settings page`);
+    }
+  }
+
+  // ---- a tab that won't open is no unhandled rejection (#111) ----
+  // chrome.tabs.create can reject (a policy, a closing browser): install's
+  // own call has no one to answer, so the worker catches it; OPEN_WELCOME
+  // answers with the error, which the options page says under its button.
+  {
+    const unhandled = [];
+    const onUnhandled = (e) => unhandled.push(e);
+    process.on('unhandledRejection', onUnhandled);
+    const warn = console.warn;
+    const warned = [];
+    console.warn = (...a) => warned.push(a.join(' '));
+    const refuse = { create: async () => { throw new Error('Tabs cannot be edited right now'); } };
+    boot({ local: {}, sync: {} }, apiBible(), undefined, refuse).install('install');
+    const reply = await boot({ local: {}, sync: {} }, apiBible(), undefined, refuse).send({ type: C.MSG.OPEN_WELCOME });
+    await flush();
+    await new Promise((r) => setImmediate(r));
+    process.removeListener('unhandledRejection', onUnhandled);
+    console.warn = warn;
+    eq(unhandled.length, 0, 'install whose tab is refused leaves no unhandled rejection');
+    check(warned.some((w) => /welcome tab/.test(w)), '...it is logged instead');
+    check(reply && reply.error && reply.ok !== true, 'OPEN_WELCOME whose tab is refused answers with an error, not ok');
+  }
+
+  // ---- OPEN_WELCOME opens the same Alma 5 tab install does (#115) ----
+  {
+    const w = boot({ local: {}, sync: {} }, apiBible());
+    eq(C.MSG.OPEN_WELCOME, 'OPEN_WELCOME', 'the message type lives in C.MSG');
+    const reply = await w.send({ type: C.MSG.OPEN_WELCOME });
+    await flush();
+    eq(w.tabs.map((t) => t.url), [C.FIRST_RUN_URL], 'OPEN_WELCOME creates one tab at Alma 5 in English, the URL install opens');
+    eq(reply && reply.ok, true, '...and answers ok');
+    eq(w.opened.length, 0, '...without opening the settings page');
+    const inst = boot({ local: {}, sync: {} }, apiBible());
+    inst.install('install');
+    await flush();
+    eq(inst.tabs.map((t) => t.url), w.tabs.map((t) => t.url), 'install and OPEN_WELCOME open the same tab');
+  }
+
+  // ---- an update never greets: it marks the welcome seen (#112) ----
+  // A profile from before the welcome has no flag, which reads as not seen; the
+  // update writes it true through __BTX.settings. A fresh install leaves it
+  // false, so Alma 5 opens with the welcome up.
+  {
+    const seen = (disk) => S_NORM(disk.sync[C.SETTINGS_KEY]).welcomeSeen;
+    const old = { local: {}, sync: { [C.SETTINGS_KEY]: { panelMode: 'translation', churchLanguages: ['spa'] } } };
+    const u = boot(old, apiBible());
+    u.install('update');
+    await flush();
+    eq(seen(old), true, 'update writes the welcome seen');
+    eq(S_NORM(old.sync[C.SETTINGS_KEY]).churchLanguages, ['spa'], '...and keeps the reader\'s other settings');
+    eq(old.sync[C.SETTINGS_KEY].panelMode, 'translation', '...the stored mode included');
+
+    const fresh = { local: {}, sync: {} };
+    const i = boot(fresh, apiBible());
+    i.install('install');
+    await flush();
+    eq(seen(fresh), false, 'install leaves the welcome unseen');
+  }
+
+  // ---- the welcome's pinning line: is the icon on the toolbar? (#114) ----
+  // Content scripts can't call chrome.action.getUserSettings; the worker does,
+  // and answers { isOnToolbar } — null when it can't tell (old Chrome without
+  // the API, or an error), which the panel treats as "not pinned".
+  {
+    const ask = (action) => boot({ local: {}, sync: {} }, apiBible(), action).send({ type: C.MSG.GET_TOOLBAR_PIN });
+    check(typeof C.MSG.GET_TOOLBAR_PIN === 'string' && C.MSG.GET_TOOLBAR_PIN, 'the message type lives in C.MSG');
+    eq(await ask({ getUserSettings: async () => ({ isOnToolbar: false }) }), { isOnToolbar: false }, 'icon not on the toolbar: answers isOnToolbar false');
+    eq(await ask({ getUserSettings: async () => ({ isOnToolbar: true }) }), { isOnToolbar: true }, 'icon pinned: answers isOnToolbar true');
+    eq(await ask(undefined), { isOnToolbar: null }, 'getUserSettings missing (old Chrome): answers unknown');
+    eq(await ask({ getUserSettings: async () => { throw new Error('boom'); } }), { isOnToolbar: null }, 'getUserSettings throws: answers unknown');
+    eq(await ask({ getUserSettings: async () => ({}) }), { isOnToolbar: null }, 'getUserSettings answers without isOnToolbar: unknown');
   }
 
   // ---- the page gets no script; the manifest lets the worker reach FUMS ----

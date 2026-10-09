@@ -1,10 +1,15 @@
 /*
  * Options page: an autosaving editor of the stored settings, in cards whose
- * ids are C.OPTIONS_SECTIONS — `bible` (api.bible key and which translations
- * the panel offers), `languages` (Church languages and where they show),
- * `reading` (text size, panel width, scroll sync, pages in other languages),
+ * ids are C.OPTIONS_SECTIONS, in page order — `languages` (Church languages
+ * and where they show: the setup that needs no key comes first, with the
+ * reader's own languages on top as "Your languages"), `bible` (api.bible key
+ * and which translations the panel offers), `reading` (text size, panel width,
+ * scroll sync),
  * and `about` (version, pack vintage, source lines, privacy and support
- * links: text only, no control, so nothing for the autosave; aboutCopy).
+ * links: text, plus one button, "Show the welcome again", which writes the
+ * welcome-seen flag false and asks the worker to open Alma 5, all or nothing:
+ * a failure of either half is said on its own line, welcomeAgainError, and
+ * never joins Try again; aboutCopy).
  *
  * The form is an editor of the stored settings, not a second copy of them.
  * Every change is written as it happens, through __BTX.settings.patch (never
@@ -14,7 +19,8 @@
  * screen and not yet written (a slider mid-drag, a write waiting out its
  * debounce, a key being typed). A write that doesn't land puts its controls
  * back to what storage holds; "Try again" re-sends every failed write
- * (failedWrites), and any write that lands retires the error.
+ * (failedWrites) but the About button's, and any write that lands retires
+ * the error.
  *
  * A Church language ticked here also leads the pick memory (the panel's
  * most-recently-used list, chrome.storage.local under C.SELECTION_KEY, not a
@@ -289,9 +295,9 @@
   // ---- Church languages ----
 
   // The checklist's languages: the table minus English, which is the page's
-  // own language (the reader runs on English pages unless told otherwise).
+  // own language.
   function offeredLanguages(table) {
-    return (table || []).filter((l) => l.code !== 'eng');
+    return (table || []).filter((l) => l.code !== C.ENGLISH_LANG);
   }
 
   // Grouped by what each language publishes, so a reader can see before
@@ -322,6 +328,49 @@
       g.langs.push(l);
     }
     return groups;
+  }
+  // The list the reader sees: "Your languages" first (exactly the enabled
+  // languages, in table order; absent when none is enabled), then the coverage
+  // groups without them. Unticking a language therefore sends it back to its
+  // own group. There is no "common" or "popular" group on purpose: no language
+  // is set above another. Each row carries its match against the search, which
+  // runs over both parts; `shown` is how many rows of a section it leaves.
+  const YOURS_LABEL = 'Your languages';
+  function languageList(langs, enabled, q) {
+    const on = new Set(enabled || []);
+    const table = langs || [];
+    const mine = table.filter((l) => on.has(l.code));
+    const sections = [];
+    if (mine.length) sections.push({ yours: true, label: YOURS_LABEL, langs: mine });
+    for (const g of languageGroups(table.filter((l) => !on.has(l.code)))) {
+      sections.push({ yours: false, label: g.label, langs: g.langs });
+    }
+    for (const section of sections) {
+      section.rows = section.langs.map((lang) => ({ lang, hit: matchesLanguage(lang, q) }));
+      section.shown = section.rows.filter((r) => r.hit).length;
+    }
+    return sections;
+  }
+  // What a tick (or untick) in the checklist does to the search and the focus.
+  // A change to the enabled set clears the search, so the reader sees where the
+  // row went, and names the language (`focus`), its new place in the list
+  // (`place`, as a section's `yours` and `label`) and the coverage group to
+  // open when it went back to one (`openGroup`: a closed group would take the
+  // focus off the checkbox; "Your languages" is always open). A change that
+  // leaves the set as it was, or touches only codes the table lacks, keeps the
+  // search and moves nothing.
+  function languageTick(langs, before, after, q) {
+    const was = new Set(before || []);
+    const now = new Set(after || []);
+    const moved = (langs || []).find((l) => was.has(l.code) !== now.has(l.code));
+    if (!moved) return { search: q, focus: null, place: null, openGroup: null };
+    const section = languageList(langs, after, '').find((s) => s.langs.indexOf(moved) >= 0);
+    return {
+      search: '',
+      focus: moved.code,
+      place: { yours: section.yours, label: section.label },
+      openGroup: section.yours ? null : section.label,
+    };
   }
   // A group's summary reads "{label} · {count}"; this is the count. `shown`
   // is how many of the group's languages a search leaves in view.
@@ -359,12 +408,28 @@
     };
   }
 
+  // The About card's one control. Its write is the synced welcome-seen flag
+  // false (GLOSSARY: Welcome); the panel's ordinary due rule then shows the
+  // welcome on the Alma 5 tab the worker opens. Not part of aboutCopy: that
+  // stays text.
+  const WELCOME_AGAIN = { label: 'Show the welcome again', patch: { welcomeSeen: false } };
+
+  // The button's own line, after a press: the flag didn't save (no tab was
+  // asked for), or it saved and the worker didn't open the tab (its reply
+  // isn't { ok: true }). Null when both halves worked. Pressing the button
+  // again is the retry, both halves in order.
+  function welcomeAgainError(o) {
+    const c = o || {};
+    if (!c.saved) return 'Couldn’t show the welcome. Try again.';
+    return c.reply && c.reply.ok === true ? null : 'Couldn’t open the welcome tab. Try again.';
+  }
+
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = {
-      aboutCopy, isAdded, dedupeVersions, versionGroups, stableGroups, mergeVersions, listGuesses, withStored, initialChecks, pickDefaultId,
+      WELCOME_AGAIN, welcomeAgainError, aboutCopy, isAdded, dedupeVersions, versionGroups, stableGroups, mergeVersions, listGuesses, withStored, initialChecks, pickDefaultId,
       translationPatch, commitPatch, patchLanded, failedWrites, fillPlan, keyControls,
       versionLabel, moreLabel, connectedText, yoursNote, keyErrorText,
-      offeredLanguages, languageGroups, groupCount, matchesLanguage,
+      offeredLanguages, languageGroups, languageList, languageTick, groupCount, matchesLanguage,
     };
   }
   if (typeof document === 'undefined') return; // Node: the pure core only.
@@ -404,11 +469,12 @@
     sidebarWidth: $('sidebarWidth'),
     sidebarWidthOut: $('sidebarWidthOut'),
     scrollSync: $('scrollSync'),
-    showOnOtherLanguages: $('showOnOtherLanguages'),
     aboutVersion: $('aboutVersion'),
     aboutVintage: $('aboutVintage'),
     aboutSources: $('aboutSources'),
     aboutLinks: $('aboutLinks'),
+    welcomeAgain: $('welcomeAgain'),
+    welcomeAgainStatus: $('welcomeAgainStatus'),
   };
 
   let settings = SETTINGS.defaults();
@@ -493,8 +559,10 @@
   // The one path to storage. `quiet` skips the "Saved" flash. A write that
   // doesn't land puts its controls back to what storage holds and joins
   // `failed`; any write that lands (or a change adopted from elsewhere)
-  // retires the error.
-  async function write(partial, keys, quiet) {
+  // retires the error. An `alone` write (an action that says its own failure,
+  // "Show the welcome again") never joins `failed`: Try again would re-send
+  // half of it.
+  async function write(partial, keys, quiet, alone) {
     let ok = true;
     if (Object.keys(partial).length) {
       let result;
@@ -506,7 +574,7 @@
     if (ok) {
       if (failed) { failed = null; hideSaveError(); }
       if (!quiet && Object.keys(partial).length) showSaved();
-    } else {
+    } else if (!alone) {
       failed = failedWrites(failed, partial, keys);
       showSaveError();
       adopt(keys);
@@ -804,45 +872,85 @@
 
   // ---- Church languages ----
 
-  const langRows = []; // { lang, label, group }
-  const langGroups = []; // <details>
-  const groupOf = new Map(); // <details> -> { group, count }
+  // One row (label + checkbox) per language, built once; renderLanguageList
+  // moves them between sections, so a tick keeps its checkbox, its state and
+  // its focus.
+  const langRows = new Map(); // code -> { lang, label, input }
+  const openLabels = new Set(); // sections the reader has open (not while searching)
 
-  // Each group is a <details> named by its summary ("Bible · 1 language").
-  // A long label wraps; its count stays on one line with its dot, and the
-  // label's last word goes with them (a no-break space), so no line starts
-  // with the dot.
   function buildLanguageList() {
-    languageGroups(offeredLanguages(C.CHURCH_LANGUAGES)).forEach((group, i) => {
+    for (const lang of offeredLanguages(C.CHURCH_LANGUAGES)) {
+      const label = el('label', 'check');
+      const input = el('input');
+      input.type = 'checkbox';
+      input.value = lang.code;
+      const text = el('span', 'lang-name');
+      text.appendChild(nativeName(lang));
+      if (lang.name !== lang.english) text.appendChild(el('span', 'lang-en', ` — ${lang.english}`));
+      label.appendChild(input);
+      label.appendChild(text);
+      langRows.set(lang.code, { lang, label, input });
+    }
+    // Only the reader's own open and close are remembered: a search opens
+    // every section, and clearing it puts back what they had open.
+    els.churchLanguages.addEventListener('toggle', (e) => {
+      const label = e.target.dataset && e.target.dataset.label;
+      if (!label || els.langFilter.value.trim()) return;
+      if (e.target.open) openLabels.add(label); else openLabels.delete(label);
+    }, true);
+    renderLanguageList();
+  }
+
+  // Lay the list out from the pure languageList (`code` names the language to
+  // keep the focus on, else the focused checkbox keeps it): "Your languages" (the ticked
+  // rows) above the coverage groups, each section a <details> named by its
+  // summary ("Bible · 1 language"). A long label wraps; its count stays on one
+  // line with its dot, and the label's last word goes with them (a no-break
+  // space), so no line starts with the dot. Run on every tick, adopted
+  // setting and search; the checkboxes themselves are the source of the
+  // ticked set, so a tick not yet written shows where it will be.
+  function renderLanguageList(code) {
+    const q = els.langFilter.value;
+    const filtering = !!q.trim();
+    const focused = document.activeElement;
+    const focusCode = code || (focused && focused.matches && focused.matches('input[type="checkbox"]') && els.churchLanguages.contains(focused)
+      ? focused.value : null);
+    const sections = languageList(offeredLanguages(C.CHURCH_LANGUAGES), checkedLanguages(), q);
+    if (!openLabels.size && !els.churchLanguages.firstChild && sections.length) openLabels.add(sections[0].label);
+    els.churchLanguages.textContent = '';
+    let shown = 0;
+    sections.forEach((section, i) => {
       const details = el('details', 'lang-group');
-      details.open = i === 0;
+      details.dataset.label = section.label;
+      if (section.yours) details.classList.add('yours');
+      details.open = filtering || section.yours || openLabels.has(section.label);
       const summary = el('summary');
       summary.id = `langGroup${i}`;
       details.setAttribute('aria-labelledby', summary.id);
-      const text = el('span', 'summary-text', `${group.label}\u00a0`);
-      const count = el('span', 'summary-count', `· ${groupCount(group)}`);
-      text.appendChild(count);
+      const text = el('span', 'summary-text', `${section.label}\u00a0`);
+      text.appendChild(el('span', 'summary-count', `· ${groupCount(section, filtering ? section.shown : null)}`));
       summary.appendChild(text);
-      groupOf.set(details, { group, count });
       const grid = el('div', 'checklist-grid');
-      for (const lang of group.langs) {
-        const label = el('label', 'check');
-        const cb = el('input');
-        cb.type = 'checkbox';
-        cb.value = lang.code;
-        const text = el('span', 'lang-name');
-        text.appendChild(nativeName(lang));
-        if (lang.name !== lang.english) text.appendChild(el('span', 'lang-en', ` — ${lang.english}`));
-        label.appendChild(cb);
-        label.appendChild(text);
-        grid.appendChild(label);
-        langRows.push({ lang, label, group: details });
+      for (const r of section.rows) {
+        const row = langRows.get(r.lang.code);
+        row.label.hidden = !r.hit;
+        grid.appendChild(row.label);
       }
+      details.hidden = section.shown === 0;
       details.appendChild(summary);
       details.appendChild(grid);
       els.churchLanguages.appendChild(details);
-      langGroups.push(details);
+      shown += section.shown;
     });
+    els.langNoMatch.hidden = shown > 0;
+    els.langNoMatch.textContent = shown ? '' : `No language matches “${q.trim()}”.`;
+    if (focusCode && langRows.has(focusCode)) {
+      // A row that moved into a closed group would lose the focus with it:
+      // the group's summary takes it, so the reader hears where the row went.
+      const { input } = langRows.get(focusCode);
+      const group = input.closest('details');
+      (group && group.open ? input : group.querySelector('summary')).focus();
+    }
   }
 
   // A language's own name, tagged so CJK glyphs and screen-reader voices
@@ -865,8 +973,23 @@
   function checkLanguages(codes) {
     const want = new Set(codes || []);
     for (const cb of languageInputs()) cb.checked = want.has(cb.value);
-    // A group holding a chosen language opens, so the choice is in view.
-    for (const row of langRows) if (want.has(row.lang.code)) row.group.open = true;
+    ticked = checkedLanguages();
+    renderLanguageList(); // the ticked ones move under "Your languages"
+    showLanguageSummary();
+  }
+
+  // A tick or untick by the reader: the search clears and the focus follows
+  // the language to its new place (the pure languageTick decides). `ticked`
+  // is the set the list was last laid out for, since the checkbox has already
+  // changed when its event arrives.
+  let ticked = [];
+  function onLanguageTick() {
+    const now = checkedLanguages();
+    const tick = languageTick(offeredLanguages(C.CHURCH_LANGUAGES), ticked, now, els.langFilter.value);
+    ticked = now;
+    els.langFilter.value = tick.search;
+    if (tick.openGroup) openLabels.add(tick.openGroup);
+    renderLanguageList(tick.focus);
     showLanguageSummary();
   }
 
@@ -882,36 +1005,6 @@
       if (i) s.appendChild(document.createTextNode(', '));
       s.appendChild(nativeName(l));
     });
-  }
-
-  function applyLanguageFilter() {
-    const q = els.langFilter.value;
-    const filtering = !!q.trim();
-    let shown = 0;
-    for (const details of langGroups) {
-      let n = 0;
-      for (const row of langRows) {
-        if (row.group !== details) continue;
-        const hit = matchesLanguage(row.lang, q);
-        row.label.hidden = !hit;
-        if (hit) n++;
-      }
-      details.hidden = n === 0;
-      const g = groupOf.get(details);
-      g.count.textContent = `· ${groupCount(g.group, filtering ? n : null)}`;
-      // Every group opens while searching; clearing the search puts back
-      // what the reader had open.
-      if (filtering) {
-        if (!('wasOpen' in details.dataset)) details.dataset.wasOpen = details.open ? '1' : '';
-        details.open = true;
-      } else if ('wasOpen' in details.dataset) {
-        details.open = details.dataset.wasOpen === '1' || details.querySelector('input:checked') != null;
-        delete details.dataset.wasOpen;
-      }
-      shown += n;
-    }
-    els.langNoMatch.hidden = shown > 0;
-    els.langNoMatch.textContent = shown ? '' : `No language matches “${q.trim()}”.`;
   }
 
   function readLayout() {
@@ -966,13 +1059,6 @@
       write: (v) => { els.sidebarWidth.value = String(v); showWidth(v); },
     },
     { key: 'scrollSync', node: els.scrollSync, read: () => els.scrollSync.checked, write: (v) => { els.scrollSync.checked = v; } },
-    // Stored as "English pages only"; asked the other way round.
-    {
-      key: 'actOnNonEngOnly',
-      node: els.showOnOtherLanguages,
-      read: () => !els.showOnOtherLanguages.checked,
-      write: (v) => { els.showOnOtherLanguages.checked = !v; },
-    },
   ];
   const FIELD_KEYS = FIELDS.map((f) => f.key);
 
@@ -1015,6 +1101,17 @@
       a.rel = 'noopener';
       return a;
     }));
+  }
+
+  // "Show the welcome again": the flag first, so the tab the worker opens finds
+  // the welcome due. All or nothing: a write that doesn't land opens nothing,
+  // and either failure is said on the button's own line (welcomeAgainError);
+  // pressing again redoes both halves.
+  async function showWelcomeAgain() {
+    els.welcomeAgainStatus.textContent = '';
+    const saved = await write(WELCOME_AGAIN.patch, [], true, true);
+    const reply = saved ? await send({ type: C.MSG.OPEN_WELCOME }) : null;
+    els.welcomeAgainStatus.textContent = welcomeAgainError({ saved, reply }) || '';
   }
 
   // ---- Deep links ----
@@ -1095,6 +1192,7 @@
     showStoredList(cached);
     fillForm();
     renderAbout();
+    els.welcomeAgain.addEventListener('click', showWelcomeAgain);
 
     for (const f of FIELDS) {
       if (f.key === 'apiKey') continue;
@@ -1103,7 +1201,7 @@
         if (f.live) f.live(f.node.value);
       });
       f.node.addEventListener('change', () => {
-        if (f.key === 'churchLanguages') showLanguageSummary();
+        if (f.key === 'churchLanguages') onLanguageTick();
         queueCommit([f.key]);
       });
     }
@@ -1133,7 +1231,7 @@
 
     // Outside #churchLanguages on purpose: typing a search is not a change to
     // the language setting.
-    els.langFilter.addEventListener('input', applyLanguageFilter);
+    els.langFilter.addEventListener('input', () => renderLanguageList());
 
     // Another context (the panel, another synced machine) changed a setting ->
     // adopt it into the form. `own` writes are this page's, already on screen.

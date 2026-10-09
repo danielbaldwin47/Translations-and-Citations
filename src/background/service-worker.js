@@ -28,11 +28,19 @@
  *   OPEN_OPTIONS { section? } -> opens (or focuses) the options page; a section
  *                               from C.OPTIONS_SECTIONS is parked in
  *                               chrome.storage.session for the page to scroll to.
+ *   GET_TOOLBAR_PIN          -> { isOnToolbar } from chrome.action.getUserSettings
+ *                               (content scripts can't call it); null when the
+ *                               API is missing or fails: the welcome then
+ *                               suggests the pin (#114)
+ *   OPEN_WELCOME            -> opens the Alma 5 tab install opens (the options page's
+ *                               "Show the welcome again", which has written
+ *                               `welcomeSeen` false first).
  *
  * Browser events: the toolbar icon sends TOGGLE_PANEL to the tab. It opens
  * the options page instead on a tab without our content script, and on a
  * Gospel Library page showing no chapter (the reply says `shown: false`); a
- * fresh install opens the options page.
+ * fresh install (reason `install`, never an update) opens Alma 5 in a new tab;
+ * an update (reason `update`) marks the welcome seen (`welcomeSeen`).
  *
  * Classic (non-module) worker so a single IIFE authoring style works everywhere;
  * dependencies are pulled in with importScripts in dependency order.
@@ -69,7 +77,6 @@ async function handleGetEnabledTranslations() {
     defaultId: s.defaultTranslationId,
     provider: s.provider,
     hasKey: !!s.apiKey,
-    actOnNonEngOnly: s.actOnNonEngOnly,
     noTranslationLineDismissed: s.noTranslationLineDismissed,
   };
 }
@@ -143,6 +150,26 @@ async function openOptions(section) {
   return { ok: true };
 }
 
+// Is the toolbar icon pinned? Asked by the welcome's pinning line. Unknown
+// (null) when this Chrome has no getUserSettings or it fails: the panel shows
+// the line, since a pin suggested twice costs less than a needed one hidden.
+async function handleGetToolbarPin() {
+  try {
+    const u = await chrome.action.getUserSettings();
+    return { isOnToolbar: u && typeof u.isOnToolbar === 'boolean' ? u.isOnToolbar : null };
+  } catch (e) {
+    return { isOnToolbar: null };
+  }
+}
+
+// The Alma 5 tab: where install sends a new reader, and where the options
+// page's "Show the welcome again" sends one who asked. One function, so both
+// open the same page.
+async function openWelcome() {
+  await chrome.tabs.create({ url: C.FIRST_RUN_URL });
+  return { ok: true };
+}
+
 // ---- Message router ----
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (!msg || !msg.type) return false;
@@ -159,6 +186,12 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       break;
     case C.MSG.OPEN_OPTIONS:
       promise = openOptions(msg.section);
+      break;
+    case C.MSG.GET_TOOLBAR_PIN:
+      promise = handleGetToolbarPin();
+      break;
+    case C.MSG.OPEN_WELCOME:
+      promise = openWelcome();
       break;
     default:
       return false;
@@ -187,7 +220,16 @@ chrome.action.onClicked.addListener((tab) => {
   });
 });
 
-// ---- First install: open the options page (what works, and where to start) ----
+// ---- First install: open Alma 5, where the panel is already at work ----
+// `install` only: an update, a browser update or a shared-module update opens
+// nothing. The welcome (GLOSSARY: Welcome) greets new installs only: a profile
+// from before it has no `welcomeSeen`, which reads as not seen, so an update
+// marks it seen. Install leaves it unseen, and Alma 5 opens with it up.
+// Neither has anyone to answer: a refused tab or a failed write is logged,
+// never an unhandled rejection.
 chrome.runtime.onInstalled.addListener((details) => {
-  if (details && details.reason === 'install') chrome.runtime.openOptionsPage();
+  const reason = details && details.reason;
+  const logged = (what) => (e) => console.warn(`[BTX] ${what}:`, e);
+  if (reason === 'install') openWelcome().catch(logged('could not open the welcome tab'));
+  else if (reason === 'update') SETTINGS.patch({ welcomeSeen: true }).catch(logged('could not mark the welcome seen'));
 });

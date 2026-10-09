@@ -32,7 +32,8 @@ One settings object holding:
 - the panel's mode (Translation or Citations), citation layout (by source or
   by verse), width, text size, whether it is collapsed, and whether it
   scrolls with the page;
-- whether the panel also appears on pages in languages other than English.
+- whether you closed the welcome (its Got it or Skip button) and the line saying a
+  chapter has no translation (its ×), so neither shows again.
 
 **This device only** (Chrome's `storage.local`: never synced):
 

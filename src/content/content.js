@@ -8,7 +8,9 @@
  *    (loading, rate-limit wait, error, setup card, beside card, text); the
  *    dropdown's rows and labels are __BTX.churchText's pure textsFor /
  *    menuFor, and the row shown is the arrangement's, walking a
- *    most-recently-used list (C.SELECTION_KEY in chrome.storage.local). The options page writes
+ *    most-recently-used list (C.SELECTION_KEY in chrome.storage.local); a row
+ *    on request the arrangement `chooses` (English on a page read in another
+ *    language, shown by the Translation tab) is remembered there. The options page writes
  *    it too (a Church language ticked there leads) and this tab adopts that
  *    write through storage.onChanged
  *  - describes the chapter to the panel's arrangement (factsFor: the texts
@@ -46,9 +48,8 @@
  *    click on a citation row opens it afresh (a numbered key). Back returns
  *    focus to the row it came from (citPanel.refocus)
  *  - answers the panel's renderMode event with fresh mode content
- *  - answers the toolbar icon (TOGGLE_PANEL): collapse or expand the panel; on
- *    a chapter the language preference hides, show it for this tab instead.
- *    The reply's `shown` says whether a chapter shows (false: the worker
+ *  - answers the toolbar icon (TOGGLE_PANEL): collapse or expand the panel,
+ *    on every chapter page whatever its language. The reply's `shown` says whether a chapter shows (false: the worker
  *    opens the options page)
  *  - asks the worker to open the options page, at a card when one is named
  *    (OPEN_OPTIONS { section: 'bible' })
@@ -79,7 +80,7 @@
   // read it rather than keeping a copy that could drift.
   const PANEL_KEYS = panel.HANDLED_KEYS;
 
-  let enabled = null; // { translations, churchLanguages, churchLanguageLayout, defaultId, provider, hasKey, actOnNonEngOnly }
+  let enabled = null; // { translations, churchLanguages, churchLanguageLayout, defaultId, provider, hasKey }
   // What the reader last picked, newest first (persisted under C.SELECTION_KEY).
   // A preference, not what is showing: a chapter that doesn't offer the newest
   // pick shows the newest one it does, or a fallback, and rewrites nothing —
@@ -101,9 +102,6 @@
   // Automatic rate-limit retries in a row, per chapter and version (panel's
   // retryWait caps them): { key: transKey(), n }.
   let retries = { key: null, n: 0 };
-  // The toolbar icon clicked on a chapter the `actOnNonEngOnly` preference
-  // hides: show chapters in this tab whatever their language. Never persisted.
-  let forceShow = false;
   let themeMirror = null; // theme.mirror handle — the theme module keeps the panel in sync
   let currentKey = null; // dedupes repeat navigation events for the same chapter
   let shownChapter = null; // the chapter last shown (currentKey is reset to force a re-render)
@@ -184,12 +182,6 @@
       languages: e.churchLanguages,
       pageLang: parsed.lang,
     });
-  }
-
-  // Whether the panel appears on this chapter at all: English pages, unless
-  // the reader asked for other languages (the setting, or the toolbar icon).
-  function showsOn(parsed, e) {
-    return forceShow || e.actOnNonEngOnly === false || parsed.lang === 'eng';
   }
 
   // ---- The chapter check ----------------------------------------------------
@@ -341,12 +333,6 @@
 
     const e = await loadEnabled();
 
-    if (!showsOn(parsed, e)) {
-      panel.hide();
-      syncSplit();
-      return;
-    }
-
     // The panel arranges itself from what is known so far (the chapter
     // check's results this tab): a text not checked yet in the way of the
     // pick is Translation's loading state, and renderTranslation runs the
@@ -397,8 +383,7 @@
   // The page split shows the arrangement's page language, in either mode: the
   // first Church language in pick order that offers the chapter, while the
   // split layout is in-page. It goes when there is none, when the chapter
-  // doesn't show (another language's page the preference hides, the page
-  // left). Called wherever one of those inputs moves; pageSplit.show is a
+  // doesn't show (the page left). Called wherever one of those inputs moves; pageSplit.show is a
   // no-op for the key already showing. While a language in the way is not
   // checked yet (`pageNext`), the chapter check asks for it first — in
   // Citations too, where nothing else runs it; the panel's body never waits
@@ -409,7 +394,7 @@
     const token = ++splitToken;
     const parsed = current;
     const e = enabled;
-    if (!parsed || !e || !showsOn(parsed, e)) {
+    if (!parsed || !e) {
       pageSplit.hide({ anchor });
       return;
     }
@@ -478,6 +463,13 @@
       showChecking();
       offer = await runCheck(parsed, rows, (o) => o.next, stale);
       if (!offer) return;
+      shown = panel.arrange(factsFor(e, offer));
+    }
+    if (shown.chooses) {
+      // The tab shows a row on request (English on a page read in another
+      // language): the reader chose it by opening Translation on it, so it
+      // joins the pick memory and holds the page from now on, in Citations too.
+      remember(shown.chooses);
       shown = panel.arrange(factsFor(e, offer));
     }
     applyNote(); // the beside-the-page line comes with a Bible version, goes with anything else
@@ -822,19 +814,11 @@
     }
   }
 
-  // No chapter on this page: nothing to show or hide. A chapter the language
-  // preference hid: the click is the reader asking for it, so show it, open.
-  async function onToolbarClick() {
+  // No chapter on this page: nothing to show or hide. Otherwise the icon
+  // collapses or expands the panel, on every page whatever its language.
+  function onToolbarClick() {
     if (!current) return;
-    const e = await loadEnabled();
-    if (showsOn(current, e)) {
-      panel.toggleCollapsed();
-      return;
-    }
-    forceShow = true;
-    panel.toggleCollapsed(false);
-    currentKey = null;
-    render();
+    panel.toggleCollapsed();
   }
 
   // ---- Wire up ----
@@ -852,6 +836,7 @@
       onAddLanguage: addLanguage,
       onLayoutChange: changeLayout,
       onDismissNote: dismissNote,
+      askToolbarPin: () => send({ type: C.MSG.GET_TOOLBAR_PIN }), // is the toolbar icon pinned? (the welcome's pinning line)
     });
 
     // Hand the theme module the panel root (null while there's nothing shown);

@@ -116,6 +116,10 @@ const REPORT = arg('--report');
 // What each corpus is to the reader (GLOSSARY.md "Pack descriptor"); the
 // reader learns every per-corpus fact from here and nowhere else:
 //   sourceType  the panel's source-type group the corpus files under
+//   sourceNote  that source type's one-line hover text on the group header; the same
+//               for every corpus of a source type: packDescriptor looks it up in
+//               SOURCE_NOTES by sourceType. Read by the reader only from here
+//               (validate-citations holds a pack to it)
 //   text        where talk HTML comes from: 'bundled' (talks/{id}.html.gz),
 //               'live-church' (the Church site), 'live-byu' (scriptures.byu.edu)
 //   target      the corpus plan's scroll-target rule: 'anchor' | 'citationSpan' | 'bodyPassage'
@@ -129,6 +133,11 @@ const REPORT = arg('--report');
 // for it, only facts per cite — and, so a pending excerpt can reserve its
 // size, each cite's excerpt character count. Conference talk text is
 // copyrighted, so G and E are references-only in both packs.
+const SOURCE_NOTES = {
+  'General Conference': 'Talks from the Church\u2019s general conferences',
+  'Journal of Discourses': 'Sermons by early Church leaders, published 1854\u20131886',
+  'Teachings of the Prophet Joseph Smith': 'Sermons and writings of Joseph Smith, compiled by Joseph Fielding Smith',
+};
 const CORPORA = {
   G: { sourceType: 'General Conference', text: 'live-church', target: 'anchor', excerpt: 'fetched', inclusion: 'all' },
   E: { sourceType: 'General Conference', text: 'live-byu', target: 'citationSpan', excerpt: 'fetched', inclusion: 'all' },
@@ -147,7 +156,9 @@ function packDescriptor(mode, facts, inclusion) {
   if (!list) return null;
   const corpora = {};
   for (const c of list) {
-    corpora[c] = Object.assign({}, CORPORA[c]);
+    // sourceNote follows sourceType, ahead of the rest (the descriptor's key order).
+    const { sourceType, ...rest } = CORPORA[c];
+    corpora[c] = Object.assign({ sourceType, sourceNote: SOURCE_NOTES[sourceType] }, rest);
     if (inclusion && inclusion[c]) corpora[c].inclusion = inclusion[c];
   }
   return { flavor: mode, vintage: facts.vintage, base: facts.base, derived: facts.derived, corpora };
@@ -801,7 +812,7 @@ function build(core, content, inclusion) {
 // pure rest by tools/validate-citations.js.
 module.exports = {
   extractCitation, stpjsBodyPassage, decompressTalk, stripTags, toChurchUrl, excerptChars,
-  packDescriptor, parseInclusion, citeRecord, bundlesTalks, conferenceOf, PACK_CORPORA,
+  packDescriptor, parseInclusion, SOURCE_NOTES, citeRecord, bundlesTalks, conferenceOf, PACK_CORPORA,
   buildBookMap, derivedCites, tallyPack, diffReport,
 };
 

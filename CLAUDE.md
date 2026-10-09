@@ -77,7 +77,7 @@ src/
   shared/settings.js       __BTX.settings  THE owner of synced `btxSettings`: schema, one normalizer per key, get/patch/replace, subscribe({next,prev,changed,own})
   shared/books.js          __BTX.books     66 Bible (slug→USFM/name) + BoM/D&C/PGP registry
   background/
-    service-worker.js      classic worker; importScripts; onMessage router (OPEN_OPTIONS {section} → storage.session); toolbar icon = TOGGLE_PANEL, else opens options; install opens options
+    service-worker.js      classic worker; importScripts; onMessage router (OPEN_OPTIONS {section} → storage.session; OPEN_WELCOME → the Alma 5 tab); toolbar icon = TOGGLE_PANEL, else opens options; install opens Alma 5 (`C.FIRST_RUN_URL`, through `openWelcome`, which OPEN_WELCOME shares), update marks the welcome seen
     api.js                 __BTX.api       api.bible fetch + JSON→IR (403 "Invalid API key" → INVALID_KEY; 429 → remote + retryAfterMs; partial version lists); fetchBundledChapter serves the World English Bible from src/bible/
     cache.js               __BTX.cache     chapter cache + LRU; version list keyed by a key fingerprint, 7-day TTL (storage.local; the options page reads it too)
     ratelimit.js           __BTX.rate      15/30s + 5000/day, persisted
@@ -89,12 +89,12 @@ src/
     page-hook.js           page-world history patch, injected via web-accessible <script src>
     theme.js               __BTX.theme     mirror(resolveTarget) → {refresh}: site colors/fonts/header onto the panel; pure policies nextAlignDelay / dominantTextStyle / sameVars
     sanitize.js            __BTX.sanitize  IR → DOM (text nodes only)
-    panel.js               __BTX.panel     deep module: panel state (mode/layout/collapsed/width, the visit's mode click) + its persistence, the arrangement (what the body shows), DOM (setup / beside cards included), scroll-sync, drag-resize, AND the view host; pure cores exported for Node
+    panel.js               __BTX.panel     deep module: panel state (mode/layout/collapsed/width, the visit's mode click) + its persistence, the arrangement (what the body shows), DOM (setup / beside cards and the welcome included), scroll-sync, drag-resize, AND the view host; pure cores exported for Node
     panel.css
     content.js             orchestrator: detect → worker/citations → panel content only (no panel state, no theme policy)
   citations/
     cit-data.js            __BTX.citData   probes the pack once per session (personal dir, then public; the Store zip's stamp → public alone; pure packDirs/pickPack) → loadPack() {dir,descriptor}; shards/sources/gunzip talks; chapterData(slug,chap) carries the descriptor as `pack`, clips each cite's verses to its own `v` and ranks same-reference cites for the locator (pure citedVerses/chapterIndex/refRanks)
-    cit-view-model.js      __BTX.citVM     PURE: chapter cites → descriptor tree; source types from the pack descriptor; every ordering/grouping/counting/label rule; vintage footer; toolbar state machine
+    cit-view-model.js      __BTX.citVM     PURE: chapter cites → descriptor tree; source types and their header notes from the pack descriptor; every ordering/grouping/counting/label rule; vintage footer; toolbar state machine
     cit-panel.js           __BTX.citPanel  DOM adapter over citVM: render(host, opts) / refocus() / markVerse(v) / revealVerse(v); reads verse text from the page (read-only); fetched row excerpts (observer on the panel body, exact-size reserve)
     highlights.js          __BTX.highlights local select-to-highlight in the reader
     talk-source.js         __BTX.talkSource load({entry,source}) → {html,url,destination,credit,findTarget}; excerpt({entry,source}, claim) → paragraph text (read from the fetched HTML string: excerptAt / paragraphText, no DOM); pure corpusPlan(descriptor, corpus, {hasUrl}), readingDestination, talkCredit (BYU fetch line; "Text: Wikisource, revision N"), BYU fragment/viewer URLs; footnote locator (locateParagraph, pure on fetched HTML), targetIds (span, then a J cite's page anchor) + snippet fallback (snippetKey); HTML scanning the build tools require (decodeEntities, scanTalk, scriptureLink, linkChapters' 'locate' vs 'derive' span rules, dropByuInsertions); pre-2013 GC URL repair; FETCH_POLICY (per-host slots, session talk cache, 15s timeout) + pure slotPolicy (which waiting fetch a free slot goes to)
@@ -104,7 +104,7 @@ src/
     data-personal/         GITIGNORED: the personal pack, same layout, descriptor flavor `personal` (build --pack personal)
     store-stamp.json       the Store stamp (GLOSSARY); read by cit-data.js, swapped in by build-store-zip
   bible/engwebp/           GENERATED, committed, shipped: the World English Bible as IR, {USFM}.json per book + index.json (archive SHA-256, download date); C.BUNDLED_BIBLE names it
-  options/                 options.html/js/css — cards whose ids are C.OPTIONS_SECTIONS: three autosaving (bible / languages / reading) and About (text only: aboutCopy); pure form core exported for Node
+  options/                 options.html/js/css — cards in the order of C.OPTIONS_SECTIONS: languages, bible, reading (autosaving), then About (text, plus one button, "Show the welcome again": it writes `welcomeSeen` false (`WELCOME_AGAIN`) and sends OPEN_WELCOME; aboutCopy stays text); the Church-language list is the pure languageList ("Your languages" = the enabled ones, then the coverage groups without them, each row's search match; languageTick: a tick or untick clears the search and names where focus goes); pure form core exported for Node
 icons/                     generated by tools/make-icons.js
 docs/                      adr/ (decisions), agents/ (issue-tracker, triage-labels, domain, pack-refresh checklist), store/listing.md (Store texts), privacy.md (the page C.ABOUT.privacyUrl publishes), research/
 tools/                     build-citation-data.js (+ verbatim-matcher.js, inclusion rule verbatim), fetch-jod-wikisource.js + build-jod-talks.js (+ jod-patches.json), derive-conference.js (derivation run), build-bible-data.js, build-store-zip.js, rederive-js-snippets.js, make-icons.js, validate-*.js, test-talk-source.js; fixtures/base-talk-ids.json freezes base talk ids (A26)
@@ -221,7 +221,7 @@ Who owns what. Mechanism and reasoning live in the module headers and their
 validators — go there before changing behaviour.
 
 - **Panel state** (`panelMode`, `panelCollapsed`, `citationView`,
-  `sidebarWidth`) has one owner in the reader, `__BTX.panel`, persisted via
+  `sidebarWidth`, `welcomeSeen`) has one owner in the reader, `__BTX.panel`, persisted via
   `__BTX.settings`. `panelMode` defaults to Citations in the settings
   normalizer (a missing or unreadable stored value falls there; a stored
   Translation stays), and the panel's `createState` fallback agrees. `panel.HANDLED_KEYS` lists what the panel handles itself
@@ -231,6 +231,11 @@ validators — go there before changing behaviour.
   those keys, and the panel fires `renderMode` when an external write stales
   its content. The old `chrome.storage.local` `btxPanelMode`/`btxPanelCollapsed`
   keys are migrated once by `panel.init` — nothing else may name them.
+  `welcomeSeen` (GLOSSARY: Welcome) is written true by the panel's Got it or
+  Skip and by the worker on an update, and false by "Show the welcome again";
+  when the welcome shows is the pure `welcomeDue`, what it says the steps
+  table (`WELCOME_STEPS`, one step at a time through `welcomeStepView`), whose
+  controls must be in the panel's `CONTROL_NAMES` and show in every mode.
 - **Options page** autosaves: every change is one `SETTINGS.patch` (never
   `replace`, so panel keys absent from the form survive), and it `subscribe`s
   so an open form adopts changes made elsewhere (`fillForm(changed)`, skipping
@@ -245,7 +250,9 @@ validators — go there before changing behaviour.
   events bubble to the container; the language search sits outside it). A
   newly ticked language also goes to the front of the pick memory
   (`chrome.storage.local`, `C.SELECTION_KEY`) through `churchText.rememberTicked`,
-  written before the setting so open tabs have it by their re-render.
+  written before the setting so open tabs have it by their re-render. A tick or untick also clears the language search and keeps focus on that
+  language's checkbox in its new place (`languageTick`; an untick opens the
+  coverage group it returns to).
 - **Settings writes** carry a `__btxWrite` tag (how `own` is detected) and
   pass through unknown keys, so a newer version's setting on another machine
   isn't deleted. Sidebar width bounds (280–900) live only in `__BTX.settings`.
@@ -363,7 +370,10 @@ validators — go there before changing behaviour.
   descriptor — corpus plans (`talkSource.corpusPlan`), source types and the
   vintage footer (`citVM.buildView` via `data.pack`) — never from a corpus
   table of its own or from which directory the pack came from. A corpus the
-  descriptor lacks has no group, row, plan or reading destination.
+  descriptor lacks has no group, row, plan or reading destination. A source
+  type's header hover text is the corpus entry's `sourceNote` (the build's
+  `SOURCE_NOTES`, one note per source type, the same on every corpus of that
+  type); a pack without notes gives its headers no title.
 - **Reader scroll targets by corpus** follow each corpus's `target` in the
   pack descriptor (`talkSource.corpusPlan`). `findTarget` runs over the *rendered* talk only
   (a row's excerpt follows the same order over the fetched HTML string, in

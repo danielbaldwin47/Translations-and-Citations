@@ -68,6 +68,29 @@
     return n;
   }
 
+  // Hover text that is not mouse-only: `title` on the element, plus the same
+  // words as a hidden node, returned for the caller to mount beside the element
+  // (so the element's own text stays its label), which the owner (the element,
+  // or the control it sits in, whose children a screen reader doesn't visit)
+  // names in aria-describedby, after any description it already has. Existing
+  // aria-labels stay. Null (nothing to mount) when there is no text.
+  function titled(node, text, owner) {
+    if (!text) return null;
+    owner = owner || node;
+    node.title = text;
+    const desc = el('span', 'btx-cit-desc', text);
+    describedBy(owner, desc, 'btx-cit-desc');
+    return desc;
+  }
+
+  // Give `desc` a fresh id (`prefix`-N) and name it in `owner`'s
+  // aria-describedby, after any description the owner already has.
+  function describedBy(owner, desc, prefix) {
+    desc.id = `${prefix}-${++describedIds}`;
+    const had = owner.getAttribute('aria-describedby');
+    owner.setAttribute('aria-describedby', had ? `${had} ${desc.id}` : desc.id);
+  }
+
   // The list the panel has mounted right now (the body holds one view at a time).
   const mountedList = () => document.querySelector('#btx-root .btx-cit-list');
 
@@ -82,7 +105,7 @@
     // One line, cut with an ellipsis (the pinned headers' stated heights
     // count on it); the tooltip carries the whole label.
     const text = el('span', 'btx-cit-label-text', group.label);
-    text.title = group.label;
+    if (!group.title) text.title = group.label; // a noted header's hover is its note, on the whole row
     label.appendChild(text);
     if (group.kind === 'verse') {
       const verseLine = el('span', 'btx-cit-verse-text');
@@ -94,6 +117,16 @@
     return sum;
   }
 
+  // A group's <details> gets its header; a source-type header explains the
+  // source on hover (group.title). The header is the focusable control, so it
+  // owns the description, which sits in the <details> beside it.
+  function mountHead(node, cls, group) {
+    const sum = summaryRow(cls, group);
+    node.appendChild(sum);
+    const desc = titled(sum, group.title);
+    if (desc) node.appendChild(desc);
+  }
+
   function rowEl(row, onOpen) {
     const node = el('div', 'btx-cit');
     node.dataset.btxUid = row.uid;
@@ -102,12 +135,17 @@
     node.setAttribute('aria-label', row.a11yLabel);
     const head = el('div', 'btx-cit-head');
     head.appendChild(el('span', 'btx-cit-speaker', row.speaker));
-    if (row.rangeLabel) head.appendChild(el('span', 'btx-cit-range', row.rangeLabel));
+    if (row.rangeLabel) {
+      const range = el('span', 'btx-cit-range', row.rangeLabel);
+      head.appendChild(range);
+      const desc = titled(range, row.rangeTitle, node);
+      if (desc) node.appendChild(desc);
+    }
     node.appendChild(head);
     if (row.sub) node.appendChild(el('div', 'btx-cit-sub', row.sub));
     if (row.snippet && row.snippet.text) {
       const snippet = el('div', 'btx-cit-snippet', row.snippet.text);
-      describe(node, snippet);
+      describedBy(node, snippet, 'btx-cit-snippet');
       node.appendChild(snippet);
     } else if (row.snippet && row.snippet.fetch) {
       node.appendChild(reserveSlot(row.snippet.chars));
@@ -119,10 +157,6 @@
     return node;
   }
 
-  function describe(node, snippet) {
-    snippet.id = `btx-cit-snippet-${++describedIds}`;
-    node.setAttribute('aria-describedby', snippet.id);
-  }
 
   // --- fetched excerpts ------------------------------------------------------
   // A row of a fetched corpus (row.snippet.fetch) reserves its excerpt's
@@ -230,7 +264,7 @@
   function fillSlot(node, slot, text) {
     slot.textContent = text;
     slot.classList.remove('btx-cit-pending');
-    describe(node, slot);
+    describedBy(node, slot, 'btx-cit-snippet');
     node.dataset.btxExcerpt = 'filled';
     if (!node.isConnected) return;
     slot.classList.add('btx-cit-arrive');
@@ -269,14 +303,14 @@
   function groupEl(group, onOpen, pending) {
     const node = el('details', groupClass('btx-cit-vgroup', group));
     node.dataset.btxUid = group.uid;
-    node.appendChild(summaryRow('btx-cit-vhead', group));
+    mountHead(node, 'btx-cit-vhead', group);
     node.open = group.open;
     if (group.focus) node.classList.add('btx-cit-focus');
 
     for (const child of group.children) {
       const cnode = el('details', groupClass('btx-cit-cgroup', child));
       cnode.dataset.btxUid = child.uid;
-      cnode.appendChild(summaryRow('btx-cit-chead', child));
+      mountHead(cnode, 'btx-cit-chead', child);
       cnode.open = child.open;
       for (const row of child.rows) cnode.appendChild(rowNode(row, onOpen, pending));
       node.appendChild(cnode);
@@ -503,7 +537,12 @@
       if (noRes) wrap.appendChild(noRes);
       keepClosedHeaderInView(wrap);
     }
-    if (viewModel.footer) wrap.appendChild(el('p', 'btx-cit-footer', viewModel.footer));
+    if (viewModel.footer) {
+      const footer = el('p', 'btx-cit-footer', viewModel.footer);
+      wrap.appendChild(footer);
+      const desc = titled(footer, viewModel.footerTitle);
+      if (desc) wrap.appendChild(desc);
+    }
 
     host.textContent = '';
     host.appendChild(wrap);

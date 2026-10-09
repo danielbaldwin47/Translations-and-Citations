@@ -43,7 +43,9 @@
       GET_CHAPTER: 'GET_CHAPTER',
       LIST_BIBLES: 'LIST_BIBLES',
       OPEN_OPTIONS: 'OPEN_OPTIONS',
+      OPEN_WELCOME: 'OPEN_WELCOME',
       TOGGLE_PANEL: 'TOGGLE_PANEL',
+      GET_TOOLBAR_PIN: 'GET_TOOLBAR_PIN',
     },
 
     // --- Error codes returned in { error: { code } } ---
@@ -92,12 +94,18 @@
       supportUrl: 'https://github.com/danielbaldwin47/Translations-and-Citations/issues',
     },
 
+    // --- First run ---
+    // Where a fresh install lands: Alma 5 in English, a chapter where Citations
+    // and every Church language have something to show.
+    FIRST_RUN_URL: 'https://www.churchofjesuschrist.org/study/scriptures/bofm/alma/5?lang=eng',
+
     // --- Options deep links ---
     // OPEN_OPTIONS may carry `section`, one of OPTIONS_SECTIONS (the options
     // page's card ids). The worker parks it in chrome.storage.session under
     // OPTIONS_FOCUS_KEY before opening the page; the page reads it, clears it,
-    // and scrolls that card into view.
-    OPTIONS_SECTIONS: ['bible', 'languages', 'reading', 'about'],
+    // and scrolls that card into view. The ids are stable (a deep link names
+    // one); their order here is the order of the cards on the page.
+    OPTIONS_SECTIONS: ['languages', 'bible', 'reading', 'about'], // the page's card order
     OPTIONS_FOCUS_KEY: 'btxOptionsFocus',
 
     // --- chrome.storage.local key prefixes (cache + rate limiting) ---
@@ -145,6 +153,10 @@
     // numbers), efi kaz ben sot and the 17 "Selections from the Book of Mormon"
     // languages (a minority of chapters). Grouped by coverage, then English name
     // — which is the order the options page and the dropdown list them in.
+    // English's code: a page with no `lang` is read in it. The options
+    // checklist leaves it out (it is the page's own language), and a page
+    // read in another language offers it in the dropdown (churchText.textsFor).
+    ENGLISH_LANG: 'eng',
     CHURCH_LANGUAGES: (() => {
       const ALL = ['ot', 'nt', 'bofm', 'dc-testament', 'pgp'];
       const BIBLE_BOFM = ['ot', 'nt', 'bofm'];

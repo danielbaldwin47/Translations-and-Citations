@@ -24,13 +24,15 @@ stored and what is sent where.
 ### From the Chrome Web Store
 
 1. Open the listing — `<store-listing-url>` (filled in when the listing is
-   published) — and click **Add to Chrome**. The settings page opens.
+   published) — and click **Add to Chrome**. Alma 5 opens in a new tab, with
+   a short welcome tour of the panel's controls; **Skip** or **Got it** closes it.
 2. Pin the extension: puzzle-piece menu → pin **Translations & Citations**.
 3. Open any chapter, for example
    [John 3](https://www.churchofjesuschrist.org/study/scriptures/nt/john/3?lang=eng)
    or [Alma 5](https://www.churchofjesuschrist.org/study/scriptures/bofm/alma/5?lang=eng).
-   A Bible chapter opens with the World English Bible beside the page; every
-   chapter's **Citations** tab lists the talks that cite it.
+   The panel opens on **Citations**, the talks that cite each verse; on a
+   Bible chapter its **Translation** tab shows the World English Bible with
+   no setup.
 
 ### What ships
 
@@ -114,10 +116,10 @@ Every setting saves as you change it; there is no Save button.
 
 | Card | What's there |
 |------|--------------|
+| **Church languages** | which languages to offer (searchable, your languages on top, the rest grouped by what each publishes), and where they show |
 | **Bible translations** | api.bible key and Connect, which translations the panel offers, the default |
-| **Church languages** | which languages to offer (searchable, grouped by what each publishes), and where they show |
-| **Reading** | text size, panel width, scrolling the translation with the page, showing on pages in other languages |
-| **About** | version, pack vintage, data sources, privacy policy and support links |
+| **Reading** | text size, panel width, scrolling the translation with the page |
+| **About** | version, pack vintage, data sources, privacy policy and support links, Show the welcome again |
 
 ## Citation data
 
@@ -196,7 +198,7 @@ map of every module; the table below is the tour.
 | `src/citations/talk-view.js`, `highlights.js` | inline talk reader + sanitizer; local highlights |
 | `src/citations/data/` | the public pack (generated, committed, shipped) |
 | `src/citations/data-personal/` | the personal pack (gitignored) |
-| `src/options/` | settings page: Bible translations / Church languages / Reading / About |
+| `src/options/` | settings page: Church languages / Bible translations / Reading / About |
 | `tools/` | build tools (citation packs, derivation run, Journal of Discourses, Bible, Store zip), `validate-*.js`, `test-talk-source.js`, `make-icons.js` |
 | `docs/privacy.md` | the privacy policy the About card and the Store listing link |
 | `docs/store/listing.md` | the Store listing texts, checked against the manifest |

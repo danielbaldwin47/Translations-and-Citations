@@ -205,8 +205,6 @@
     // ('columns', side by side; 'interlinear', under each verse — see
     // __BTX.pageSplit) or in the side panel ('panel').
     churchLanguageLayout: { def: 'columns', norm: oneOf(['columns', 'interlinear', 'panel'], 'columns') },
-    // Only act on English pages (the site serves other languages too).
-    actOnNonEngOnly: { def: true, norm: bool(true) },
     sidebarWidth: {
       def: SIDEBAR_WIDTH_DEFAULT,
       norm: clampedInt(SIDEBAR_WIDTH_MIN, SIDEBAR_WIDTH_MAX, SIDEBAR_WIDTH_DEFAULT),
@@ -237,6 +235,12 @@
     // `true` reads as not dismissed. Written by the orchestrator, read into the
     // panel's arrangement.
     noTranslationLineDismissed: { def: false, norm: bool(false) },
+    // The reader pressed Got it on the welcome (GLOSSARY: Welcome). Synced:
+    // the welcome introduces the extension to a person, not to a computer.
+    // Anything but a stored `true` reads as not seen, so the welcome is due.
+    // Written true by the panel's Got it and by the worker on an update (an
+    // update never greets); written false by "Show the welcome again".
+    welcomeSeen: { def: false, norm: bool(false) },
   };
 
   const KEYS = Object.keys(SCHEMA);

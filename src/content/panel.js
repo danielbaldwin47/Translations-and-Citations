@@ -112,7 +112,8 @@
  *   getRootEl()
  *
  * handlers: { renderMode(mode), onTranslationChange(id), onGear(section),
- *   onRetry, onAddLanguage(code), onLayoutChange(layout, pick), onDismissNote }.
+ *   onRetry, onAddLanguage(code), onLayoutChange(layout, pick), onDismissNote,
+ *   askToolbarPin }.
  *   `renderMode` fires whenever the panel invalidated its own body content
  *   (mode toggle, citation-layout toggle, a synced change from another
  *   context); the orchestrator answers by rendering that mode's content.
@@ -124,7 +125,9 @@
  *   the note's picks; the panel writes no setting for them, the orchestrator
  *   does. `onLayoutChange`'s `pick` is the row the choice makes the pick, or
  *   null (the pure layoutChoice: "In the panel" moves the page's language
- *   into the panel in the Bible version's place).
+ *   into the panel in the Bible version's place). `askToolbarPin()` resolves
+ *   to the worker's raw GET_TOOLBAR_PIN reply, which the welcome reads
+ *   through welcomeFactsFrom before it opens.
  *
  * Body scroll has exactly one owner and one writer. Each view either *owns* its
  * position (Citations, the talk reader: restored on the way back to where it
@@ -151,6 +154,25 @@
  * smoothly regardless, and the panel matches the browser, not the OS. A reader
  * who wants none of it turns the `scrollSync` setting off: then the page never
  * moves the body at all — no tracking and no re-alignment either.
+ *
+ * The welcome (GLOSSARY: Welcome) is the panel's too: a labelled dialog laid
+ * over the body on any panel shown while the synced `welcomeSeen` flag is
+ * false (the pure welcomeDue; collapsing hides it without counting as seen).
+ * Its content is the pure steps table (WELCOME_STEPS: each step's title, its
+ * lines and the CONTROL_NAMES control it points at; welcomeSteps drops the
+ * lines whose facts don't hold), shown one step at a time (welcomeStepView:
+ * the step, "2 of 4", and which of Skip / Back / Next / Got it it carries).
+ * The step's card sits under its control, caret aimed at it, and the
+ * control is ringed; a control not showing gets a plain card. Placement is
+ * the pure calloutPlacement over rects measured inside the layer, redone on
+ * any resize of the panel, its chrome or its controls. While it shows, the
+ * body under it is inert (out of Tab's and Esc's reach). It takes focus as it
+ * opens only in the tab in front (welcomeTakesFocus: not in each background
+ * tab "Show the welcome again" reaches), and an expand that brings it back
+ * leaves focus to it (focusOnToggle) at the step the reader had reached.
+ * Only Got it (the last step) or Skip closes it: either writes the flag true
+ * and focuses the panel's first control. Esc stops at the layer, so the talk
+ * reader never sees it.
  *
  * The panel's top: 0, except while the site's header band, laid out for the
  * full window while the panel was away, runs under the open panel — then the
@@ -184,6 +206,7 @@
       facts: null, // what content.js last said about it (setChapter / arrange)
       click: null, // this visit's mode click: cleared by the next chapter
       picked: null, // this visit's dropdown pick (a row id): cleared by the next chapter
+      welcomeSeen: init.welcomeSeen === true, // the synced flag: Got it was pressed
     };
   }
 
@@ -198,6 +221,8 @@
   //     noteLang: Church code | null     the language the line names
   //     page:  Church row id | null      the page split's language, in either mode
   //     pageNext: lang | null            a language the check must ask before `page` is known
+  //     chooses: row id | null           a row on request the Translation tab shows,
+  //                                      so the reader chose it: remember it (pick memory)
   //   }
   // Inputs, from content.js except the last three (the panel's own state):
   //   texts      the rows that may sit beside this chapter, each with
@@ -225,25 +250,32 @@
   // language is churchText.pageLanguage, whatever the mode; the text it
   // names shows as the beside card ('beside' means text === page), any other
   // text in the panel (NIV beside Español on the page), with the
-  // beside-the-page line naming the page's language.
+  // beside-the-page line naming the page's language. A row on request
+  // (churchText.textsFor: English on a page read in another language) is
+  // never the page's language until chosen; the Translation tab showing it
+  // chooses it (`chooses`), so it takes the page at once, as a pick would.
   function arrangement(input) {
     const o = input || {};
     const click = o.click === 'translation' || o.click === 'citations' ? o.click : null;
     const stored = o.mode === 'translation' ? 'translation' : 'citations';
     const mode = click || stored;
     const saves = click && click !== stored ? click : null;
+    const ct = churchText();
+    const walk = mode === 'translation' && Array.isArray(o.texts) ? ct.firstOffered(o.texts, o.picks) : null;
+    // A row on request (English on a page read in another language) the
+    // Translation tab shows is chosen by that: it counts as the newest pick
+    // here, and `chooses` asks the caller to remember it.
+    const picks = Array.isArray(o.picks) ? o.picks : [];
+    const chooses = walk && walk.row && walk.row.onRequest && picks.indexOf(walk.row.id) < 0 ? walk.row.id : null;
     // The page's language is the same in either mode (the split stays on the
     // page in Citations).
-    const ct = churchText();
-    const page = ct.pageLanguage({ texts: o.texts, picks: o.picks, layout: o.layout });
+    const page = ct.pageLanguage({ texts: o.texts, picks: chooses ? [chooses].concat(picks) : picks, layout: o.layout });
     const show = (m, body, text, note, noteLang) => ({
       mode: m, body, text: text || null, saves, note: note || null, noteLang: noteLang || null,
-      page: page.id, pageNext: page.next,
+      page: page.id, pageNext: page.next, chooses,
     });
     if (mode !== 'translation') return show('citations', 'citations');
-    if (!Array.isArray(o.texts)) return show('translation', 'loading');
-    const walk = ct.firstOffered(o.texts, o.picks);
-    if (walk.next) return show('translation', 'loading');
+    if (!walk || walk.next) return show('translation', 'loading');
     const row = walk.row;
     if (row) {
       // This visit's dropdown pick lacks the chapter: the line says so above
@@ -373,6 +405,181 @@
     const moved = Number((scale + dir * step).toFixed(4));
     const next = Math.max(min, Math.min(max, moved));
     return next === scale ? null : next;
+  }
+
+  // ---- The welcome (GLOSSARY: Welcome) ----------------------------------------
+  // When the welcome shows over the panel's body: on any panel shown while
+  // the synced `welcomeSeen` flag is false — every chapter until Got it, so a
+  // tab closed without it greets again. A collapsed panel shows no welcome,
+  // and collapsing doesn't count as seen: expanding brings it back.
+  function welcomeDue(s) {
+    return s.welcomeSeen !== true && s.chapter !== null && s.collapsed !== true;
+  }
+
+  // The flag moved: Got it (true), "Show the welcome again" or another
+  // computer's write (either way). True when it changed; the caller persists
+  // a change it made.
+  function setWelcomeSeen(s, seen) {
+    const v = seen === true;
+    if (s.welcomeSeen === v) return false;
+    s.welcomeSeen = v;
+    return true;
+  }
+
+  // Whether the welcome takes focus as it opens: only in the tab the reader
+  // is looking at (`hidden` false, its window `focused`). Every open tab
+  // shows the welcome when "Show the welcome again" writes the flag, and a
+  // tab can load behind another; those leave focus where it is.
+  function welcomeTakesFocus(page) {
+    const p = page || {};
+    return p.hidden === false && p.focused === true;
+  }
+
+  // Where focus goes after a collapse or an expand (the state after it), for
+  // a keyboard user whose focus was in the panel: the tab on collapse,
+  // Collapse on expand — unless the expand brings the welcome back (null:
+  // the welcome takes focus when it opens).
+  //   -> 'tab' | 'collapse' | null
+  function focusOnToggle(s) {
+    if (s.collapsed) return 'tab';
+    return welcomeDue(s) ? null : 'collapse';
+  }
+
+  // The controls the panel builds, by name: what a welcome step may point
+  // at. The DOM shell maps each name to its node(s) (controlNodes), and
+  // validate-panel-state holds the steps table to this list.
+  //   translation-tab / citations-tab   the header's mode segments
+  //   settings / collapse               the header's icon buttons
+  //   translation-select                the toolbar's version dropdown
+  //   citation-layout                   the toolbar's By source | By verse
+  //   text-size                         the toolbar's A− / A+ (two buttons)
+  const CONTROL_NAMES = ['translation-tab', 'citations-tab', 'settings', 'collapse', 'translation-select', 'citation-layout', 'text-size'];
+
+  // What the welcome says, one step at a time. Each step: `id`, the
+  // `control` it points at (a CONTROL_NAMES name; only controls that show in
+  // every mode, so no step ever points at nothing), its `title` and its
+  // `lines`: plain sentences for a broad audience, many reading English as a
+  // second language — no idioms, and each control called by the name it
+  // shows or announces. A line may carry `when`, facts it needs, all of which
+  // must match (welcomeSteps), and `tip`: a second way to do what the step
+  // says, drawn smaller under the line that matters. `{icon}` in a line marks where the extension's
+  // icon is drawn inline (lineParts), always beside its name in words: the
+  // toolbar icon is the browser's, not the panel's. In tour order: what the
+  // panel opens on first, and last the way to hide it and get it back. The
+  // copy is spec A's model: the panel opens on Citations, and a language you
+  // add reads on the page whatever the panel shows (verse by verse: beside
+  // or under each, as the room allows); a Bible version only on the Bible.
+  const WELCOME_COPY = { title: 'Welcome to Translations & Citations', back: 'Back', next: 'Next', skip: 'Skip', gotIt: 'Got it' };
+  const WELCOME_STEPS = [
+    { id: 'citations', control: 'citations-tab', title: WELCOME_COPY.title, lines: [
+      { text: 'Citations shows the talks and sermons that quote each verse of this chapter. Open one to read it right here.' },
+    ] },
+    { id: 'translation', control: 'translation-tab', title: 'Translation', lines: [
+      { text: 'Read scripture in another language, like Spanish or Japanese, or the Bible in another version.' },
+      { text: 'A language you add appears on the page with the English, verse by verse.' },
+    ] },
+    { id: 'settings', control: 'settings', title: 'Settings', lines: [
+      { text: 'Add languages and Bible versions, and change the text size.' },
+    ] },
+    { id: 'hide', control: 'collapse', title: 'Hide the panel', lines: [
+      { text: 'The Collapse button hides the panel and leaves a small tab at the window’s edge. Click the tab to bring it back.' },
+      { text: 'You can also click the Translations & Citations icon {icon} at the top right of Chrome.', tip: true },
+      { text: 'Don’t see it? Click the puzzle-piece icon there, then the pin next to Translations & Citations.', tip: true, when: { pinned: false } },
+    ] },
+  ];
+
+  // The steps as the welcome shows them, given what the panel knows
+  // (`facts`, e.g. { pinned }): a line with `when` stays only when every fact
+  // it names is known and matches — unsure, the welcome says nothing.
+  function welcomeSteps(facts, table) {
+    const f = facts || {};
+    const holds = (when) => !when || Object.keys(when).every((k) => f[k] === when[k]);
+    return (table || WELCOME_STEPS).map((s) => Object.assign({}, s, { lines: s.lines.filter((l) => holds(l.when)) }));
+  }
+
+  // Step `index` of `steps` as the card draws it: the step, where it is in
+  // the tour (`position` "2 of 4"), and which buttons it carries — Back from
+  // the second step, Skip until the last, whose Next is Got it. An index out
+  // of range is held to the tour's ends.
+  function welcomeStepView(steps, index) {
+    const count = steps.length;
+    const i = Math.max(0, Math.min(count - 1, Number.isInteger(index) ? index : 0));
+    const last = i === count - 1;
+    return {
+      step: steps[i],
+      index: i,
+      position: `${i + 1} of ${count}`,
+      back: i > 0,
+      skip: !last,
+      next: last ? WELCOME_COPY.gotIt : WELCOME_COPY.next,
+      last,
+    };
+  }
+
+  // The facts the steps' `when` lines read, from the worker's answer to
+  // GET_TOOLBAR_PIN. `pinned` is true only when the worker said the icon is on
+  // the toolbar: any other reply (null, an error, no reply, an old Chrome)
+  // counts as not pinned, so the pinning line shows.
+  function welcomeFactsFrom(reply) {
+    return { pinned: !!reply && reply.isOnToolbar === true };
+  }
+
+  // A line's text as parts to render: strings, and { icon: true } where the
+  // extension's icon is drawn.
+  function lineParts(line) {
+    const out = [];
+    String(line.text).split('{icon}').forEach((t, i) => {
+      if (i) out.push({ icon: true });
+      if (t) out.push(t);
+    });
+    return out;
+  }
+
+  // Where the step's card is drawn: under the control it names, its caret
+  // aimed at the control's centre, and a ring round the control. Inputs in
+  // the welcome layer's coordinates (the panel's box): `control` the
+  // control's measured rect (null, or a box of no size — a control not
+  // showing — gives a plain card across the area: no caret, no ring), `area`
+  // the content box the card sits in ({left, width}), `panel` ({width,
+  // height}). Out, whole pixels: `card` {left (relative to the area), width},
+  // `caret` (x within the card, or null), `ring` (a rect, or null). The card
+  // is the area's width up to `cardMax`, centred under the control and kept
+  // inside the area; the caret stays `caretInset` in from the card's
+  // corners; the ring sits `ringPad` out from the control and stops at the
+  // panel's edges.
+  const CALLOUT_GEOMETRY = { cardMax: 300, caretInset: 14, ringPad: 4 };
+  function calloutPlacement({ control, area, panel }) {
+    const g = CALLOUT_GEOMETRY;
+    const areaW = Math.round(area.width);
+    if (!control || !(control.width > 0) || !(control.height > 0)) {
+      return { card: { left: 0, width: areaW }, caret: null, ring: null };
+    }
+    const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+    const cx = control.left + control.width / 2;
+    const width = Math.min(areaW, g.cardMax);
+    const left = clamp(Math.round(cx - width / 2), Math.round(area.left), Math.round(area.left) + areaW - width);
+    const caret = clamp(Math.round(cx - left), g.caretInset, width - g.caretInset);
+    const x0 = Math.max(0, Math.round(control.left - g.ringPad));
+    const y0 = Math.max(0, Math.round(control.top - g.ringPad));
+    const x1 = Math.min(Math.round(panel.width), Math.round(control.left + control.width + g.ringPad));
+    const y1 = Math.min(Math.round(panel.height), Math.round(control.top + control.height + g.ringPad));
+    return {
+      card: { left: left - Math.round(area.left), width },
+      caret,
+      ring: { left: x0, top: y0, width: x1 - x0, height: y1 - y0 },
+    };
+  }
+
+  // One box round several (the A− / A+ stepper is two buttons); a node not
+  // showing (no size) adds nothing. Null when nothing shows.
+  function unionRect(rects) {
+    const shown = rects.filter((r) => r && r.width > 0 && r.height > 0);
+    if (!shown.length) return null;
+    const left = Math.min(...shown.map((r) => r.left));
+    const top = Math.min(...shown.map((r) => r.top));
+    const right = Math.max(...shown.map((r) => r.left + r.width));
+    const bottom = Math.max(...shown.map((r) => r.top + r.height));
+    return { left, top, width: right - left, height: bottom - top };
   }
 
   // ---- Pure translation-state copy (Node-testable) ------------------------
@@ -911,6 +1118,8 @@
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = {
       createState, arrangement, layoutChoice, arrangementOf, effectiveMode, selectMode, selectText, selectCitationView, setChapter, sameChapter,
+      welcomeDue, setWelcomeSeen, welcomeTakesFocus, focusOnToggle, CONTROL_NAMES, WELCOME_COPY, WELCOME_STEPS, welcomeSteps, welcomeStepView, welcomeFactsFrom, lineParts,
+      CALLOUT_GEOMETRY, calloutPlacement, unionRect,
       stepFontScale, setupCopy, noteCopy, besideCopy, pressedLayout, layoutClick, roomHint, errorCopy, retryWait, LAYOUTS, RETRY_MAX_WAIT_MS, RETRY_MAX,
       createViews, saveViewScroll, selectView, keepView, settleView, dropViews, SAME_CHAPTER_VIEWS,
       viewRestoresScroll, wantsScrollSync,
@@ -943,7 +1152,7 @@
   // The settings this panel handles by itself when they change. Exposed as
   // panel.HANDLED_KEYS so the orchestrator can skip its full re-render for a
   // change touching only these — one list, no mirror to drift.
-  const PANEL_HANDLED_KEYS = ['sidebarWidth', 'fontScale', 'citationView', 'panelMode', 'panelCollapsed', 'scrollSync'];
+  const PANEL_HANDLED_KEYS = ['sidebarWidth', 'fontScale', 'citationView', 'panelMode', 'panelCollapsed', 'scrollSync', 'welcomeSeen'];
 
   let ui = null; // refs once built
   const cbs = {}; // event handlers set by init()
@@ -1121,7 +1330,19 @@
       scrollFadeTimer = setTimeout(() => body.classList.remove('btx-scrolling'), 1000);
     }, { passive: true });
 
-    ui = { rootEl, panel, header, toolbar, select, smaller, larger, modes, modeTranslation, modeCitations, citModes, citViewSource, citViewVerse, body, tab, collapse, resize };
+    // Each of CONTROL_NAMES to the node(s) it names: what a welcome step
+    // points at (controlNodes).
+    const controls = {
+      'translation-tab': [modeTranslation],
+      'citations-tab': [modeCitations],
+      settings: [gear],
+      collapse: [collapse],
+      'translation-select': [select],
+      'citation-layout': [citModes],
+      'text-size': [smaller, larger],
+    };
+
+    ui = { rootEl, panel, header, toolbar, select, smaller, larger, modes, modeTranslation, modeCitations, citModes, citViewSource, citViewVerse, body, tab, collapse, resize, controls };
     return ui;
   }
 
@@ -1146,6 +1367,259 @@
     ui.rootEl.classList.toggle('btx-collapsed', state.collapsed);
     refreshScrollSync();
     updatePageReserve();
+    applyWelcomeUI();
+  }
+
+  // ---- The welcome -----------------------------------------------------------
+  // A layer over the body (header and toolbar stay in view and usable), shown
+  // while welcomeDue says so. It is a labelled dialog *within* the panel, not
+  // a modal: the page beside it stays fully usable, and only Got it or Skip
+  // close it — a click elsewhere, a scroll or Esc leave it up. One step shows
+  // at a time (welcomeStepView): a card under the control the step names,
+  // that control ringed; Back and Next walk the steps. The step reached
+  // outlives a collapse (welcomeStep), so an expand picks up where the reader
+  // was. The body under it is inert meanwhile. Focus moves into it when it
+  // appears in the tab in front (welcomeTakesFocus), and to the panel's first
+  // control once it is done.
+  let welcome = null; // { layer, sheet, track, card, ring, …, steps, view, observer, frame } while it shows
+  let welcomeFacts = welcomeFactsFrom(null); // what the worker last said (is the icon pinned?)
+  let welcomeAsking = false;
+  let welcomeStep = 0; // the step reached; back to the first once the welcome is done
+
+  function applyWelcomeUI() {
+    if (!ui) return;
+    const want = visible && welcomeDue(state);
+    if (want && !welcome) askThenOpenWelcome();
+    else if (!want && welcome) closeWelcome();
+  }
+
+  // The pinning line needs the worker's answer, so the welcome opens once it
+  // has come (a round trip to the worker, not a wait on the reader). Asked
+  // afresh each time the welcome opens: "Show the welcome again" after a pin
+  // sees the pin. By then the welcome may no longer be due; it is re-checked.
+  function askThenOpenWelcome() {
+    if (welcomeAsking) return;
+    welcomeAsking = true;
+    Promise.resolve()
+      .then(() => (cbs.askToolbarPin ? cbs.askToolbarPin() : null))
+      .catch(() => null)
+      .then((reply) => {
+        welcomeAsking = false;
+        welcomeFacts = welcomeFactsFrom(reply);
+        if (ui && !welcome && visible && welcomeDue(state)) openWelcome();
+      });
+  }
+
+  // The layer covers the whole panel but takes no pointer events: it holds
+  // the ring drawn round the step's control (header and toolbar stay usable
+  // through it) and the sheet, which covers the body only and holds the
+  // card. The card is built once and filled per step (fillStep), so a button
+  // keeps focus while the reader walks the steps. The dialog is named by the
+  // step's title and described by its lines; the step's text is a polite
+  // live region, so each new step is read out once.
+  function buildWelcome() {
+    const layer = el('div', 'btx-welcome');
+    const ring = el('div', 'btx-welcome-ring');
+    ring.setAttribute('aria-hidden', 'true');
+    ring.hidden = true;
+    layer.appendChild(ring);
+    const sheet = el('div', 'btx-welcome-sheet');
+    const track = el('div', 'btx-welcome-track');
+    const card = el('div', 'btx-welcome-dialog');
+    card.setAttribute('role', 'dialog');
+    card.setAttribute('aria-labelledby', 'btx-welcome-title');
+    card.setAttribute('aria-describedby', 'btx-welcome-lines');
+    card.tabIndex = -1;
+    const content = el('div', 'btx-welcome-step');
+    content.setAttribute('aria-live', 'polite');
+    const head = el('div', 'btx-welcome-head');
+    const title = el('h2', 'btx-welcome-title');
+    title.id = 'btx-welcome-title';
+    const position = el('span', 'btx-welcome-position');
+    head.append(title, position);
+    const lines = el('div', 'btx-welcome-lines');
+    lines.id = 'btx-welcome-lines';
+    content.append(head, lines);
+    const foot = el('div', 'btx-welcome-foot');
+    const skip = el('button', 'btx-welcome-skip', WELCOME_COPY.skip);
+    const back = el('button', 'btx-welcome-back', WELCOME_COPY.back);
+    const next = el('button', 'btx-cta btx-welcome-next');
+    for (const b of [skip, back, next]) b.type = 'button';
+    skip.addEventListener('click', onWelcomeDone);
+    back.addEventListener('click', () => showStep(welcomeStep - 1));
+    next.addEventListener('click', onWelcomeNext);
+    foot.append(skip, back, next);
+    card.append(content, foot);
+    track.appendChild(card);
+    sheet.appendChild(track);
+    layer.appendChild(sheet);
+    // Esc is not Got it, and must not reach the talk reader's Back either.
+    layer.addEventListener('keydown', (e) => { if (e.key === 'Escape') e.stopPropagation(); });
+    return { layer, sheet, track, card, ring, title, position, lines, skip, back, next, steps: welcomeSteps(welcomeFacts), view: null, shownAt: 0 };
+  }
+
+  // Next, or Got it on the last step. A click that lands just after the
+  // step changed is the second half of a double click (Next turns into Got
+  // it in place, and the card may move under the pointer): it is dropped,
+  // so a double click never ends the tour for good.
+  const WELCOME_CLICK_GUARD_MS = 350;
+  function onWelcomeNext() {
+    if (performance.now() - welcome.shownAt < WELCOME_CLICK_GUARD_MS) return;
+    if (welcome.view.last) onWelcomeDone();
+    else showStep(welcomeStep + 1);
+  }
+
+  // Fill the card with step `i` (held to the tour's ends): its text, its
+  // buttons, and which controls dim (all but the step's own, so the ringed
+  // one stands out). Back on the first step is hidden, so focus that sat on
+  // it moves to Next and never drops to the page.
+  function fillStep(i) {
+    const w = welcome;
+    const v = welcomeStepView(w.steps, i);
+    const backHadFocus = document.activeElement === w.back;
+    welcomeStep = v.index;
+    w.view = v;
+    w.shownAt = performance.now();
+    w.title.textContent = v.step.title;
+    w.position.textContent = v.position;
+    w.lines.replaceChildren(...v.step.lines.map((line) => {
+      const p = el('p', line.tip ? 'btx-welcome-line btx-welcome-tip' : 'btx-welcome-line');
+      for (const part of lineParts(line)) p.appendChild(typeof part === 'string' ? document.createTextNode(part) : extensionIcon());
+      return p;
+    }));
+    w.back.hidden = !v.back;
+    w.skip.hidden = !v.skip;
+    w.next.textContent = v.next;
+    w.card.setAttribute('data-btx-step', v.step.id);
+    dimControls(v.step.control);
+    if (backHadFocus && !v.back) w.next.focus({ preventScroll: true });
+  }
+
+  // A step change: fill, then glide the ring to its new control (a resize
+  // places it at once).
+  function showStep(i) {
+    const w = welcome;
+    fillStep(i);
+    if (!w.ring.hidden) {
+      w.ring.classList.add('btx-glide');
+      clearTimeout(w.glide);
+      w.glide = setTimeout(() => w.ring.classList.remove('btx-glide'), 260);
+    }
+    placeWelcome();
+  }
+
+  // Every control the welcome may point at, dimmed but the one `keep`
+  // names (null: none dimmed).
+  function dimControls(keep) {
+    for (const name of CONTROL_NAMES) {
+      for (const node of controlNodes(name)) node.toggleAttribute('data-btx-dim', keep !== null && name !== keep);
+    }
+  }
+
+  // The extension's own toolbar icon, drawn beside its name in words: a
+  // picture of what to look for, so its alt text is empty (the name is
+  // already read out).
+  function extensionIcon() {
+    const img = el('img', 'btx-welcome-icon');
+    img.alt = '';
+    img.width = 16;
+    img.height = 16;
+    try { img.src = chrome.runtime.getURL('icons/icon-32.png'); } catch (e) { /* extension reloaded: the name in words stands */ }
+    return img;
+  }
+
+  // Measure, then place: the sheet starts where the body does (below
+  // whichever chrome rows show); the card and ring go where
+  // calloutPlacement puts them for the step's control, in the layer's
+  // coordinates. A control not showing gets a plain card and no ring.
+  function placeWelcome() {
+    if (!welcome || !welcome.view) return;
+    const { layer, sheet, track, card, ring, view } = welcome;
+    sheet.style.top = `${ui.body.offsetTop}px`;
+    const base = layer.getBoundingClientRect();
+    const rel = (r) => ({ left: r.left - base.left, top: r.top - base.top, width: r.width, height: r.height });
+    const control = unionRect(controlNodes(view.step.control).map((n) => rel(n.getBoundingClientRect())));
+    const area = { left: track.getBoundingClientRect().left - base.left, width: track.clientWidth };
+    const p = calloutPlacement({ control, area, panel: { width: base.width, height: base.height } });
+    card.style.marginLeft = `${p.card.left}px`;
+    card.style.width = `${p.card.width}px`;
+    card.toggleAttribute('data-btx-pointing', p.caret !== null);
+    if (p.caret !== null) card.style.setProperty('--btx-caret-x', `${p.caret}px`);
+    ring.hidden = !p.ring;
+    if (!p.ring) return;
+    ring.style.left = `${p.ring.left}px`;
+    ring.style.top = `${p.ring.top}px`;
+    ring.style.width = `${p.ring.width}px`;
+    ring.style.height = `${p.ring.height}px`;
+  }
+
+  // Re-place once per frame on any size change the placement reads: the
+  // panel (a drag), the chrome rows and their controls, the body's top and
+  // the track's width (a scrollbar appearing in the sheet).
+  function schedulePlaceWelcome() {
+    if (!welcome || welcome.frame) return;
+    welcome.frame = requestAnimationFrame(() => { if (welcome) { welcome.frame = 0; placeWelcome(); } });
+  }
+
+  // Filled before it is in the page, so the live region doesn't read the
+  // first step out on top of the dialog's own announcement. Focus goes to
+  // Next, not to the dialog: the dialog's name and description are read on
+  // the way in, and the first Tab stop is never Skip, which ends the tour.
+  function openWelcome() {
+    welcome = Object.assign(buildWelcome(), { observer: null, frame: 0, glide: 0 });
+    fillStep(welcomeStep);
+    ui.rootEl.setAttribute('data-btx-welcome', '');
+    ui.panel.appendChild(welcome.layer);
+    if (typeof ResizeObserver === 'function') {
+      const observer = new ResizeObserver(schedulePlaceWelcome);
+      for (const node of [ui.panel, ui.header, ui.toolbar, ui.body, welcome.track]) observer.observe(node);
+      for (const name of CONTROL_NAMES) for (const node of controlNodes(name)) observer.observe(node);
+      welcome.observer = observer;
+    }
+    // What the sheet covers is out of reach while it shows: Tab from the
+    // card never lands on a row or talk control the reader can't see, and
+    // Esc never reaches a talk open under it.
+    ui.body.inert = true;
+    placeWelcome();
+    if (welcomeTakesFocus({ hidden: document.hidden, focused: document.hasFocus() })) {
+      welcome.next.focus({ preventScroll: true });
+    }
+  }
+
+  // Collapse, hide, or the welcome done (here or on another computer). Focus
+  // inside it goes to the panel's first control rather than to the page's
+  // top.
+  function closeWelcome() {
+    const { layer, observer, frame, glide } = welcome;
+    const hadFocus = layer.contains(document.activeElement);
+    welcome = null;
+    if (observer) observer.disconnect();
+    if (frame) cancelAnimationFrame(frame);
+    clearTimeout(glide);
+    if (state.welcomeSeen) welcomeStep = 0;
+    layer.remove();
+    dimControls(null);
+    ui.rootEl.removeAttribute('data-btx-welcome');
+    ui.body.inert = false;
+    if (hadFocus && visible && !state.collapsed) firstControl().focus({ preventScroll: true });
+  }
+
+  function firstControl() {
+    return ui.controls['translation-tab'][0];
+  }
+
+  // Got it, or Skip: the welcome is seen, and starts from its first step if
+  // "Show the welcome again" brings it back. Closing moves focus
+  // (closeWelcome): the button had it.
+  function onWelcomeDone() {
+    if (setWelcomeSeen(state, true)) persist({ welcomeSeen: true });
+    applyWelcomeUI();
+  }
+
+  // The nodes a CONTROL_NAMES name stands for (empty for an unknown name or
+  // before the panel is built): what a welcome step points at.
+  function controlNodes(name) {
+    return (ui && ui.controls[name]) ? ui.controls[name].slice() : [];
   }
 
   // The reader's text-size multiplier. It is a *second* variable rather than a
@@ -1299,8 +1773,9 @@
     if (state.collapsed === c) return;
     const hadFocus = ui.rootEl.contains(document.activeElement);
     state.collapsed = c;
-    applyCollapsedUI();
-    if (hadFocus) (c ? ui.tab : ui.collapse).focus();
+    applyCollapsedUI(); // an expand may bring the welcome back, which takes focus
+    const target = hadFocus ? focusOnToggle(state) : null;
+    if (target) (target === 'tab' ? ui.tab : ui.collapse).focus();
     persist({ panelCollapsed: c });
   }
 
@@ -1339,6 +1814,8 @@
     if (changed.includes('sidebarWidth')) applyWidth(next.sidebarWidth);
     if (changed.includes('fontScale')) applyFontScale(next.fontScale);
     if (own) return;
+    // Got it on another computer, or "Show the welcome again".
+    if (changed.includes('welcomeSeen') && setWelcomeSeen(state, next.welcomeSeen)) applyWelcomeUI();
     // When the same write also moved a key the panel doesn't handle, the
     // orchestrator's own settings subscriber will do a full re-render — firing
     // renderMode too would race two renders into the same body.
@@ -1377,7 +1854,7 @@
     ensureRoot();
     await migrateLegacyLocal();
     const s = await SETTINGS().get();
-    state = createState({ mode: s.panelMode, citationView: s.citationView, collapsed: s.panelCollapsed });
+    state = createState({ mode: s.panelMode, citationView: s.citationView, collapsed: s.panelCollapsed, welcomeSeen: s.welcomeSeen });
     scrollSync = s.scrollSync; // before applyModeUI: it asserts the sync predicate
     applyWidth(s.sidebarWidth);
     applyFontScale(s.fontScale);
@@ -1399,6 +1876,7 @@
     setChapter(state, ctx);
     applyModeUI();
     updatePageReserve();
+    applyWelcomeUI();
     scheduleTopChecks(); // the site may re-lay its header out after navigating
     return arrangementOf(state);
   }
@@ -1418,6 +1896,7 @@
     ui.rootEl.style.display = 'none';
     refreshScrollSync(); // `visible` just moved — one of the predicate's inputs
     updatePageReserve();
+    applyWelcomeUI();
   }
 
   // ---- The body's scroll position -------------------------------------------

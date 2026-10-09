@@ -60,7 +60,10 @@ The panel's grouping of corpora, named by each corpus's `sourceType` in the
 pack descriptor and ordered as the descriptor first names them: "General
 Conference" (G+E), "Journal of Discourses" (J), "Teachings of the Prophet
 Joseph Smith" (T, personal pack only). A **source-type group** is the
-collapsible panel section for one of these.
+collapsible panel section for one of these. Its header's hover text is the
+**source note**, the corpus entry's `sourceNote` ("Sermons by early Church
+leaders, published 1854–1886"): one per source type, the same on each of its
+corpora.
 _Avoid_: source (bare — say source type, talk, or BYU DBs depending on which you mean)
 
 **BYU DBs**:
@@ -148,7 +151,8 @@ on it.
 **Translatable** (of a chapter):
 Some enabled text offers *this chapter*: on a Bible chapter always (the
 bundled World English Bible is always enabled), elsewhere an enabled Church
-language the **chapter check** found the chapter in. Publishing the volume is
+language (or English, on a page read in another language, once the reader
+chose it) the **chapter check** found the chapter in. Publishing the volume is
 not enough (a language can lack a chapter of a volume it publishes). The
 **arrangement** reads it from each text's `offered` mark (`null` while the
 check has not asked that language).
@@ -181,8 +185,10 @@ this visit's mode click and this visit's dropdown pick. Answer: the effective
 mode, the body (Citations, loading, the **setup card**, the **beside card**, or
 a text), the text the Translation tab is about, the page's language (the
 **page split**'s, in either mode, or none), the note (`no-translation`,
-`beside-page`, `missing-chapter` or none, with the language it names) and the
-mode a click saves. With Translation stored:
+`beside-page`, `missing-chapter` or none, with the language it names), the
+mode a click saves, and `chooses`: a row on request (English on a page read in
+another language) the Translation tab shows, which the reader thereby chose
+and `content.js` adds to the pick memory. With Translation stored:
 - a text offers the chapter: the latest pick that does (the beside card when
   that text is the page's language; a Bible version beside a page's language
   carries the beside-the-page line; when this visit's dropdown pick lacks the
@@ -207,6 +213,24 @@ setting, so it never shows again on any computer. It never shows with
 Citations stored, on a Bible chapter (the **bundled Bible** always offers
 one), or once dismissed. The **arrangement** answers it (`note`); the panel's
 note slot renders it, above the mounted view and never inside it.
+
+**Welcome**:
+A new reader's tour of the panel, laid over the panel's body as a labelled
+dialog, one **step** at a time (`WELCOME_STEPS` and `welcomeStepView` in the
+panel's pure core): Citations, Translation, Settings, then how to hide the
+panel and bring it back. Each step is a card under the header control it
+names (`CONTROL_NAMES`), its caret aimed at it, and that control ringed
+(`calloutPlacement`) while the others dim. The last step leads with the tab
+collapsing leaves on the window's edge; as smaller tips it names the toolbar
+icon in words with its picture drawn inline, and how to pin it only while it
+isn't pinned. It shows on any panel shown while the synced
+`welcomeSeen` setting is false (`welcomeDue`), so it greets on every chapter
+until **Got it** (the last step) or **Skip**, which write the setting true.
+Collapsing hides it without counting as seen; an expand resumes at the same
+step. Install leaves the setting false
+and opens Alma 5; an update writes it true, so updates never greet; "Show the
+welcome again" writes it false. The page beside the panel stays usable while
+it shows.
 
 **Effective mode**:
 The mode actually showing: the **arrangement**'s mode. It differs from the
@@ -263,8 +287,14 @@ World English Bible.
 
 **Page split**:
 A Church-language chapter set into the site's own reading column, each block
-paired with the English element of the same id (`__BTX.pageSplit`,
-ADR-0007). It is independent of the mode: it shows, in Translation and
+paired with the page's element of the same id (`__BTX.pageSplit`,
+ADR-0007). A page read in another language (`?lang=spa`) offers English as a
+Church language, unticked and on request (`churchText.textsFor`,
+`onRequest`): the reader didn't add it, so it is neither fetched nor the
+page's language until they choose it — a dropdown pick, or opening
+Translation where the tab shows it (the arrangement's `chooses`, remembered
+in the pick memory). Chosen, the same rules set English into the Spanish
+page. It is independent of the mode: it shows, in Translation and
 Citations alike, while the **split layout** is columns or interlinear and the
 **arrangement** names a page's language (`churchText.pageLanguage`): the
 first Church language in the pick memory that offers the chapter; with none,
@@ -414,8 +444,8 @@ One user preference in the synced `btxSettings` object (`chrome.storage.sync`)
 — api key, enabled translations, citation layout, panel mode, panel width,
 collapsed, … Owned end-to-end by `__BTX.settings`: schema, defaults,
 normalization, reads, writes and change events. The panel's own state
-(`panelMode`, `panelCollapsed`, `citationView`, `sidebarWidth`) is settings
-too: in the reader only `__BTX.panel` writes it, and the panel adopts any
+(`panelMode`, `panelCollapsed`, `citationView`, `sidebarWidth`, `welcomeSeen`)
+is settings too: in the reader only `__BTX.panel` writes it, and the panel adopts any
 external write (the options page edits `sidebarWidth`; `citationView`'s only
 editor is the panel's toggle).
 What stays per-machine in `chrome.storage.local` (selected translation,
@@ -468,7 +498,7 @@ A data pack's statement of what it holds — which corpora it indexes, which it
 bundles, which carry snippets — that the reader's corpus plan follows. The
 `pack` field of the pack's `index.json`, written by the build per pack mode:
 flavor, pack vintage, base stamp, derived conferences, and per corpus its
-`sourceType`, `text`, `target`, `excerpt` and `inclusion`.
+`sourceType`, `sourceNote`, `text`, `target`, `excerpt` and `inclusion`.
 _Avoid_: pack manifest (manifest means the extension's), flavor flag
 
 **Rights evidence**:
