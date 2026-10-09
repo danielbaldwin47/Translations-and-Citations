@@ -120,7 +120,9 @@
     CACHE_INDEX_KEY: 'btxCacheIndex',
     BIBLES_CACHE_KEY: 'btxBiblesCache',
     RATE_RECENT_KEY: 'btxRateRecent',
-    RATE_DAILY_PREFIX: 'btxRateDaily::',
+    // This browser's api.bible calls this calendar month, and whether
+    // api.bible's last answer was a 429 (background/ratelimit.js).
+    RATE_MONTH_KEY: 'btxRateMonth',
     // The FUMS device id: created on the first successful Connect, this
     // device only (background/fums.js).
     FUMS_DEVICE_KEY: 'btxFumsDeviceId',
@@ -140,7 +142,11 @@
     // --- Rate limits (api.bible) ---
     RATE_WINDOW_MS: 30 * 1000,
     RATE_WINDOW_MAX: 15, // 15 requests / 30s
-    RATE_DAILY_MAX: 5000, // 5000 requests / day
+    // The free Starter plan's calls a month. Never a cap: the count only
+    // names a state (near from RATE_MONTH_NEAR; paused once api.bible answers
+    // 429 at or past RATE_MONTH_FREE), so a paid plan is never cut short.
+    RATE_MONTH_FREE: 5000,
+    RATE_MONTH_NEAR: 4000, // about 80% of the free plan
 
     // --- Which translation becomes the default, in order of preference ---
     // The options page picks the first of these the reader has turned on, and

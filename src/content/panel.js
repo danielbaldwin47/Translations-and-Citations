@@ -80,8 +80,8 @@
  *                                      a select plus Add), set up api.bible
  *                                      (`bible` 'nokey' | 'noversions' | null),
  *                                      or see the talks
- *                                    { kind:'error', code, name, chapter, church, alternatives, remote, retryAfterMs }
- *                                    { kind:'content', blocks, copyright, lang, dir, besideLink }
+ *                                    { kind:'error', code, name, chapter, church, alternatives, remote, retryAfterMs, rate }
+ *                                    { kind:'content', blocks, copyright, lang, dir, besideLink, rate }
  *                                    { kind:'beside', name, layout, effective, collapseFits }  the text
  *                                      is split into the page (__BTX.pageSplit);
  *                                      the card sets where it shows (LAYOUTS)
@@ -92,7 +92,11 @@
  *                                  isn't English — CJK glyphs and hyphenation
  *                                  depend on it; `dir` 'rtl' for Arabic, …;
  *                                  `besideLink` puts the same layout control
- *                                  above the text, the way back into the page)
+ *                                  above the text, the way back into the page;
+ *                                  `rate` is the month's api.bible state on an
+ *                                  api.bible chapter, see isPaused: paused
+ *                                  turns a RATE_LIMITED card into the paused
+ *                                  line, pausedLine)
  *   updateBeside({ layout, effective, collapseFits })  restate the layout
  *                                  control in place: the reader picked another
  *                                  in-page layout, or the split fit another.
@@ -723,27 +727,55 @@
   // api.bible 429 whose Retry-After is at most RETRY_MAX_WAIT_MS — and only
   // RETRY_MAX times in a row for one chapter and version (`attempts` is how
   // many automatic retries already ran). A 429 with no Retry-After, a longer
-  // one, the daily cap, or a wait that keeps coming back stops at the error
-  // card: every retry spends the reader's api.bible allowance.
+  // one, a paused month (`rate`, below), or a wait that keeps coming back
+  // stops at the error card: every retry spends the reader's api.bible
+  // allowance.
   //   -> ms to wait before the retry, or null for the error card
   const RETRY_MAX_WAIT_MS = 60000;
   const RETRY_MAX = 3;
 
   function retryWait(error, attempts) {
     const e = error || {};
-    if (e.code !== 'RATE_LIMITED') return null;
+    if (e.code !== 'RATE_LIMITED' || isPaused(e.rate)) return null;
     const ms = Number(e.retryAfterMs);
     if (!(ms > 0) || ms > RETRY_MAX_WAIT_MS) return null;
     if (!((Number(attempts) || 0) < RETRY_MAX)) return null;
     return Math.max(1000, Math.ceil(ms));
   }
 
+  // The month's rate state the worker attaches to every api.bible chapter
+  // answer (background/ratelimit.js rateState), carried on the Translation
+  // states as `rate`: { state: 'ok' | 'near' | 'paused', month: 'YYYY-MM',
+  // until?: 'YYYY-MM-DD' }. Paused = api.bible refused at or past the free
+  // plan's monthly limit; its line names the day it comes back.
+  function isPaused(rate) {
+    return !!rate && rate.state === 'paused';
+  }
+
+  const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June', 'July',
+    'August', 'September', 'October', 'November', 'December'];
+
+  // `until` 'YYYY-MM-DD' -> 'November 1'; '' when it isn't a date.
+  function monthDay(until) {
+    const m = /^\d{4}-(\d{2})-(\d{2})$/.exec(String(until || ''));
+    const month = m && MONTH_NAMES[Number(m[1]) - 1];
+    return month && Number(m[2]) >= 1 ? `${month} ${Number(m[2])}` : '';
+  }
+
+  // The paused line (spec #101's copy): no version name, no call counts.
+  function pausedLine(until) {
+    const day = monthDay(until);
+    return day ? `api.bible’s free monthly limit is reached. Back on ${day}.` : 'api.bible’s free monthly limit is reached.';
+  }
+
   // A chapter that failed to load. `code` is a C.ERR code; `church` says it
   // came from the Church's site rather than api.bible; `alternatives` that the
-  // dropdown offers something else to pick. A RATE_LIMITED error that reaches
-  // the card (retryWait said stop) is api.bible refusing the key (`remote`),
-  // the local daily cap (no wait, or one past RETRY_MAX_WAIT_MS), or a short
-  // wait that kept recurring. action: 'settings' | 'retry' | null.
+  // dropdown offers something else to pick; `rate` the month's rate state. A
+  // RATE_LIMITED error that reaches the card (retryWait said stop) is
+  // api.bible refusing: the month used up (`rate` paused: the paused line,
+  // in the api.bible text's place) or the key's allowance for now (`remote`);
+  // or the local burst window's wait kept recurring.
+  // action: 'settings' | 'retry' | null.
   function errorCopy(o) {
     const e = o || {};
     const name = e.name || 'this translation';
@@ -767,6 +799,13 @@
           action: null,
         };
       case 'RATE_LIMITED':
+        if (isPaused(e.rate)) {
+          return {
+            message: pausedLine(e.rate.until),
+            hint: e.alternatives ? 'Chapters you’ve already read still open. Choose another translation above.' : 'Chapters you’ve already read still open.',
+            action: null,
+          };
+        }
         if (e.remote) {
           return {
             message: 'Your api.bible key has used its allowance for now.',
@@ -774,14 +813,7 @@
             action: 'retry',
           };
         }
-        if (e.retryAfterMs > 0 && e.retryAfterMs <= RETRY_MAX_WAIT_MS) {
-          return { message: 'api.bible is busy.', hint: 'Try again in a minute.', action: 'retry' };
-        }
-        return {
-          message: 'You’ve used today’s api.bible allowance.',
-          hint: 'Chapters you’ve already read still open. Others will load again tomorrow.',
-          action: null,
-        };
+        return { message: 'api.bible is busy.', hint: 'Try again in a minute.', action: 'retry' };
       case 'NETWORK':
         return {
           message: e.church ? 'Couldn’t reach churchofjesuschrist.org.' : 'Couldn’t reach api.bible.',
@@ -1120,7 +1152,7 @@
       createState, arrangement, layoutChoice, arrangementOf, effectiveMode, selectMode, selectText, selectCitationView, setChapter, sameChapter,
       welcomeDue, setWelcomeSeen, welcomeTakesFocus, focusOnToggle, CONTROL_NAMES, WELCOME_COPY, WELCOME_STEPS, welcomeSteps, welcomeStepView, welcomeFactsFrom, lineParts,
       CALLOUT_GEOMETRY, calloutPlacement, unionRect,
-      stepFontScale, setupCopy, noteCopy, besideCopy, pressedLayout, layoutClick, roomHint, errorCopy, retryWait, LAYOUTS, RETRY_MAX_WAIT_MS, RETRY_MAX,
+      stepFontScale, setupCopy, noteCopy, besideCopy, pressedLayout, layoutClick, roomHint, errorCopy, pausedLine, retryWait, LAYOUTS, RETRY_MAX_WAIT_MS, RETRY_MAX,
       createViews, saveViewScroll, selectView, keepView, settleView, dropViews, SAME_CHAPTER_VIEWS,
       viewRestoresScroll, wantsScrollSync,
       scrollStep, easeRamp, floorStep, carryScroll, realignmentDone, isForeignScroll,

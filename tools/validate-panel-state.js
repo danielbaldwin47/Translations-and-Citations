@@ -1203,9 +1203,11 @@ console.log('errorCopy:');
   eq(e('NETWORK', { church: true }).message, 'Couldn’t reach churchofjesuschrist.org.', '...and names the site that failed');
   eq(e('UNKNOWN'), { message: 'Something went wrong loading NIV.', hint: '', action: 'retry' }, 'anything else: retry');
   eq(e('NO_KEY').action, 'settings', 'a key removed under enabled versions points to settings');
-  eq(e('RATE_LIMITED').action, null, 'the daily api.bible allowance used up: nothing to do but wait for tomorrow');
-  eq(e('RATE_LIMITED', { retryAfterMs: 5 * 3600 * 1000 }).message, 'You’ve used today’s api.bible allowance.',
-    "the local daily cap (a wait until midnight) is today's allowance");
+  // The local limiter is the 30-second burst window only (no daily cap, #125):
+  // a local refusal that reaches the card is a short wait that kept recurring.
+  eq(e('RATE_LIMITED'), { message: 'api.bible is busy.', hint: 'Try again in a minute.', action: 'retry' },
+    'a local rate limit with no wait left: busy, try again');
+  check(!/today/i.test(JSON.stringify(e('RATE_LIMITED', { retryAfterMs: 5 * 3600 * 1000 }))), '...never "today’s allowance": there is no daily cap');
   eq(e('RATE_LIMITED', { remote: true }),
     { message: 'Your api.bible key has used its allowance for now.', hint: 'Chapters you’ve already read still open. Try again later.', action: 'retry' },
     'api.bible refusing the key (a 429 with no short Retry-After): its allowance, and a Try again');
@@ -1214,6 +1216,23 @@ console.log('errorCopy:');
   eq(e('RATE_LIMITED', { retryAfterMs: 20000 }), { message: 'api.bible is busy.', hint: 'Try again in a minute.', action: 'retry' },
     'a short local wait that kept recurring: busy, try again');
   eq(C.ERR.RATE_LIMITED, 'RATE_LIMITED', "C.ERR.RATE_LIMITED is 'RATE_LIMITED'");
+
+  // api.bible's month is used up (#125): the worker's attached state is
+  // `paused`. The paused line takes the api.bible text's place; the other
+  // texts stay in the dropdown above.
+  const paused = { state: 'paused', month: '2026-10', until: '2026-11-01' };
+  eq(P.pausedLine('2026-11-01'), 'api.bible’s free monthly limit is reached. Back on November 1.', 'the paused line, exactly');
+  eq(P.pausedLine('2027-01-01'), 'api.bible’s free monthly limit is reached. Back on January 1.', '...dated Month D, the month in words');
+  eq(P.pausedLine('2026-12-01'), 'api.bible’s free monthly limit is reached. Back on December 1.', '...December');
+  eq(P.pausedLine(''), 'api.bible’s free monthly limit is reached.', 'no date known: the line without one');
+  eq(P.pausedLine('soon'), 'api.bible’s free monthly limit is reached.', '...nor an unreadable one');
+  eq(e('RATE_LIMITED', { remote: true, rate: paused, alternatives: true }),
+    { message: 'api.bible’s free monthly limit is reached. Back on November 1.', hint: 'Chapters you’ve already read still open. Choose another translation above.', action: null },
+    'api.bible refusing in a paused month: the paused line, the other texts above, no Try again');
+  eq(e('RATE_LIMITED', { remote: true, rate: paused }).hint, 'Chapters you’ve already read still open.', '...the dropdown named only when it has something else');
+  check(!/\d{3}|NIV/.test(JSON.stringify(e('RATE_LIMITED', { remote: true, rate: paused }))), '...no version name, no call counts');
+  eq(e('RATE_LIMITED', { remote: true, rate: { state: 'near', month: '2026-10' } }).message, 'Your api.bible key has used its allowance for now.',
+    'a 429 that is not a pause stays the burst copy');
 }
 
 // ---- When a rate-limited load retries by itself ----
@@ -1236,6 +1255,8 @@ console.log('retryWait:');
     '...the fourth stops at the error card');
   eq(P.retryWait({ code: 'NETWORK', retryAfterMs: 5000 }, 0), null, 'only a rate limit is waited out');
   eq(P.retryWait(null, 0), null, 'no error, no retry');
+  eq(P.retryWait(rl({ remote: true, retryAfterMs: 5000, rate: { state: 'paused', month: '2026-10', until: '2026-11-01' } }), 0), null,
+    'a paused month is never retried by itself, whatever api.bible says to wait');
 }
 
 // ---- Telling our own scroll from the user's ----
