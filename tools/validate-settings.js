@@ -32,7 +32,7 @@ function eq(actual, expected, msg) {
 console.log('Schema:');
 const KEYS = [
   'apiKey', 'provider', 'enabledTranslations', 'defaultTranslationId', 'churchLanguages', 'churchLanguageLayout',
-  'actOnNonEngOnly', 'sidebarWidth', 'fontScale', 'citationView',
+  'sidebarWidth', 'fontScale', 'citationView',
   'panelMode', 'panelCollapsed', 'scrollSync', 'noTranslationLineDismissed',
 ];
 check(Array.isArray(S.KEYS), 'exports KEYS');
@@ -40,7 +40,9 @@ eq(S.KEYS.slice().sort(), KEYS.slice().sort(), 'KEYS covers exactly the known se
 // Retired settings: talks always open at the cited passage, the By source |
 // By verse toggle always shows, and the coloured strip is the one source
 // marking. A value stored by an older version is an unknown key from now on.
-const RETIRED = ['scrollToSnippet', 'showCitationToggle', 'citationSourceMark'];
+// `actOnNonEngOnly` went with the rule that hid the panel on other-language pages:
+// the panel shows on every chapter page now.
+const RETIRED = ['scrollToSnippet', 'showCitationToggle', 'citationSourceMark', 'actOnNonEngOnly'];
 for (const key of RETIRED) {
   check(!S.KEYS.includes(key), `${key} is retired (not a setting)`);
   check(!(key in S.normalize({ [key]: 'stored by an older version' })), `a stored ${key} is not exposed as a setting`);
@@ -105,7 +107,7 @@ for (const bad of ['true', 1, null, undefined, {}]) {
 
 // ---- normalize: booleans ----
 console.log('normalize (booleans):');
-for (const key of ['actOnNonEngOnly', 'scrollSync']) {
+for (const key of ['scrollSync']) {
   eq(S.defaults()[key], true, `${key} defaults to true`);
   eq(S.normalize({ [key]: false })[key], false, `${key} false survives`);
   eq(S.normalize({ [key]: true })[key], true, `${key} true survives`);
@@ -396,6 +398,14 @@ async function storageChecks() {
   eq(store.btxSettings.futureSetting, 'keep me', 'an unknown key survives one of our writes');
   eq((await S.get()).sidebarWidth, 300, 'our own field still went through');
   check(!('futureSetting' in (await S.get())), 'an unknown key is still not exposed as a setting');
+
+  // The retired actOnNonEngOnly: a value an older version stored is an unknown
+  // key, kept harmlessly, never read, and a reader who had it off loses nothing.
+  chrome.storage.sync.set({ btxSettings: Object.assign(S.defaults(), { actOnNonEngOnly: false, sidebarWidth: 350 }) });
+  await S.patch({ scrollSync: false });
+  eq(store.btxSettings.actOnNonEngOnly, false, 'a stored actOnNonEngOnly passes through our writes as an unknown key');
+  eq((await S.get()).sidebarWidth, 350, 'the reader\'s other settings carry on');
+  check(!('actOnNonEngOnly' in (await S.get())), 'the retired actOnNonEngOnly is not exposed as a setting');
 
   // A write that never lands must not leave the cache believing it did.
   const kept = (await S.get()).sidebarWidth;

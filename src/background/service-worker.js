@@ -69,7 +69,6 @@ async function handleGetEnabledTranslations() {
     defaultId: s.defaultTranslationId,
     provider: s.provider,
     hasKey: !!s.apiKey,
-    actOnNonEngOnly: s.actOnNonEngOnly,
     noTranslationLineDismissed: s.noTranslationLineDismissed,
   };
 }

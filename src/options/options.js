@@ -2,7 +2,7 @@
  * Options page: an autosaving editor of the stored settings, in cards whose
  * ids are C.OPTIONS_SECTIONS — `bible` (api.bible key and which translations
  * the panel offers), `languages` (Church languages and where they show),
- * `reading` (text size, panel width, scroll sync, pages in other languages),
+ * `reading` (text size, panel width, scroll sync),
  * and `about` (version, pack vintage, source lines, privacy and support
  * links: text only, no control, so nothing for the autosave; aboutCopy).
  *
@@ -289,7 +289,7 @@
   // ---- Church languages ----
 
   // The checklist's languages: the table minus English, which is the page's
-  // own language (the reader runs on English pages unless told otherwise).
+  // own language.
   function offeredLanguages(table) {
     return (table || []).filter((l) => l.code !== 'eng');
   }
@@ -404,7 +404,6 @@
     sidebarWidth: $('sidebarWidth'),
     sidebarWidthOut: $('sidebarWidthOut'),
     scrollSync: $('scrollSync'),
-    showOnOtherLanguages: $('showOnOtherLanguages'),
     aboutVersion: $('aboutVersion'),
     aboutVintage: $('aboutVintage'),
     aboutSources: $('aboutSources'),
@@ -966,13 +965,6 @@
       write: (v) => { els.sidebarWidth.value = String(v); showWidth(v); },
     },
     { key: 'scrollSync', node: els.scrollSync, read: () => els.scrollSync.checked, write: (v) => { els.scrollSync.checked = v; } },
-    // Stored as "English pages only"; asked the other way round.
-    {
-      key: 'actOnNonEngOnly',
-      node: els.showOnOtherLanguages,
-      read: () => !els.showOnOtherLanguages.checked,
-      write: (v) => { els.showOnOtherLanguages.checked = !v; },
-    },
   ];
   const FIELD_KEYS = FIELDS.map((f) => f.key);
 
