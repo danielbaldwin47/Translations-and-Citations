@@ -32,7 +32,7 @@
  * Browser events: the toolbar icon sends TOGGLE_PANEL to the tab. It opens
  * the options page instead on a tab without our content script, and on a
  * Gospel Library page showing no chapter (the reply says `shown: false`); a
- * fresh install opens the options page.
+ * fresh install (reason `install`, never an update) opens Alma 5 in a new tab.
  *
  * Classic (non-module) worker so a single IIFE authoring style works everywhere;
  * dependencies are pulled in with importScripts in dependency order.
@@ -186,7 +186,8 @@ chrome.action.onClicked.addListener((tab) => {
   });
 });
 
-// ---- First install: open the options page (what works, and where to start) ----
+// ---- First install: open Alma 5, where the panel is already at work ----
+// `install` only: an update, a browser update or a shared-module update opens nothing.
 chrome.runtime.onInstalled.addListener((details) => {
-  if (details && details.reason === 'install') chrome.runtime.openOptionsPage();
+  if (details && details.reason === 'install') chrome.tabs.create({ url: C.FIRST_RUN_URL });
 });
