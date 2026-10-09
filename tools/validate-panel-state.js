@@ -58,15 +58,17 @@ eq(s.collapsed, false, 'garbage collapsed falls back to false');
 // ---- The arrangement ----
 // What the panel body shows and which mode a click saves, from the chapter's
 // texts (each offered or not: chapterOffer's rows), the pick memory, the
-// enabled Church languages, the split layout, the stored mode and this
-// visit's mode click. Each row is one reader's journey: chapters shown
-// (setChapter: a new one, or the same one again after a settings change) and
-// mode clicks (selectMode), each followed by what the reader sees — the
+// enabled Church languages, the split layout, the stored mode, and this
+// visit's mode click and dropdown pick. Each row is one reader's journey:
+// chapters shown (setChapter: a new one, or the same one again after a
+// settings change), mode clicks (selectMode), dropdown picks (selectText) and
+// layout picks, each followed by what the reader sees — the
 // effective mode, the body, the text the Translation tab is about — and the
 // stored mode (`saved`).
 const WEB = { id: 'engwebp', provider: 'bundled', offered: true };
 const NIV = { id: 'niv', provider: 'apibible', offered: true };
 const church = (lang, offered) => ({ id: 'church:' + lang, provider: 'church', lang, offered });
+const failed = (row) => Object.assign(row, { failed: true }); // chapterOffer's mark: the check hit a network error
 // A chapter as content.js describes it to the panel.
 const chapter = (key, texts, languages, more) => Object.assign({ key, texts, picks: [], languages, layout: 'columns' }, more);
 const MOSIAH3 = chapter('bofm/mosiah/3', [], []); // no Church language on: nothing offers it
@@ -251,6 +253,51 @@ const ARRANGEMENT_CASES = [
     [{ chapter: chapter('nt/john/3', [WEB, NIV, church('spa', true)], ['spa'], { picks: ['niv', 'church:spa'] }) },
       { mode: 'translation', body: 'text', text: 'niv', page: 'church:spa', note: 'beside-page', noteLang: 'spa' }],
   ] },
+  // The page's language with no pick naming one (B2): what the Translation
+  // tab selects, only when that is a language.
+  { name: 'John 3, no picks, Spanish on: the Bible in the panel, no page language', init: { mode: 'translation' }, steps: [
+    [{ chapter: chapter('nt/john/3', [WEB, church('spa', true)], ['spa']) },
+      { mode: 'translation', body: 'text', text: 'engwebp', page: null, pageNext: null, note: null }],
+    [{ click: 'citations' }, { mode: 'citations', page: null, pageNext: null }],
+  ] },
+  { name: 'Alma 5, no picks, Spanish on, side by side: Spanish holds the page', init: {}, steps: [
+    [{ chapter: chapter('bofm/alma/5', [church('spa', true)], ['spa']) }, { mode: 'citations', page: 'church:spa', pageNext: null }],
+  ] },
+  // A check that failed (network) offers the panel's text, for its error
+  // card and Try again, never the page (B1).
+  { name: 'Spanish\'s check failed: the panel tries Spanish, the next offering pick holds the page', init: { mode: 'translation' }, steps: [
+    [{ chapter: chapter('bofm/alma/5', [failed(church('spa', true)), church('jpn', true)], ['spa', 'jpn'], { picks: ['church:spa', 'church:jpn'] }) },
+      { mode: 'translation', body: 'text', text: 'church:spa', page: 'church:jpn', note: null }],
+    [{ click: 'citations' }, { mode: 'citations', page: 'church:jpn' }],
+    [{ chapter: chapter('bofm/alma/6', [failed(church('spa', true))], ['spa'], { picks: ['church:spa'] }) },
+      { mode: 'citations', page: null, pageNext: null }],
+  ] },
+  // A dropdown pick of a language the check hasn't reached (B3): the loading
+  // state while it asks, then, lacking the chapter, the text before it with
+  // the missing-chapter line instead of a silent fallback.
+  { name: 'Pohnpeian picked on D&C 84 while its check runs: loading, then Spanish with the missing-chapter line', init: { mode: 'translation' }, steps: [
+    [{ chapter: chapter('dc-testament/dc/84', [church('spa', true), church('pon', null)], ['spa', 'pon'], { picks: ['church:spa'], layout: 'panel' }) },
+      { body: 'text', text: 'church:spa', note: null }],
+    [{ pick: 'church:pon' }, { mode: 'translation', body: 'loading', note: null }],
+    [{ chapter: chapter('dc-testament/dc/84', [church('spa', true), church('pon', false)], ['spa', 'pon'], { picks: ['church:pon', 'church:spa'], layout: 'panel' }) },
+      { mode: 'translation', body: 'text', text: 'church:spa', note: 'missing-chapter', noteLang: 'pon' }],
+    [{ click: 'citations' }, { mode: 'citations', note: null }],
+    [{ click: 'translation' }, { mode: 'translation', text: 'church:spa', note: 'missing-chapter', noteLang: 'pon' }],
+    [{ pick: 'church:spa' }, { body: 'text', text: 'church:spa', note: null }],
+  ] },
+  { name: 'the missing-chapter line is the visit\'s: the next chapter has none', init: { mode: 'translation' }, steps: [
+    [{ chapter: chapter('dc-testament/dc/84', [church('spa', true), church('pon', false)], ['spa', 'pon'], { picks: ['church:spa'] }) },
+      { body: 'beside', text: 'church:spa', note: null }],
+    [{ pick: 'church:pon' }, { body: 'beside', text: 'church:spa', note: 'missing-chapter', noteLang: 'pon' }],
+    [{ chapter: chapter('dc-testament/dc/85', [church('spa', true), church('pon', false)], ['spa', 'pon'], { picks: ['church:pon', 'church:spa'] }) },
+      { body: 'beside', text: 'church:spa', note: null }],
+  ] },
+  { name: 'a pick that lacks the chapter and leaves nothing: the no-translation line says it', init: { mode: 'translation' }, steps: [
+    [{ chapter: chapter('dc-testament/dc/84', [church('pon', null)], ['pon'], { picks: [] }) }, { body: 'loading' }],
+    [{ pick: 'church:pon' }, { body: 'loading' }],
+    [{ chapter: chapter('dc-testament/dc/84', [church('pon', false)], ['pon'], { picks: ['church:pon'] }) },
+      { mode: 'citations', note: 'no-translation', noteLang: 'pon' }],
+  ] },
   { name: 'before any chapter: the stored mode, Translation as its loading state', init: { mode: 'translation' }, steps: [
     [{}, { mode: 'translation', body: 'loading', saved: 'translation' }],
   ] },
@@ -262,12 +309,18 @@ for (const c of ARRANGEMENT_CASES) {
   c.steps.forEach(([act, want], i) => {
     if (act.chapter) P.setChapter(s, act.chapter);
     if (act.click) P.selectMode(s, act.click);
+    if (act.pick) {
+      // A dropdown pick, as content.js applies it: remembered, then the
+      // same chapter arranged again.
+      P.selectText(s, act.pick);
+      P.setChapter(s, Object.assign({ key: s.chapter }, s.facts, { picks: CT.rememberPick(s.facts.picks, act.pick) }));
+    }
     if (act.layout) {
       // What content.js does with a layout pick: write the setting, remember
       // the row it names, and arrange the same chapter again.
-      const w = P.layoutChoice(P.arrangementOf(s), act.layout);
-      const picks = w.pick ? CT.rememberPick(s.facts.picks, w.pick) : s.facts.picks;
-      P.setChapter(s, Object.assign({ key: s.chapter }, s.facts, { layout: w.layout, picks }));
+      const pick = P.layoutChoice(P.arrangementOf(s), act.layout);
+      const picks = pick ? CT.rememberPick(s.facts.picks, pick) : s.facts.picks;
+      P.setChapter(s, Object.assign({ key: s.chapter }, s.facts, { layout: act.layout, picks }));
     }
     const a = P.arrangementOf(s);
     const got = {};
@@ -783,12 +836,17 @@ eq(notches, Math.round((SCALE.max - SCALE.min) / SCALE.step), 'the walk hits eve
 // Copy rules the DOM shell renders verbatim: which heading, which action.
 console.log('noteCopy:');
 {
-  const n = P.noteCopy({ kind: 'no-translation', language: 'Kiribati', chapter: 'Doctrine and Covenants 76' });
+  // `row` is the language's dropdown row: { abbr: native name, name: English name }.
+  const GIL = { abbr: 'Kiribati', name: 'Kiribati' };
+  const SPA = { abbr: 'Español', name: 'Spanish' };
+  const n = P.noteCopy({ kind: 'no-translation', row: GIL, chapter: 'Doctrine and Covenants 76' });
   eq(n.text, 'No Kiribati translation for Doctrine and Covenants 76.', 'the no-translation line names the language and the chapter');
   eq(n.view, 'citations', '...and sits above the citation list');
   eq(n.actions.map((a) => [a.id, a.label]), [['add', 'Add a language'], ['dismiss', '×']], '...with Add a language, then ×');
   check(typeof n.actions[1].title === 'string' && n.actions[1].title.length > 0, '...the × is named for assistive tech');
-  const b = P.noteCopy({ kind: 'beside-page', language: 'Español' });
+  eq(P.noteCopy({ kind: 'no-translation', row: SPA, chapter: 'Alma 5' }).text, 'No Spanish translation for Alma 5.',
+    '...naming the language in English');
+  const b = P.noteCopy({ kind: 'beside-page', row: SPA });
   eq([b.text, b.view], ['Español is beside the page text ·', 'translation'],
     'the beside-the-page line names the language on the page, above the Bible version in the panel');
   eq(b.actions.map((a) => [a.id, a.label]), [['change', 'Change']], '...with Change (the layout control, in its place) and no ×');
@@ -796,6 +854,11 @@ console.log('noteCopy:');
   eq(P.noteCopy(null), null, 'no note, no copy');
   eq(P.noteCopy({ kind: 'bogus' }), null, 'an unknown note kind has no copy');
   eq(P.noteCopy({ kind: 'no-translation' }).text, 'No translation for this chapter.', 'missing names fall back to a plain sentence');
+  eq(P.noteCopy({ kind: 'beside-page', row: { abbr: '', name: 'English' } }).text, 'English is beside the page text ·',
+    '...a language with no native name apart reads by its one name');
+  const m = P.noteCopy({ kind: 'missing-chapter', row: { abbr: 'Pohnpei', name: 'Pohnpeian' }, chapter: 'Doctrine and Covenants 84' });
+  eq([m.text, m.view, m.actions], ['No Pohnpeian translation for Doctrine and Covenants 84.', 'translation', []],
+    'the missing-chapter line: the dropdown pick lacks the chapter, said once above the Translation tab, no buttons');
 }
 
 console.log('setupCopy:');
@@ -1045,7 +1108,7 @@ check(/typeof citPanel\.refocus === 'function'/.test(contentSrc) && /typeof citP
 // for the split too: after a Try again the split's own earlier load may have
 // failed.
 const churchSrc = (contentSrc.match(/async function loadChurchChapter\([^)]*\) \{[\s\S]*?\n {2}\}\n/) || [''])[0];
-check(/if \(panel\.arrangement\(\)\.body === 'beside'\) \{[\s\S]*?syncSplit\(\);[\s\S]*?kind: 'beside'/.test(churchSrc),
+check(/if \(arranged\.body === 'beside'\) \{[\s\S]*?syncSplit\(\);[\s\S]*?kind: 'beside'/.test(churchSrc),
   'the beside card is never shown without asking for the page split');
 // The orchestrator holds no mode rule: it describes the chapter to the
 // arrangement and applies the answer.

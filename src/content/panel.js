@@ -1,7 +1,7 @@
 /*
  * The side panel — a deep module that owns everything panel-shaped: its DOM,
  * its state (mode, citation layout, collapsed, width, this visit's mode
- * click), the arrangement (what its body shows), the persistence of that
+ * click and dropdown pick), the arrangement (what its body shows), the persistence of that
  * state through __BTX.settings, scroll-sync, and drag-to-resize. It is also the *view
  * host*: callers ask for a named view and the panel decides whether to
  * rebuild it or re-mount the one it cached, and it is the only writer of the
@@ -17,7 +17,8 @@
  *                                  arrange it: `key` names the chapter, the
  *                                  rest are the arrangement's facts (see the
  *                                  pure arrangement). Another chapter starts
- *                                  a new visit (its mode click goes) and
+ *                                  a new visit (its mode click and dropdown
+ *                                  pick go) and
  *                                  invalidates every cached view; the same
  *                                  one again (a settings change) keeps the
  *                                  click, Citations and the talk
@@ -25,17 +26,22 @@
  *                                  a fact about the chapter showing moved
  *                                  (the chapter check settled, a pick): the
  *                                  arrangement again, no view dropped
- *   arrangement()                  the current answer: { mode, body, text,
+ *   arrangement(facts?)            the current answer: { mode, body, text,
  *                                  saves, note, noteLang, page, pageNext };
  *                                  the orchestrator applies `body` and `note`
- *                                  to the panel and `page` to the page split
- *   setNote({ kind, language, chapter, layout } | null)
+ *                                  to the panel and `page` to the page split.
+ *                                  With `facts`, the answer they would give
+ *                                  this visit, nothing stored (a question
+ *                                  asked while the chapter check runs)
+ *   setNote({ kind, row, chapter, layout } | null)
  *                                  the note slot: one quiet line at the top of
  *                                  the body, above the mounted view (copy: the
- *                                  pure noteCopy). It shows while the view it
+ *                                  pure noteCopy; `row` is the language's
+ *                                  churchText row). It shows while the view it
  *                                  belongs to is mounted (the no-translation
- *                                  line: Citations; the beside-the-page line:
- *                                  Translation) and goes with any other; a
+ *                                  line: Citations; the beside-the-page and
+ *                                  missing-chapter lines: Translation) and
+ *                                  goes with any other; a
  *                                  line coming or going keeps the reader's
  *                                  place. Its buttons: Add a language = a
  *                                  Translation click, × = onDismissNote,
@@ -160,9 +166,9 @@
 
   const C = (root.__BTX && root.__BTX.const)
     || (typeof require === 'function' ? require('../shared/constants.js') : null);
-  // The pick order the arrangement walks (loaded before this file in the
-  // manifest; required in Node).
-  const CT = () => (root.__BTX && root.__BTX.churchText) || require('./church-text.js');
+  // __BTX.churchText, whose walks the arrangement shares (loaded before this
+  // file in the manifest; required in Node).
+  const churchText = () => (root.__BTX && root.__BTX.churchText) || require('./church-text.js');
 
   // ---- Pure state core (Node-testable) -----------------------------------
   // The panel's state machine, free of DOM: which mode is effective and what
@@ -177,22 +183,23 @@
       chapter: null, // the key of the chapter showing
       facts: null, // what content.js last said about it (setChapter / arrange)
       click: null, // this visit's mode click: cleared by the next chapter
+      picked: null, // this visit's dropdown pick (a row id): cleared by the next chapter
     };
   }
 
   // ---- The arrangement --------------------------------------------------------
   // The one rule for what the panel shows (GLOSSARY: Arrangement). Pure:
-  //   arrangement({ texts, picks, languages, layout, mode, click }) -> {
+  //   arrangement({ texts, picks, languages, layout, dismissed, mode, click, picked }) -> {
   //     mode:  'translation' | 'citations'   the effective mode
   //     body:  'citations' | 'loading' | 'setup' | 'beside' | 'text'
   //     text:  row id | null    the row the Translation tab is about ('beside', 'text')
   //     saves: 'translation' | 'citations' | null   what the click writes to panelMode
-  //     note:  'no-translation' | 'beside-page' | null   the one quiet line above the body
+  //     note:  'no-translation' | 'beside-page' | 'missing-chapter' | null   the one quiet line above the body
   //     noteLang: Church code | null     the language the line names
   //     page:  Church row id | null      the page split's language, in either mode
   //     pageNext: lang | null            a language the check must ask before `page` is known
   //   }
-  // Inputs, from content.js except the last two (the panel's own state):
+  // Inputs, from content.js except the last three (the panel's own state):
   //   texts      the rows that may sit beside this chapter, each with
   //              `offered` true | false | null (chapterOffer's texts; null =
   //              the chapter check hasn't asked yet). Not an array: nothing is
@@ -201,17 +208,20 @@
   //   languages  the enabled Church language codes
   //   layout     churchLanguageLayout: a Church row shows as the beside card
   //              unless it is 'panel'
-  //   mode       the stored panelMode
-  //   click      this visit's mode click, or null
   //   dismissed  the reader pressed × on the no-translation line (a synced
   //              setting, noTranslationLineDismissed)
+  //   mode       the stored panelMode
+  //   click      this visit's mode click, or null
+  //   picked     this visit's dropdown pick (a row id), or null
   // A click is saved on any chapter. Stored Citations shows Citations. Stored
-  // Translation walks the texts in pick order (churchText.pickOrder, the walk
-  // the chapter check makes): the first one offered shows; one not yet checked
+  // Translation walks the texts with churchText.firstOffered (the walk the
+  // chapter check makes): the first one offered shows; one not yet checked
   // before it means the loading state (so Citations never paints first, then
-  // switches); with nothing offered, the setup card when no Church language is
-  // on or the reader clicked Translation on this visit, else Citations with
-  // the no-translation line (note) unless it was dismissed. The page's
+  // switches). When this visit's dropdown pick lacks the chapter, the text
+  // shown in its place carries the missing-chapter line. With nothing
+  // offered, the setup card when no Church language is on or the reader
+  // clicked Translation on this visit, else Citations with the
+  // no-translation line (note) unless it was dismissed. The page's
   // language is churchText.pageLanguage, whatever the mode; the text it
   // names shows as the beside card ('beside' means text === page), any other
   // text in the panel (NIV beside Español on the page), with the
@@ -224,24 +234,31 @@
     const saves = click && click !== stored ? click : null;
     // The page's language is the same in either mode (the split stays on the
     // page in Citations).
-    const page = CT().pageLanguage({ texts: o.texts, picks: o.picks, layout: o.layout });
+    const ct = churchText();
+    const page = ct.pageLanguage({ texts: o.texts, picks: o.picks, layout: o.layout });
     const show = (m, body, text, note, noteLang) => ({
       mode: m, body, text: text || null, saves, note: note || null, noteLang: noteLang || null,
       page: page.id, pageNext: page.next,
     });
     if (mode !== 'translation') return show('citations', 'citations');
     if (!Array.isArray(o.texts)) return show('translation', 'loading');
-    for (const row of CT().pickOrder(o.texts, o.picks)) {
-      if (row.offered === null) return show('translation', 'loading');
-      if (row.offered !== true) continue;
+    const walk = ct.firstOffered(o.texts, o.picks);
+    if (walk.next) return show('translation', 'loading');
+    const row = walk.row;
+    if (row) {
+      // This visit's dropdown pick lacks the chapter: the line says so above
+      // the text shown in its place.
+      const missed = o.texts.find((t) => t.id === o.picked && t.offered === false && t.provider === ct.PROVIDER);
+      const body = row.id === page.id ? 'beside' : 'text';
+      if (missed) return show('translation', body, row.id, 'missing-chapter', missed.lang);
       // The text the tab is about holds the page: the beside card says so.
-      if (row.id === page.id) return show('translation', 'beside', row.id);
+      if (body === 'beside') return show('translation', body, row.id);
       // A Bible version in the panel while a language holds the page: the
       // line says where the language went (Bible rows never hold the page).
-      if (page.id && row.provider !== CT().PROVIDER) {
-        return show('translation', 'text', row.id, 'beside-page', page.id.slice(CT().ID_PREFIX.length));
+      if (page.id && row.provider !== ct.PROVIDER) {
+        return show('translation', body, row.id, 'beside-page', page.id.slice(ct.ID_PREFIX.length));
       }
-      return show('translation', 'text', row.id);
+      return show('translation', body, row.id);
     }
     const anyLanguage = Array.isArray(o.languages) && o.languages.length > 0;
     if (!anyLanguage || click === 'translation') return show('translation', 'setup');
@@ -253,7 +270,7 @@
   // nearest the front of the pick memory (so it speaks about the text the
   // reader expected), else the first enabled one. Pick ids are `church:{code}`.
   function noteLanguage(picks, languages) {
-    const prefix = CT().ID_PREFIX;
+    const prefix = churchText().ID_PREFIX;
     for (const id of Array.isArray(picks) ? picks : []) {
       if (typeof id !== 'string' || !id.startsWith(prefix)) continue;
       const code = id.slice(prefix.length);
@@ -268,16 +285,16 @@
   // the page's language into the panel makes it the text the Translation tab
   // shows, in the place of the Bible version beside it (the dropdown then
   // selects it); every other pick leaves the pick memory alone.
-  //   layoutChoice(arrangement, layout) -> { layout, pick }
+  //   layoutChoice(arrangement, layout) -> row id | null   the row the pick makes the pick
   function layoutChoice(a, layout) {
     const page = a && a.page;
-    return { layout, pick: layout === 'panel' && page ? page : null };
+    return layout === 'panel' && page ? page : null;
   }
 
   // The arrangement of the panel's state: its stored mode and this visit's
   // click over what content.js last said about the chapter.
   function arrangementOf(s) {
-    return arrangement(Object.assign({}, s.facts, { mode: s.mode, click: s.click }));
+    return arrangement(Object.assign({}, s.facts, { mode: s.mode, click: s.click, picked: s.picked }));
   }
 
   // The mode showing: the arrangement's. panel.effectiveMode() reads it.
@@ -295,6 +312,12 @@
     const a = arrangementOf(s);
     if (a.saves) s.mode = a.saves;
     return a.mode !== before;
+  }
+
+  // A dropdown pick: this visit's, so a pick lacking the chapter is said
+  // (the arrangement's missing-chapter line) rather than silently replaced.
+  function selectText(s, id) {
+    s.picked = typeof id === 'string' && id ? id : null;
   }
 
   // A citation-layout click. Only acts while citations are showing.
@@ -315,7 +338,7 @@
     const c = chapter || {};
     const before = effectiveMode(s);
     const key = c.key == null ? null : String(c.key);
-    if (key === null || key !== s.chapter) s.click = null;
+    if (key === null || key !== s.chapter) Object.assign(s, { click: null, picked: null });
     s.chapter = key;
     s.facts = factsOf(c);
     return effectiveMode(s) !== before;
@@ -380,29 +403,40 @@
   }
 
   // The one quiet line above the body (the arrangement's `note`). `note` is
-  // { kind, language, chapter }: the kind the arrangement answered, with the
-  // language and chapter named as a sentence names them ("Kiribati",
-  // "Doctrine and Covenants 76"). -> { view, text, actions: [{ id, label,
-  // title? }] } or null. `view` is the named view the line sits above: it is
-  // shown only while that view is mounted. The actions' ids are the shell's
-  // verbs: 'add' opens the setup card for this visit, 'dismiss' is the ×,
-  // 'change' opens the layout control in the line's place.
-  // Kinds: 'no-translation' (above Citations: nothing offers the chapter) and
-  // 'beside-page' (above a Bible version in the panel: the language holding
-  // the page, named as the dropdown leads its row, "Español").
+  // { kind, row, chapter }: the kind the arrangement answered, the language's
+  // row ({ abbr: its own name, name: its English name }) and the chapter as
+  // a sentence names it ("Doctrine and Covenants 76").
+  //   -> { view, language, text, actions: [{ id, label, title? }] } or null
+  // `view` is the named view the line sits above: it is shown only while that
+  // view is mounted. `language` is the name the line uses. The actions' ids
+  // are the shell's verbs: 'add' opens the setup card for this visit,
+  // 'dismiss' is the ×, 'change' opens the layout control in the line's place.
+  // Kinds, each naming the language its own way:
+  //   'no-translation'  above Citations: nothing offers the chapter ("Kiribati")
+  //   'missing-chapter' above Translation: this visit's dropdown pick lacks
+  //                     the chapter ("Pohnpeian"); no buttons
+  //   'beside-page'     above a Bible version in the panel: the language
+  //                     holding the page, as the dropdown leads its row ("Español")
   function noteCopy(note) {
-    if (note && note.kind === 'beside-page') {
+    const kind = note && note.kind;
+    const row = (note && note.row) || {};
+    if (kind === 'beside-page') {
+      const language = row.abbr || row.name || '';
       return {
         view: 'translation',
-        text: `${note.language || 'A language'} is beside the page text ·`,
+        language,
+        text: `${language || 'A language'} is beside the page text ·`,
         actions: [{ id: 'change', label: 'Change' }],
       };
     }
-    if (!note || note.kind !== 'no-translation') return null;
-    const named = note.language && note.chapter;
+    if (kind !== 'no-translation' && kind !== 'missing-chapter') return null;
+    const language = row.name || '';
+    const text = language && note.chapter ? `No ${language} translation for ${note.chapter}.` : 'No translation for this chapter.';
+    if (kind === 'missing-chapter') return { view: 'translation', language, text, actions: [] };
     return {
       view: 'citations',
-      text: named ? `No ${note.language} translation for ${note.chapter}.` : 'No translation for this chapter.',
+      language,
+      text,
       actions: [
         { id: 'add', label: 'Add a language' },
         { id: 'dismiss', label: '×', title: 'Dismiss for good' },
@@ -876,7 +910,7 @@
 
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = {
-      createState, arrangement, layoutChoice, arrangementOf, effectiveMode, selectMode, selectCitationView, setChapter, sameChapter,
+      createState, arrangement, layoutChoice, arrangementOf, effectiveMode, selectMode, selectText, selectCitationView, setChapter, sameChapter,
       stepFontScale, setupCopy, noteCopy, besideCopy, pressedLayout, layoutClick, roomHint, errorCopy, retryWait, LAYOUTS, RETRY_MAX_WAIT_MS, RETRY_MAX,
       createViews, saveViewScroll, selectView, keepView, settleView, dropViews, SAME_CHAPTER_VIEWS,
       viewRestoresScroll, wantsScrollSync,
@@ -1066,6 +1100,7 @@
     // Wire controls.
     select.addEventListener('change', () => {
       showSelectedTitle();
+      selectText(state, select.value);
       if (cbs.onTranslationChange) cbs.onTranslationChange(select.value);
     });
     smaller.addEventListener('click', () => onFontStep(-1));
@@ -1585,13 +1620,10 @@
     if (note.layout !== note.nudgedFor) Object.assign(note, { nudged: false, nudgedFor: note.layout });
     const hint = note.nudged ? roomHint(Object.assign({ layout: note.layout, sheet: inSheet() }, splitFit)) : '';
     if (hint !== note.hint.textContent) {
-      const view = views.active && views.entries[views.active];
-      const top = () => (view && view.node ? view.node.getBoundingClientRect().top : 0);
-      const before = top();
-      note.hint.textContent = hint;
-      note.hint.hidden = !hint;
-      const moved = top() - before;
-      if (moved && ui && ui.body.scrollTop > 0) setBodyScroll(ui.body.scrollTop + moved);
+      keepPlace(() => {
+        note.hint.textContent = hint;
+        note.hint.hidden = !hint;
+      });
     }
     note.control.press();
   }
@@ -1612,7 +1644,7 @@
     }
   }
 
-  // Show `n` ({ kind, language, chapter, layout }) or, with null, no line.
+  // Show `n` ({ kind, row, chapter, layout }) or, with null, no line.
   // `layout` is the split layout an opened Change control presses. The same
   // line again changes nothing but that: an open control re-presses in place
   // (focus stays on it). One coming or going keeps the reader's place.
@@ -1628,13 +1660,21 @@
       }
       return;
     }
+    keepPlace(() => {
+      note = copy ? { key, copy, node: buildNote(copy), layout: n.layout, language: copy.language, control: null } : null;
+      placeNote();
+    });
+  }
+
+  // Run `change` (the note slot growing or shrinking above the mounted view)
+  // and keep the reader's place: the body scrolls by as far as the view moved.
+  function keepPlace(change) {
     const view = views.active && views.entries[views.active];
     const top = () => (view && view.node ? view.node.getBoundingClientRect().top : 0);
     const before = top();
-    note = copy ? { key, copy, node: buildNote(copy), layout: n.layout, language: n.language, control: null } : null;
-    placeNote();
+    change();
     const moved = top() - before;
-    if (moved && ui.body.scrollTop > 0) setBodyScroll(ui.body.scrollTop + moved);
+    if (moved && ui && ui.body.scrollTop > 0) setBodyScroll(ui.body.scrollTop + moved);
   }
 
   // Position a view that has just mounted, twice: once now and once next frame.
@@ -1803,7 +1843,7 @@
   // (layoutChoice: the page's language, moving into the panel).
   function pickLayout(value) {
     refocusLayout = !!ui && ui.rootEl.contains(document.activeElement);
-    if (cbs.onLayoutChange) cbs.onLayoutChange(value, layoutChoice(arrangementOf(state), value).pick);
+    if (cbs.onLayoutChange) cbs.onLayoutChange(value, layoutChoice(arrangementOf(state), value));
   }
 
   // Where a Church language shows (LAYOUTS), as one segmented control: on the
@@ -2080,11 +2120,21 @@
   }
 
   // The translation dropdown, from __BTX.churchText.menuFor: its groups, headed
-  // or not as menuFor says. Empty, it hides — the setup card is showing.
+  // or not as menuFor says. Empty, it hides — the setup card is showing. The
+  // same rows again are only re-selected, not rebuilt (the background chapter
+  // check restates them, perhaps while the reader has the select open).
+  let menuShown = null;
   function populateTranslations(menu, selectedId) {
     ensureRoot();
-    ui.select.textContent = '';
     const groups = Array.isArray(menu) ? menu : [];
+    const key = JSON.stringify(groups);
+    if (key === menuShown && ui.select.options.length) {
+      if (selectedId && ui.select.value !== selectedId) ui.select.value = selectedId;
+      showSelectedTitle();
+      return;
+    }
+    menuShown = key;
+    ui.select.textContent = '';
     ui.select.hidden = !groups.some((g) => g.items && g.items.length);
     for (const g of groups) {
       let parent = ui.select;
@@ -2344,7 +2394,7 @@
       showChapter,
       hide,
       arrange,
-      arrangement: () => arrangementOf(state),
+      arrangement: (facts) => arrangementOf(facts ? Object.assign({}, state, { facts: factsOf(facts) }) : state),
       effectiveMode: () => effectiveMode(state),
       citationView: () => state.citationView,
       toggleCollapsed: (force) => {

@@ -141,9 +141,15 @@ console.log('chapterOffer:');
   eq([o.next, o.pick, o.translatable], [null, 'church:spa', true],
     'Español picked last and found: no need to check Kiribati at all');
   eq(offered(o), [['church:gil', null], ['church:spa', true]], '...Kiribati stays not yet checked');
+  eq(o.unchecked, ['gil'], '...and is what the background check asks once the panel settles, so a dropdown row lacking the chapter drops out');
+  o = offer(dc, { spa: 'found', gil: 'unavailable' }, ['church:spa', 'church:gil']);
+  eq(o.unchecked, [], 'every language asked: nothing left for the background check');
+  eq(offer(dc, { spa: 'found', gil: 'error' }, ['church:spa']).unchecked, [], 'a failed check is not asked again in the background (Try again asks)');
   o = offer(dc, { gil: 'error' }, mru);
   eq([o.next, o.pick, o.translatable], [null, 'church:gil', true],
     'a check that failed (network) counts as offered, so the panel says why it failed');
+  eq(o.texts.map((r) => [r.id, r.offered, r.failed === true]), [['church:gil', true, true], ['church:spa', null, false]],
+    '...and its row is marked failed, which the page\'s language reads (pageLanguage)');
 
   // A Bible chapter: the bundled Bible always offers it.
   const WEB = { id: C.BUNDLED_BIBLE.id, provider: C.BUNDLED_BIBLE.provider, abbr: 'WEB', name: 'World English Bible' };
@@ -160,7 +166,7 @@ console.log('chapterOffer:');
   o = offer([], {}, ['church:spa']);
   eq([o.next, o.pick, o.translatable], [null, null, false], 'no texts at all: nothing to check, not translatable');
   o = T.chapterOffer({});
-  eq([o.next, o.pick, o.translatable, o.texts], [null, null, false, []], 'no inputs, nothing offered');
+  eq([o.next, o.pick, o.translatable, o.texts, o.unchecked], [null, null, false, [], []], 'no inputs, nothing offered');
 }
 
 console.log('pageLanguage (the page\'s language, from the pick memory):');
@@ -190,9 +196,30 @@ console.log('pageLanguage (the page\'s language, from the pick memory):');
     '...Español not checked yet: check it next');
   eq(page([SPA(false), JPN(false)], ['church:jpn', 'church:spa'], 'columns'), { id: null, next: null },
     '...neither offers it: no page language');
+  // No pick names a language that offers the chapter: the page holds what the
+  // Translation tab would select (pickText's answer), only when that is a
+  // Church language (B2).
+  const WEB_OK = Object.assign({}, { id: C.BUNDLED_BIBLE.id, provider: C.BUNDLED_BIBLE.provider }, { offered: true });
   eq(page([SPA(true), JPN(true)], [], 'columns'), { id: 'church:spa', next: null },
-    'no pick names a language: the first enabled language that offers the chapter (pickText\'s fallback)');
+    'Alma 5, no picks, two languages: the one the Translation tab selects (the first enabled) holds the page');
+  eq(page([SPA(null)], [], 'columns'), { id: null, next: 'spa' }, '...not checked yet: check it');
+  eq(page([WEB_OK, SPA(true)], [], 'columns'), { id: null, next: null },
+    'John 3, no picks, Español on: the tab selects the Bible, so no page language (and no check)');
+  eq(page([WEB_OK, SPA(true), JPN(false)], ['church:jpn'], 'columns'), { id: null, next: null },
+    '...the only language picked lacks the chapter: still the Bible, no page language');
+  eq(page([SPA(true), JPN(false)], ['niv', 'church:jpn'], 'columns'), { id: 'church:spa', next: null },
+    'Alma 5, the picks name only NIV and a language lacking it: Español, the tab\'s selection, holds the page');
   eq(page(undefined, ['church:spa'], 'columns'), { id: null, next: null }, 'nothing known: no page language');
+
+  // A check that failed (network) offers the panel's text, for its error card
+  // and Try again, but never the page: there is nothing to split in (B1).
+  const FAILED = (row) => Object.assign(row, { failed: true });
+  eq(page([FAILED(SPA(true)), JPN(true)], ['church:spa', 'church:jpn'], 'columns'), { id: 'church:jpn', next: null },
+    'Español\'s check failed: Japanese, the next pick that offers the chapter, holds the page');
+  eq(page([FAILED(SPA(true)), JPN(null)], ['church:spa', 'church:jpn'], 'columns'), { id: null, next: 'jpn' },
+    '...Japanese not checked yet: check it next');
+  eq(page([FAILED(SPA(true))], ['church:spa'], 'columns'), { id: null, next: null },
+    '...no other pick: no page language');
 }
 
 console.log('mruFrom / rememberPick:');

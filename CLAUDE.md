@@ -36,9 +36,9 @@ texts are `docs/store/listing.md`, the privacy policy `docs/privacy.md`.
 - **Module pattern:** every JS file is an IIFE attaching to the single global
   `__BTX.<name>` (plus `module.exports` for Node validators). The service
   worker stays a *classic* worker (`importScripts`). Content scripts are listed
-  in dependency order in `manifest.json`; `options.html` loads shared files
-  (and the worker's `cache.js`, to paint the cached version list) via
-  `<script src>` first.
+  in dependency order in `manifest.json`; `options.html` loads shared files,
+  `church-text.js` (the pick memory a tick writes) and the worker's
+  `cache.js` (to paint the cached version list) via `<script src>` first.
 - **No secrets/CORS in content scripts.** All api.bible calls go through the
   **service worker**. The citation feature and Church-language text are
   content-script-only (static web-accessible data, same-origin site fetches,
@@ -83,7 +83,7 @@ src/
     ratelimit.js           __BTX.rate      15/30s + 5000/day, persisted
     fums.js                __BTX.fums      api.bible usage report (FUMS v3 GET) on every api.bible display, cache hits too; device id minted on a successful Connect (storage.local), session id per worker lifetime
   content/
-    church-text.js         __BTX.churchText which texts a chapter offers + which shows (textsFor/pickText; the chapter check's chapterOffer); dropdown rows (labelFor/menuFor); setup-card list (languagesToAdd); pick memory (mruFrom/rememberPick; rememberTicked for a tick in settings; stored under C.SELECTION_KEY, written by content.js and the options page); same-origin Church-language chapter → IR with element ids (chapterFrom; its block walk blockElements also reads the English side for the split)
+    church-text.js         __BTX.churchText which texts a chapter offers + which shows (textsFor/pickText/pickOrder; the one walk firstOffered; the chapter check's chapterOffer over checkResults, keyed by checkKey; the page's language, pageLanguage); dropdown rows (labelFor/menuFor); setup-card list (languagesToAdd); pick memory (mruFrom/rememberPick; rememberTicked for a tick in settings; stored under C.SELECTION_KEY, written by content.js and the options page); same-origin Church-language chapter → IR with element ids (chapterFrom; its block walk blockElements also reads the English side for the split)
     page-split.js/.css     __BTX.pageSplit the reading layer, independent of the mode: start() fits the site's reading column to the open space while the panel is open (fitColumn / fitRule); show/hide the page split (columns | interlinear) while the arrangement names a page's language, paired by element id; pure cores wantsSplit / fitWidth / effectiveLayout / fitColumn / fitRule / groupRows / soloIds / rowRules / readingRight / readingEdges / collapseFits
     detect.js              __BTX.detect    URL parse (all standard works, isBible) + SPA nav
     page-hook.js           page-world history patch, injected via web-accessible <script src>
@@ -314,17 +314,20 @@ validators — go there before changing behaviour.
   saves `panelMode` on any chapter; stored Translation on a chapter nothing
   offers shows the setup card (Add a Church language, or api.bible setup via
   `OPEN_OPTIONS {section}`) when no Church language is on or the reader
-  clicked Translation on this visit, else Citations. `content.js` hands it
-  the chapter's facts (`showChapter` / `arrange`, via `factsFor`), runs
-  the check while it answers `loading` (so Citations never paints first),
-  and applies the answer; it holds no mode rule of its own.
+  clicked Translation on this visit, else Citations with the no-translation
+  line (GLOSSARY), unless the synced `noTranslationLineDismissed` is set.
+  `content.js` hands it the chapter's facts (`showChapter` / `arrange`, via
+  `factsFor`), runs the check while it answers `loading` (so Citations never
+  paints first), and applies the answer; it holds no mode rule of its own.
 - **Page split** (`__BTX.pageSplit`) follows the arrangement's page's
-  language (`page`, GLOSSARY: Page split), never the mode: it stays on the
-  page in Citations, and on John 3 NIV can show in the panel beside it.
+  language (`page`, the pure `churchText.pageLanguage`, GLOSSARY: Page
+  split), never the mode: it stays on the page in Citations, and on John 3
+  NIV can show in the panel beside it.
   `content.js`'s `syncSplit` runs wherever an input moves (mode, pick,
   chapter, whether the chapter shows at all, settings): while `pageNext`
   names an unchecked language it runs the chapter check (in Citations too,
-  never holding up the panel body), then asks the pure `wantsSplit` and
+  never holding up the panel body, asking `panel.arrangement(facts)`, which
+  stores nothing), then asks the pure `wantsSplit` and
   shows or hides; only a new chapter hides it first. `show`/`hide` take an `anchor`
   (`content.js` `splitAnchor`) so the paragraph at the top of the screen stays
   put. It mounts only once `article#main[data-uri]` is the chapter it loaded

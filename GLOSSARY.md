@@ -159,28 +159,35 @@ Whether an enabled Church language has the chapter, learned by fetching it
 in pick order and fetches only as far as its question needs; a language whose
 volume lacks the chapter is excluded with no fetch, and a Bible row needs none.
 "Found" and "not available" are remembered per language and chapter for the
-tab, so a mode click, a settings change or a resize never fetches again. While
-it runs the arrangement answers Translation's loading state wherever an
+tab, so a mode click, a settings change or a resize never fetches again. A
+check that fails (network) is remembered for the chapter as `failed`: it
+offers the panel's text, whose error card has Try again, but never the page.
+While it runs the arrangement answers Translation's loading state wherever an
 unchecked language stands before the pick. It also runs, in either mode, for
 the **page split**'s language (`pageNext`); that walk never holds up the panel
-body.
-The decision over its results is the pure `churchText.chapterOffer`; the
-fetching loop is `content.js`'s `runCheck`.
+body. Once the Translation tab settles, the languages it hasn't reached are
+checked in the background, so dropdown rows lacking the chapter drop out; a
+pick of a row still being checked waits for it in the loading state.
+The decision over its results is the pure `churchText.chapterOffer` (its one
+walk, `firstOffered`, is the arrangement's too); the fetching loops are
+`content.js`'s `runCheck` and `checkRest`.
 
 **Arrangement**:
 The one pure rule for what the panel body shows (`arrangement` in the
 panel's pure core). Inputs: the chapter's texts, each marked offered or not
 (`chapterOffer`), the pick memory, the enabled Church languages, the split
-layout, whether the **no-translation line** is dismissed, the stored **mode**
-and this visit's mode click. Answer: the effective mode, the body (Citations,
-loading, the **setup card**, the **beside card**, or a text), the text the
-Translation tab is about, the page's language (the **page split**'s, in
-either mode, or none), the note (`no-translation`, `beside-page` or none,
-with the language it names) and the mode a click saves. With Translation
-stored:
+layout, whether the **no-translation line** is dismissed, the stored **mode**,
+this visit's mode click and this visit's dropdown pick. Answer: the effective
+mode, the body (Citations, loading, the **setup card**, the **beside card**, or
+a text), the text the Translation tab is about, the page's language (the
+**page split**'s, in either mode, or none), the note (`no-translation`,
+`beside-page`, `missing-chapter` or none, with the language it names) and the
+mode a click saves. With Translation stored:
 - a text offers the chapter: the latest pick that does (the beside card when
   that text is the page's language; a Bible version beside a page's language
-  carries the beside-the-page line);
+  carries the beside-the-page line; when this visit's dropdown pick lacks the
+  chapter, the text shown in its place carries the missing-chapter line, "No
+  Pohnpeian translation for Doctrine and Covenants 84.");
 - a language not yet checked stands before it: the loading state;
 - nothing offers it and no Church language is on: the setup card;
 - nothing offers it and languages are on: Citations with the **no-translation
@@ -258,11 +265,14 @@ World English Bible.
 A Church-language chapter set into the site's own reading column, each block
 paired with the English element of the same id (`__BTX.pageSplit`,
 ADR-0007). It is independent of the mode: it shows, in Translation and
-Citations alike, while the **arrangement** names a page's language — the
-first Church language in pick order (the pick memory, then the enabled list)
-that offers the chapter, while the **split layout** is columns or
-interlinear. A Bible version never holds the page, so on John 3 NIV can show
-in the panel with Español on the page. The next chapter keeps the language if
+Citations alike, while the **split layout** is columns or interlinear and the
+**arrangement** names a page's language (`churchText.pageLanguage`): the
+first Church language in the pick memory that offers the chapter; with none,
+the text the Translation tab selects, only when that is a Church language. So
+John 3 with no pick and Español on shows no split (the tab selects the Bible),
+while Alma 5 splits in Español. A Bible version never holds the page, so on
+John 3 NIV can show in the panel with Español on the page. A language whose
+chapter check failed never holds it. The next chapter keeps the language if
 it offers it, else the next pick that does, else no split. Taking it off the
 page is "In the panel" on the **beside card** or its beside-the-page line. The alternative to showing the
 text in the panel.
