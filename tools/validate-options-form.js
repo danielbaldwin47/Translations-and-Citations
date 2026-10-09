@@ -434,6 +434,17 @@ check(/fillForm\(\);[\s\S]*reveal\(\);[\s\S]*listRefresh = refreshList\(\)/.test
 check(/<script src="\.\.\/background\/cache\.js"><\/script>\s*(<!--[^>]*-->\s*)?<script src="options\.js">/.test(html)
   || /cache\.js"><\/script>\s*<script src="options\.js">/.test(html),
   'the options page loads the worker\'s cache module before its own script');
+// A ticked language leads the pick memory (#105): one key in C, one rule in church text.
+check(/church-text\.js"><\/script>[\s\S]*<script src="options\.js">/.test(html)
+  && /constants\.js"><\/script>[\s\S]*church-text\.js"/.test(html),
+  'the options page loads church text after the constants and before its own script');
+check(typeof C.SELECTION_KEY === 'string' && !/btxSelectedTranslation/.test(src)
+  && !/btxSelectedTranslation/.test(fs.readFileSync(path.join(ROOT, 'src/content/content.js'), 'utf8')),
+  'the pick memory\'s storage key is named once, in C.SELECTION_KEY');
+check(/CHURCH\.rememberTicked\(picks, before, after\)/.test(bodyOf('rememberTicks'))
+  && /rememberTicks\(settings\.churchLanguages, values\.churchLanguages\)[\s\S]*return write\(/.test(bodyOf('flush'))
+  && !/SELECTION_KEY\]: (?!picks)/.test(src),
+  'a Church-language autosave writes the pick memory through church text\'s rememberTicked, before the setting');
 check(/again\.focus\(/.test(bodyOf('renderTranslations')),
   'rebuilding the list puts focus back on the row that had it (a refresh must not drop a keyboard reader)');
 check(/listRefresh\.then\(/.test(bodyOf('focusSection')) && /listRefresh = refreshList\(\)/.test(bodyOf('init')),

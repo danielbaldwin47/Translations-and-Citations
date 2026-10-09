@@ -16,6 +16,11 @@
  * back to what storage holds; "Try again" re-sends every failed write
  * (failedWrites), and any write that lands retires the error.
  *
+ * A Church language ticked here also leads the pick memory (the panel's
+ * most-recently-used list, chrome.storage.local under C.SELECTION_KEY, not a
+ * setting): church text's rememberTicked computes it, rememberTicks writes it
+ * ahead of the setting, and open reader tabs adopt it through storage.onChanged.
+ *
  * The api.bible key is the one exception to write-as-you-go: it is connected
  * (the worker lists its versions) on paste, on change or on Connect, and
  * saved together with the translation list only when that succeeds. Connect
@@ -367,6 +372,7 @@
   // ---- DOM shell ---------------------------------------------------------
 
   const SETTINGS = root.__BTX.settings;
+  const CHURCH = root.__BTX.churchText; // rememberTicked: the pick memory's one rule
   const CACHE = root.__BTX.cache; // the worker's version-list cache, read for the first paint
   const COMMIT_DELAY_MS = 250; // coalesces a burst of clicks or arrow-key steps into one write
   const CONNECT_DELAY_MS = 400; // after a paste or change, before the key is tried
@@ -441,6 +447,7 @@
   const queued = new Set();
   let flushTimer = 0;
   let failed = null; // failedWrites(): what "Try again" sends
+  let picks = []; // the pick memory (chrome.storage.local, C.SELECTION_KEY), as last read or written here
   let savedTimer = 0;
 
   function queueCommit(keys) {
@@ -456,7 +463,31 @@
     queued.clear();
     const values = {};
     for (const f of FIELDS) if (keys.indexOf(f.key) >= 0) values[f.key] = f.read();
+    if (keys.indexOf('churchLanguages') >= 0) rememberTicks(settings.churchLanguages, values.churchLanguages);
     return write(commitPatch({ keys, values, list: listState() }), keys);
+  }
+
+  // A language ticked becomes the one shown: it leads the pick memory, which
+  // the reader's tabs adopt. Written before the setting, so a tab has the new
+  // order by the time the setting re-renders it; with no tab open, the next
+  // chapter opened reads it. The rule is church text's (the panel's setup card
+  // writes the same list through it).
+  function rememberTicks(before, after) {
+    const next = CHURCH.rememberTicked(picks, before, after);
+    if (JSON.stringify(next) === JSON.stringify(picks)) return;
+    picks = next;
+    try { chrome.storage.local.set({ [C.SELECTION_KEY]: picks }); } catch (e) { /* the tick still saves */ }
+  }
+
+  function readPicks() {
+    return new Promise((resolve) => {
+      try {
+        chrome.storage.local.get(C.SELECTION_KEY, (d) => {
+          picks = CHURCH.mruFrom(d && d[C.SELECTION_KEY]);
+          resolve();
+        });
+      } catch (e) { resolve(); }
+    });
   }
 
   // The one path to storage. `quiet` skips the "Saved" flash. A write that
@@ -1051,6 +1082,7 @@
 
   async function init() {
     settings = await SETTINGS.get();
+    await readPicks();
     const cached = await cachedList();
 
     // Slider ranges come from the settings module, so the bounds live in one place.
@@ -1113,6 +1145,7 @@
     });
 
     chrome.storage.onChanged.addListener((changes, area) => {
+      if (area === 'local' && changes[C.SELECTION_KEY]) picks = CHURCH.mruFrom(changes[C.SELECTION_KEY].newValue);
       const c = area === 'session' && changes[C.OPTIONS_FOCUS_KEY];
       if (c && c.newValue) takeFocusRequest();
     });

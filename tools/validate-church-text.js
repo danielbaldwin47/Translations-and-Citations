@@ -131,6 +131,18 @@ eq(T.rememberPick(['niv'], ''), ['niv'], 'an empty pick changes nothing');
     'back on the Book of Mormon the newest pick it offers wins, not its first row');
 }
 
+console.log('rememberTicked (a tick in settings goes to the front):');
+eq(T.rememberTicked(['niv'], [], ['spa']), ['church:spa', 'niv'], 'one tick goes in front of an earlier Bible pick');
+eq(T.rememberTicked(['niv'], ['jpn'], ['jpn', 'spa']), ['church:spa', 'niv'], '...only the language newly on counts, not one already on');
+eq(T.rememberTicked(['niv'], [], ['jpn', 'spa']), ['church:spa', 'church:jpn', 'niv'], 'two ticks at once: the last ticked is at the front');
+eq(T.rememberTicked(['church:spa', 'niv'], ['spa'], []), ['church:spa', 'niv'], 'an untick leaves the list as it was');
+eq(T.rememberTicked(['church:jpn', 'church:spa', 'niv'], ['jpn', 'spa'], ['jpn']), ['church:jpn', 'church:spa', 'niv'], '...order and all');
+eq(T.rememberTicked(['church:jpn', 'church:spa', 'niv'], [], ['spa']), ['church:spa', 'church:jpn', 'niv'], 'a re-tick of a language already in the list moves it to the front, once');
+eq(T.rememberTicked('niv', [], ['spa']), ['church:spa', 'niv'], '...a migrated single id included');
+eq(T.rememberTicked(['niv'], ['spa'], ['spa']), ['niv'], 'no change to the languages, no change to the list');
+eq(T.rememberTicked(['niv'], undefined, ['spa']), ['church:spa', 'niv'], 'nothing stored before counts as none on');
+eq(T.rememberTicked(['niv'], [], ['spa', 'xx-nope']), ['church:spa', 'niv'], 'a code that is no Church language is not remembered');
+
 console.log('labelFor / menuFor:');
 const SPA_ROW = T.rowFor('spa');
 eq(T.labelFor(NIV, [NIV]), 'NIV — New International Version', 'an api.bible row reads "abbr — name"');
