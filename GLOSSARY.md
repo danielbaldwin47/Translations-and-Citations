@@ -60,7 +60,10 @@ The panel's grouping of corpora, named by each corpus's `sourceType` in the
 pack descriptor and ordered as the descriptor first names them: "General
 Conference" (G+E), "Journal of Discourses" (J), "Teachings of the Prophet
 Joseph Smith" (T, personal pack only). A **source-type group** is the
-collapsible panel section for one of these.
+collapsible panel section for one of these. Its header's hover text is the
+**source note**, the corpus entry's `sourceNote` ("Sermons by early Church
+leaders, published 1854–1886"): one per source type, the same on each of its
+corpora.
 _Avoid_: source (bare — say source type, talk, or BYU DBs depending on which you mean)
 
 **BYU DBs**:
@@ -483,7 +486,7 @@ A data pack's statement of what it holds — which corpora it indexes, which it
 bundles, which carry snippets — that the reader's corpus plan follows. The
 `pack` field of the pack's `index.json`, written by the build per pack mode:
 flavor, pack vintage, base stamp, derived conferences, and per corpus its
-`sourceType`, `text`, `target`, `excerpt` and `inclusion`.
+`sourceType`, `sourceNote`, `text`, `target`, `excerpt` and `inclusion`.
 _Avoid_: pack manifest (manifest means the extension's), flavor flag
 
 **Rights evidence**:

@@ -28,8 +28,11 @@
  *   viewModel { layout, empty, emptyText, summary, talks, showTools, groups,
  *               focusUid, footer, footerTitle }   footer: "Citations through April 2026", or null;
  *               footerTitle: its hover text, "Includes talks through the April 2026 general conference", or null
- *   group { uid, kind:'verse'|'sourceType', key, verse, label, a11yLabel,
+ *   group { uid, kind:'verse'|'sourceType', key, verse, label, title, a11yLabel,
  *           count, countClass, open, focus, children:[group], rows:[row] }
+ *           title: a source-type header's hover text, the descriptor's `sourceNote`
+ *           for its source type ("Sermons by early Church leaders, published 1854–1886");
+ *           null on a verse header and when the pack carries no note
  *   row   { uid, citId, talkId, speaker, rangeLabel, rangeTitle, sub, snippet, a11yLabel,
  *           search, entry }   rangeTitle: the badge's hover text ("Cites verses 1 to 5"), null with no badge
  *
@@ -49,6 +52,8 @@
   // distinct `sourceType` among its corpora, in the order the descriptor first
   // names each (E and G both say "General Conference"). A corpus the
   // descriptor lacks is in no bucket, so its cites never reach the list.
+  // `note` is the descriptor's `sourceNote` (one per source type, null when the
+  // pack carries none: the hover text of the type's header).
   // `key` is the source type as a slug and names the bucket's hue
   // (btx-grp-{key} in citations.css, which designs a hue per source type the
   // packs carry; another source type shows no strip).
@@ -61,7 +66,9 @@
       const label = entry && entry.sourceType;
       if (!label) continue;
       let t = types.find((x) => x.label === label);
-      if (!t) types.push(t = { key: slugOf(label), label, corpora: [], fetched: [] });
+      if (!t) types.push(t = { key: slugOf(label), label, note: null, corpora: [], fetched: [] });
+      // One note per source type; the first corpus that states one supplies it.
+      if (!t.note && typeof entry.sourceNote === 'string' && entry.sourceNote) t.note = entry.sourceNote;
       t.corpora.push(corpus);
       if (entry.excerpt === 'fetched') t.fetched.push(corpus);
     }
@@ -437,7 +444,7 @@
 
   function groupDesc(fields) {
     const g = Object.assign({
-      uid: '', kind: 'verse', key: '', verse: null, label: '', count: 0, countClass: null,
+      uid: '', kind: 'verse', key: '', verse: null, label: '', title: null, count: 0, countClass: null,
       open: false, focus: false, children: [], rows: [],
     }, fields);
     g.a11yLabel = groupA11yLabel(g, g.count);
@@ -474,6 +481,7 @@
           kind: 'sourceType',
           key: t.key,
           label: t.label,
+          title: t.note,
           count: talks.length,
           countClass: `btx-grp-${t.key}`,
           open: true,
@@ -499,7 +507,7 @@
       if (!talks.length) continue;
       const uid = `s:${t.key}`;
       groups.push(groupDesc({
-        uid, kind: 'sourceType', key: t.key, label: t.label,
+        uid, kind: 'sourceType', key: t.key, label: t.label, title: t.note,
         count: talks.length, countClass: `btx-grp-${t.key}`,
         rows: talks.map((talk, i) => rowDesc(talk, t, uid, i, talk.verses)),
       }));

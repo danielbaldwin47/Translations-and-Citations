@@ -99,7 +99,7 @@
     // One line, cut with an ellipsis (the pinned headers' stated heights
     // count on it); the tooltip carries the whole label.
     const text = el('span', 'btx-cit-label-text', group.label);
-    text.title = group.label;
+    if (!group.title) text.title = group.label; // a noted header's hover is its note, on the whole row
     label.appendChild(text);
     if (group.kind === 'verse') {
       const verseLine = el('span', 'btx-cit-verse-text');
@@ -109,6 +109,16 @@
     sum.appendChild(label);
     sum.appendChild(el('span', 'btx-cit-count' + (group.countClass ? ' ' + group.countClass : ''), String(group.count)));
     return sum;
+  }
+
+  // A group's <details> gets its header; a source-type header explains the
+  // source on hover (group.title). The header is the focusable control, so it
+  // owns the description, which sits in the <details> beside it.
+  function mountHead(node, cls, group) {
+    const sum = summaryRow(cls, group);
+    node.appendChild(sum);
+    const desc = titled(sum, group.title);
+    if (desc) node.appendChild(desc);
   }
 
   function rowEl(row, onOpen) {
@@ -292,14 +302,14 @@
   function groupEl(group, onOpen, pending) {
     const node = el('details', groupClass('btx-cit-vgroup', group));
     node.dataset.btxUid = group.uid;
-    node.appendChild(summaryRow('btx-cit-vhead', group));
+    mountHead(node, 'btx-cit-vhead', group);
     node.open = group.open;
     if (group.focus) node.classList.add('btx-cit-focus');
 
     for (const child of group.children) {
       const cnode = el('details', groupClass('btx-cit-cgroup', child));
       cnode.dataset.btxUid = child.uid;
-      cnode.appendChild(summaryRow('btx-cit-chead', child));
+      mountHead(cnode, 'btx-cit-chead', child);
       cnode.open = child.open;
       for (const row of child.rows) cnode.appendChild(rowNode(row, onOpen, pending));
       node.appendChild(cnode);
