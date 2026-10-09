@@ -16,16 +16,18 @@
  *    split layout) wherever one of those moves, and applies its answer: the
  *    mode, body and note showing are the arrangement's, never decided here
  *  - applies the arrangement's note to the panel's note slot (applyNote, after
- *    every mode render: it names the language and the chapter) and writes the
- *    no-translation line's dismissal (noTranslationLineDismissed) through
- *    __BTX.settings
+ *    every mode render and wherever the arrangement moves: it names the
+ *    language and the chapter) and writes the no-translation line's dismissal
+ *    (noTranslationLineDismissed) through __BTX.settings
  *  - runs the chapter check (runCheck over churchText.chapterOffer) while the
  *    arrangement answers `loading`, then arranges again. A rate-limited
  *    load waits and retries only as panel.retryWait allows, counting its
  *    automatic retries per chapter and version
  *  - writes the cards' picks through __BTX.settings (a Church language added
- *    from the setup card, the beside card's layout) and renders them itself,
- *    since its settings subscriber skips its own writes
+ *    from the setup card, the layout control's layout) and renders them
+ *    itself, since its settings subscriber skips its own writes; a layout
+ *    pick that names a row (the panel's layoutChoice) also goes to the front
+ *    of the pick memory
  *  - keeps the page split (__BTX.pageSplit) on the arrangement's page's
  *    language, in either mode (syncSplit), running the chapter check for it
  *    when the arrangement names one unchecked (`pageNext`), in Citations too,
@@ -218,14 +220,25 @@
     };
   }
 
-  // The arrangement's note, named for the panel's note slot ("Kiribati",
-  // "Doctrine and Covenants 76"). The panel renders it above the view the
-  // note belongs to and shows it only while that view is mounted, so this runs
-  // after every mode render (a render with no note clears the slot).
+  // The arrangement's note, named for the panel's note slot. The
+  // no-translation line names the language in English and the chapter
+  // ("Kiribati", "Doctrine and Covenants 76"); the beside-the-page line names
+  // the language as the dropdown leads its row ("Español") and carries the
+  // split layout its Change control presses. The panel renders the line above
+  // the view it belongs to and shows it only while that view is mounted, so
+  // this runs after every mode render and wherever the arrangement moves (a
+  // render with no note clears the slot).
   function applyNote() {
     const a = panel.arrangement();
     const row = a.note && current ? churchText.rowFor(a.noteLang) : null;
-    panel.setNote(row ? { kind: a.note, language: row.name, chapter: chapterLabel(current) } : null);
+    if (!row) { panel.setNote(null); return; }
+    const own = a.note === 'beside-page';
+    panel.setNote({
+      kind: a.note,
+      language: own ? (row.abbr || row.name) : row.name,
+      chapter: chapterLabel(current),
+      layout: placement(),
+    });
   }
 
   // The line's ×: dismissed for good, on every computer (a synced setting).
@@ -396,6 +409,7 @@
       const offer = await runCheck(parsed, rows, (o) => !panel.arrange(factsFor(e, o)).pageNext, stale);
       if (!offer) return;
       a = panel.arrangement();
+      applyNote(); // the page's language is known now: the line beside a Bible version names it
     }
     const row = a.page ? churchText.rowFor(a.page.slice(churchText.ID_PREFIX.length)) : null;
     const layout = placement();
@@ -451,6 +465,7 @@
       if (!offer) return;
       shown = panel.arrange(factsFor(e, offer));
     }
+    applyNote(); // the beside-the-page line comes with a Bible version, goes with anything else
     // Nothing offers the chapter and Church languages are on: Citations.
     if (shown.mode !== 'translation') return renderActiveMode();
     const list = texts = offer.texts.filter((t) => t.offered !== false);
@@ -761,20 +776,27 @@
     render();
   }
 
-  // The beside card's layout control (and the panel text's way back into the
-  // page). Between the two in-page layouts only the split and the card move;
-  // into or out of the panel, the view itself changes.
-  function changeLayout(layout) {
+  // The layout control: on the beside card, in the beside-the-page line's
+  // place (its Change), and above a language read in the panel (the way back
+  // into the page). `pick` is the row the choice makes the pick (the panel's
+  // layoutChoice): "In the panel" from the line moves the page's language
+  // into the panel in the Bible version's place, so it leads the pick memory
+  // and the dropdown selects it. Between the two in-page layouts only the
+  // split, the card and the line's control move; into or out of the panel,
+  // the view itself changes.
+  function changeLayout(layout, pick) {
     const before = placement();
     if (enabled) enabled = Object.assign({}, enabled, { churchLanguageLayout: layout });
     const after = placement();
     SETTINGS.patch({ churchLanguageLayout: layout });
     if (!current || panel.effectiveMode() !== 'translation' || after === before) return;
+    if (pick) remember(pick);
     if (before !== 'panel' && after !== 'panel') {
       // The layout is one of the arrangement's facts (the page's language
       // needs an in-page one); the chapter check's results are the tab's.
       panel.arrange(factsFor(enabled, offerFor(current, textsForChapter(current, enabled))));
       panel.updateBeside({ layout: after });
+      applyNote();
       syncSplit({ anchor: splitAnchor() });
     } else {
       renderTranslation();

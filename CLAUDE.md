@@ -338,8 +338,11 @@ validators — go there before changing behaviour.
   the `beside` card: where the text is, the Side by side |
   Under each verse | In the panel control (writes `churchLanguageLayout`), and
   "Collapse panel for wider columns" when `collapseFits`; its In the panel is
-  how the reader takes the language off the page. Collapsing the panel does
-  not hide the split — it widens it.
+  how the reader takes the language off the page. A Bible version in the
+  panel meanwhile carries the beside-the-page line (GLOSSARY: Beside card),
+  whose Change opens the same control in its place; what each pick there
+  writes is the pure `layoutChoice`. Collapsing the panel does not hide the
+  split — it widens it.
 - **Reading column fit** (#89) belongs to `__BTX.pageSplit` too, split or
   not: `content.js` calls `start()` once, and the pure `fitColumn` places
   `section#content` inside the visible reading area while the panel is open
