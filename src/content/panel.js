@@ -158,20 +158,21 @@
  * The welcome (GLOSSARY: Welcome) is the panel's too: a labelled dialog laid
  * over the body on any panel shown while the synced `welcomeSeen` flag is
  * false (the pure welcomeDue; collapsing hides it without counting as seen).
- * Its content is the pure callouts table (WELCOME_CALLOUTS: each line's copy
- * and the CONTROL_NAMES control it points at, filtered by welcomeCallouts).
- * Each line with a control showing is a bubble under it, caret aimed at it,
- * and the control is ringed; a line without one (no control, or a control
- * not showing) is a plain line. Placement is the pure calloutPlacement over
- * rects measured inside the layer (separateRings keeps the joined tabs'
- * rings apart), redone on any resize of the panel, its chrome or its
- * controls. While it shows, the body under it is inert (out of Tab's and
- * Esc's reach). It takes focus as it opens only in the tab in front
- * (welcomeTakesFocus: not in each background tab "Show the welcome again"
- * reaches), and an expand that brings it back leaves focus to it
- * (focusOnToggle). Only Got it closes it: it writes the flag true and focuses
- * the panel's first control. Esc stops at the layer, so the talk reader
- * never sees it.
+ * Its content is the pure steps table (WELCOME_STEPS: each step's title, its
+ * lines and the CONTROL_NAMES control it points at; welcomeSteps drops the
+ * lines whose facts don't hold), shown one step at a time (welcomeStepView:
+ * the step, "2 of 5", and which of Skip / Back / Next / Got it it carries).
+ * The step's card sits under its control, caret aimed at it, and the
+ * control is ringed; a control not showing gets a plain card. Placement is
+ * the pure calloutPlacement over rects measured inside the layer, redone on
+ * any resize of the panel, its chrome or its controls. While it shows, the
+ * body under it is inert (out of Tab's and Esc's reach). It takes focus as it
+ * opens only in the tab in front (welcomeTakesFocus: not in each background
+ * tab "Show the welcome again" reaches), and an expand that brings it back
+ * leaves focus to it (focusOnToggle) at the step the reader had reached.
+ * Only Got it (the last step) or Skip closes it: either writes the flag true
+ * and focuses the panel's first control. Esc stops at the layer, so the talk
+ * reader never sees it.
  *
  * The panel's top: 0, except while the site's header band, laid out for the
  * full window while the panel was away, runs under the open panel — then the
@@ -444,9 +445,9 @@
     return welcomeDue(s) ? null : 'collapse';
   }
 
-  // The controls the panel builds, by name: what a welcome callout may point
+  // The controls the panel builds, by name: what a welcome step may point
   // at. The DOM shell maps each name to its node(s) (controlNodes), and
-  // validate-panel-state holds the callouts table to this list.
+  // validate-panel-state holds the steps table to this list.
   //   translation-tab / citations-tab   the header's mode segments
   //   settings / collapse               the header's icon buttons
   //   translation-select                the toolbar's version dropdown
@@ -454,34 +455,67 @@
   //   text-size                         the toolbar's A− / A+ (two buttons)
   const CONTROL_NAMES = ['translation-tab', 'citations-tab', 'settings', 'collapse', 'translation-select', 'citation-layout', 'text-size'];
 
-  // What the welcome says. Each callout: `id`, the `control` it points at (a
-  // CONTROL_NAMES name, or null: the toolbar icon is the browser's, not the
-  // panel's, so its line names it in words), its `text` (one short sentence;
-  // `{icon}` marks where the extension's icon is drawn inline, calloutParts),
-  // and optionally `when`: facts the line needs, all of which must match
-  // (welcomeCallouts). In reading order. The copy is spec A's model: the panel
-  // opens on Citations, and a language you add reads beside the page's text
-  // whatever the panel shows.
-  const WELCOME_COPY = { title: 'Welcome to Translations & Citations', gotIt: 'Got it' };
-  const WELCOME_CALLOUTS = [
-    { id: 'translation', control: 'translation-tab', text: 'Translation shows this chapter in another version or language.' },
-    { id: 'citations', control: 'citations-tab', text: 'Citations, where the panel opens, lists the talks that quote each verse.' },
-    { id: 'languages', control: 'translation-tab', text: 'A language you add reads beside the page’s text; change that under Translation.' },
-    { id: 'settings', control: 'settings', text: 'Settings holds the rest: languages, Bible translations and reading options.' },
-    { id: 'text-size', control: 'text-size', text: 'A− and A+ change the size of the panel’s text.' },
-    { id: 'toolbar-icon', control: null, text: 'The {icon} button in your browser’s toolbar shows and hides the panel.' },
-    { id: 'pin', control: null, text: 'Pin the extension to the toolbar, so the panel is easy to bring back.', when: { pinned: false } },
+  // What the welcome says, one step at a time. Each step: `id`, the
+  // `control` it points at (a CONTROL_NAMES name), its `title` (the
+  // control's own name where it has one) and its `lines`: short sentences,
+  // each optionally with `when`, facts it needs, all of which must match
+  // (welcomeSteps). `{icon}` in a line marks where the extension's icon is
+  // drawn inline (lineParts): the toolbar icon is the browser's, not the
+  // panel's, so the last step names it in words. In tour order: what the
+  // panel opens on first. The copy is spec A's model: the panel opens on
+  // Citations, and a language you add reads on the page whatever the panel
+  // shows. The first step carries the welcome's own title above its own.
+  const WELCOME_COPY = { title: 'Welcome to Translations & Citations', back: 'Back', next: 'Next', skip: 'Skip', gotIt: 'Got it' };
+  const WELCOME_STEPS = [
+    { id: 'citations', control: 'citations-tab', title: 'Citations', lines: [
+      { text: 'Find the talks that quote each verse in this chapter, and read any of them right here.' },
+    ] },
+    { id: 'translation', control: 'translation-tab', title: 'Translation', lines: [
+      { text: 'Read this chapter in another language or Bible version.' },
+      { text: 'Languages you add appear on the page itself, right beside the text.' },
+    ] },
+    { id: 'settings', control: 'settings', title: 'Settings', lines: [
+      { text: 'Add languages and Bible versions, and set your reading preferences.' },
+    ] },
+    { id: 'text-size', control: 'text-size', title: 'Text size', lines: [
+      { text: 'Make the panel’s text larger or smaller.' },
+    ] },
+    { id: 'hide', control: 'collapse', title: 'Need more room?', lines: [
+      { text: 'This button tucks the panel away. Click {icon} in your browser’s toolbar to bring it back.' },
+      { text: 'Don’t see {icon}? Open the puzzle-piece menu in the toolbar and pin Translations & Citations.', when: { pinned: false } },
+    ] },
   ];
 
-  // The lines that show, given what the panel knows (`facts`, e.g.
-  // { pinned }): a line with `when` shows only when every fact it names is
-  // known and matches — unsure, the welcome says nothing.
-  function welcomeCallouts(facts, table) {
+  // The steps as the welcome shows them, given what the panel knows
+  // (`facts`, e.g. { pinned }): a line with `when` stays only when every fact
+  // it names is known and matches — unsure, the welcome says nothing.
+  function welcomeSteps(facts, table) {
     const f = facts || {};
-    return (table || WELCOME_CALLOUTS).filter((c) => !c.when || Object.keys(c.when).every((k) => f[k] === c.when[k]));
+    const holds = (when) => !when || Object.keys(when).every((k) => f[k] === when[k]);
+    return (table || WELCOME_STEPS).map((s) => Object.assign({}, s, { lines: s.lines.filter((l) => holds(l.when)) }));
   }
 
-  // The facts the table's `when` lines read, from the worker's answer to
+  // Step `index` of `steps` as the card draws it: the step, where it is in
+  // the tour (`position` "2 of 5"), and which buttons it carries — Back from
+  // the second step, Skip until the last, whose Next is Got it. An index out
+  // of range is held to the tour's ends.
+  function welcomeStepView(steps, index) {
+    const count = steps.length;
+    const i = Math.max(0, Math.min(count - 1, Number.isInteger(index) ? index : 0));
+    const last = i === count - 1;
+    return {
+      step: steps[i],
+      index: i,
+      position: `${i + 1} of ${count}`,
+      welcome: i === 0 ? WELCOME_COPY.title : null,
+      back: i > 0,
+      skip: !last,
+      next: last ? WELCOME_COPY.gotIt : WELCOME_COPY.next,
+      last,
+    };
+  }
+
+  // The facts the steps' `when` lines read, from the worker's answer to
   // GET_TOOLBAR_PIN. `pinned` is true only when the worker said the icon is on
   // the toolbar: any other reply (null, an error, no reply, an old Chrome)
   // counts as not pinned, so the pinning line shows.
@@ -489,81 +523,50 @@
     return { pinned: !!reply && reply.isOnToolbar === true };
   }
 
-  // A callout's text as parts to render: strings, and { icon: true } where
-  // the extension's icon is drawn.
-  function calloutParts(c) {
+  // A line's text as parts to render: strings, and { icon: true } where the
+  // extension's icon is drawn.
+  function lineParts(line) {
     const out = [];
-    String(c.text).split('{icon}').forEach((t, i) => {
+    String(line.text).split('{icon}').forEach((t, i) => {
       if (i) out.push({ icon: true });
       if (t) out.push(t);
     });
     return out;
   }
 
-  // Where a callout is drawn: a bubble in the welcome's list under the
-  // control it names, its caret aimed at the control's centre, and a ring
-  // round the control. Inputs in the welcome layer's coordinates (the panel's
-  // box): `control` the control's measured rect (null, or a box of no size —
-  // a control not showing, or a line with no control — gives a plain line
-  // across the list: no caret, no ring), `list` the list's content box
-  // ({left, width}), `panel` ({width, height}). Out, whole pixels: `card` {left
-  // (relative to the list), width}, `caret` (x within the card, or null),
-  // `ring` (a rect, or null). The bubble is the list's width up to
-  // `cardMax`, centred under the control and kept inside the list; the
-  // caret stays `caretInset` in from the bubble's corners; the ring sits
-  // `ringPad` out from the control and stops at the panel's edges.
-  const CALLOUT_GEOMETRY = { cardMax: 300, caretInset: 16, ringPad: 3 };
-  function calloutPlacement({ control, list, panel }) {
+  // Where the step's card is drawn: under the control it names, its caret
+  // aimed at the control's centre, and a ring round the control. Inputs in
+  // the welcome layer's coordinates (the panel's box): `control` the
+  // control's measured rect (null, or a box of no size — a control not
+  // showing — gives a plain card across the area: no caret, no ring), `area`
+  // the content box the card sits in ({left, width}), `panel` ({width,
+  // height}). Out, whole pixels: `card` {left (relative to the area), width},
+  // `caret` (x within the card, or null), `ring` (a rect, or null). The card
+  // is the area's width up to `cardMax`, centred under the control and kept
+  // inside the area; the caret stays `caretInset` in from the card's
+  // corners; the ring sits `ringPad` out from the control and stops at the
+  // panel's edges.
+  const CALLOUT_GEOMETRY = { cardMax: 300, caretInset: 18, ringPad: 3 };
+  function calloutPlacement({ control, area, panel }) {
     const g = CALLOUT_GEOMETRY;
-    const listW = Math.round(list.width);
+    const areaW = Math.round(area.width);
     if (!control || !(control.width > 0) || !(control.height > 0)) {
-      return { card: { left: 0, width: listW }, caret: null, ring: null };
+      return { card: { left: 0, width: areaW }, caret: null, ring: null };
     }
     const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
     const cx = control.left + control.width / 2;
-    const width = Math.min(listW, g.cardMax);
-    const left = clamp(Math.round(cx - width / 2), Math.round(list.left), Math.round(list.left) + listW - width);
+    const width = Math.min(areaW, g.cardMax);
+    const left = clamp(Math.round(cx - width / 2), Math.round(area.left), Math.round(area.left) + areaW - width);
     const caret = clamp(Math.round(cx - left), g.caretInset, width - g.caretInset);
     const x0 = Math.max(0, Math.round(control.left - g.ringPad));
     const y0 = Math.max(0, Math.round(control.top - g.ringPad));
     const x1 = Math.min(Math.round(panel.width), Math.round(control.left + control.width + g.ringPad));
     const y1 = Math.min(Math.round(panel.height), Math.round(control.top + control.height + g.ringPad));
     return {
-      card: { left: left - Math.round(list.left), width },
+      card: { left: left - Math.round(area.left), width },
       caret,
       ring: { left: x0, top: y0, width: x1 - x0, height: y1 - y0 },
     };
-  }
-
-  // The controls the welcome rings: each one a line names, once, in reading
-  // order (both Translation-tab lines share one ring).
-  function welcomeRings(callouts) {
-    return [...new Set(callouts.map((c) => c.control).filter(Boolean))];
-  }
-
-  // Rings that overlap side by side (the Translation and Citations tabs are
-  // joined halves) would cross: each such pair meets at the middle of its
-  // overlap, `gap` px apart. Null entries (no ring) pass through.
-  function separateRings(rings, gap) {
-    const g = gap === undefined ? 2 : gap;
-    const out = rings.map((r) => (r ? Object.assign({}, r) : null));
-    for (let i = 0; i < out.length; i++) {
-      for (let j = 0; j < out.length; j++) {
-        const a = out[i];
-        const b = out[j];
-        if (i === j || !a || !b || a.left >= b.left) continue; // a is the left one
-        const aRight = a.left + a.width;
-        const bRight = b.left + b.width;
-        const rowsMeet = a.top < b.top + b.height && b.top < a.top + a.height;
-        if (!rowsMeet || aRight + g <= b.left || aRight >= bRight) continue;
-        const mid = (aRight + b.left) / 2;
-        a.width = Math.floor(mid - g / 2) - a.left;
-        const left = Math.ceil(mid + g / 2);
-        b.width = bRight - left;
-        b.left = left;
-      }
-    }
-    return out;
   }
 
   // One box round several (the A− / A+ stepper is two buttons); a node not
@@ -1114,8 +1117,8 @@
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = {
       createState, arrangement, layoutChoice, arrangementOf, effectiveMode, selectMode, selectText, selectCitationView, setChapter, sameChapter,
-      welcomeDue, setWelcomeSeen, welcomeTakesFocus, focusOnToggle, CONTROL_NAMES, WELCOME_COPY, WELCOME_CALLOUTS, welcomeCallouts, welcomeFactsFrom, calloutParts,
-      CALLOUT_GEOMETRY, calloutPlacement, welcomeRings, separateRings, unionRect,
+      welcomeDue, setWelcomeSeen, welcomeTakesFocus, focusOnToggle, CONTROL_NAMES, WELCOME_COPY, WELCOME_STEPS, welcomeSteps, welcomeStepView, welcomeFactsFrom, lineParts,
+      CALLOUT_GEOMETRY, calloutPlacement, unionRect,
       stepFontScale, setupCopy, noteCopy, besideCopy, pressedLayout, layoutClick, roomHint, errorCopy, retryWait, LAYOUTS, RETRY_MAX_WAIT_MS, RETRY_MAX,
       createViews, saveViewScroll, selectView, keepView, settleView, dropViews, SAME_CHAPTER_VIEWS,
       viewRestoresScroll, wantsScrollSync,
@@ -1326,7 +1329,7 @@
       scrollFadeTimer = setTimeout(() => body.classList.remove('btx-scrolling'), 1000);
     }, { passive: true });
 
-    // Each of CONTROL_NAMES to the node(s) it names: what a welcome callout
+    // Each of CONTROL_NAMES to the node(s) it names: what a welcome step
     // points at (controlNodes).
     const controls = {
       'translation-tab': [modeTranslation],
@@ -1369,13 +1372,18 @@
   // ---- The welcome -----------------------------------------------------------
   // A layer over the body (header and toolbar stay in view and usable), shown
   // while welcomeDue says so. It is a labelled dialog *within* the panel, not
-  // a modal: the page beside it stays fully usable, and only Got it closes it
-  // — a click elsewhere, a scroll or Esc leave it up. The body under it is
-  // inert meanwhile. Focus moves into it when it appears in the tab in front
-  // (welcomeTakesFocus), and to the panel's first control on Got it.
-  let welcome = null; // { layer, sheet, list, items, rings, observer, frame } while it shows
+  // a modal: the page beside it stays fully usable, and only Got it or Skip
+  // close it — a click elsewhere, a scroll or Esc leave it up. One step shows
+  // at a time (welcomeStepView): a card under the control the step names,
+  // that control ringed; Back and Next walk the steps. The step reached
+  // outlives a collapse (welcomeStep), so an expand picks up where the reader
+  // was. The body under it is inert meanwhile. Focus moves into it when it
+  // appears in the tab in front (welcomeTakesFocus), and to the panel's first
+  // control once it is done.
+  let welcome = null; // { layer, sheet, track, card, ring, …, steps, view, observer, frame } while it shows
   let welcomeFacts = welcomeFactsFrom(null); // what the worker last said (is the icon pinned?)
   let welcomeAsking = false;
+  let welcomeStep = 0; // the step reached; back to the first once the welcome is done
 
   function applyWelcomeUI() {
     if (!ui) return;
@@ -1402,56 +1410,85 @@
   }
 
   // The layer covers the whole panel but takes no pointer events: it holds
-  // the rings drawn round the controls the lines name (header and toolbar
-  // stay usable through them) and the sheet, which covers the body only and
-  // holds the dialog. Each line that names a control is a bubble placed
-  // under it (calloutPlacement, from measured rects: placeWelcome).
+  // the ring drawn round the step's control (header and toolbar stay usable
+  // through it) and the sheet, which covers the body only and holds the
+  // card. The card is built once and filled per step (showStep), so a button
+  // keeps focus while the reader walks the steps; its step text is a polite
+  // live region, so each new step is read out.
   function buildWelcome() {
     const layer = el('div', 'btx-welcome');
-    const rings = {};
-    for (const name of welcomeRings(welcomeCallouts(welcomeFacts))) {
-      const ring = el('div', 'btx-welcome-ring');
-      ring.setAttribute('data-btx-control', name);
-      ring.setAttribute('aria-hidden', 'true');
-      rings[name] = ring;
-      layer.appendChild(ring);
-    }
+    const ring = el('div', 'btx-welcome-ring');
+    ring.setAttribute('aria-hidden', 'true');
+    ring.hidden = true;
+    layer.appendChild(ring);
     const sheet = el('div', 'btx-welcome-sheet');
-    const dialog = el('div', 'btx-welcome-dialog');
-    dialog.setAttribute('role', 'dialog');
-    dialog.setAttribute('aria-labelledby', 'btx-welcome-title');
-    dialog.tabIndex = -1;
-    const title = el('h2', 'btx-welcome-title', WELCOME_COPY.title);
-    title.id = 'btx-welcome-title';
-    const list = el('ul', 'btx-welcome-list');
-    const items = [];
-    for (const c of welcomeCallouts(welcomeFacts)) {
-      const item = el('li', 'btx-welcome-item');
-      item.setAttribute('data-btx-callout', c.id);
-      if (c.control) item.setAttribute('data-btx-control', c.control);
-      for (const part of calloutParts(c)) item.appendChild(typeof part === 'string' ? document.createTextNode(part) : extensionIcon());
-      // Hovering a line lights its control's ring and dims the others.
-      const ring = c.control && rings[c.control];
-      if (ring) {
-        item.addEventListener('pointerenter', () => { layer.classList.add('btx-welcome-tracing'); ring.classList.add('btx-lit'); });
-        item.addEventListener('pointerleave', () => { layer.classList.remove('btx-welcome-tracing'); ring.classList.remove('btx-lit'); });
-      }
-      items.push({ item, control: c.control });
-      list.appendChild(item);
-    }
-    const done = el('button', 'btx-cta btx-welcome-done', WELCOME_COPY.gotIt);
-    done.addEventListener('click', onGotIt);
-    dialog.appendChild(title);
-    dialog.appendChild(list);
-    dialog.appendChild(done);
-    sheet.appendChild(dialog);
+    const track = el('div', 'btx-welcome-track');
+    const card = el('div', 'btx-welcome-dialog');
+    card.setAttribute('role', 'dialog');
+    card.setAttribute('aria-label', WELCOME_COPY.title);
+    card.setAttribute('aria-describedby', 'btx-welcome-step');
+    card.tabIndex = -1;
+    const content = el('div', 'btx-welcome-step');
+    content.id = 'btx-welcome-step';
+    content.setAttribute('aria-live', 'polite');
+    const eyebrow = el('p', 'btx-welcome-eyebrow');
+    const head = el('div', 'btx-welcome-head');
+    const title = el('h2', 'btx-welcome-title');
+    const position = el('span', 'btx-welcome-position');
+    head.append(title, position);
+    const lines = el('div', 'btx-welcome-lines');
+    content.append(eyebrow, head, lines);
+    const foot = el('div', 'btx-welcome-foot');
+    const skip = el('button', 'btx-welcome-skip', WELCOME_COPY.skip);
+    const back = el('button', 'btx-welcome-back', WELCOME_COPY.back);
+    const next = el('button', 'btx-cta btx-welcome-next');
+    for (const b of [skip, back, next]) b.type = 'button';
+    skip.addEventListener('click', onWelcomeDone);
+    back.addEventListener('click', () => showStep(welcomeStep - 1));
+    next.addEventListener('click', () => (welcome.view.last ? onWelcomeDone() : showStep(welcomeStep + 1)));
+    foot.append(skip, back, next);
+    card.append(content, foot);
+    track.appendChild(card);
+    sheet.appendChild(track);
     layer.appendChild(sheet);
     // Esc is not Got it, and must not reach the talk reader's Back either.
     layer.addEventListener('keydown', (e) => { if (e.key === 'Escape') e.stopPropagation(); });
-    return { layer, sheet, list, items, rings };
+    return { layer, sheet, track, card, ring, eyebrow, title, position, lines, skip, back, next, steps: welcomeSteps(welcomeFacts), view: null };
   }
 
-  // The extension's own toolbar icon, drawn where the toolbar line names it.
+  // Fill the card with step `i` (held to the tour's ends), then place it.
+  // Back on the first step is hidden, so focus that sat on it moves to Next
+  // and never drops to the page. A step change glides the ring to its new
+  // control; a resize places it at once.
+  function showStep(i) {
+    const w = welcome;
+    const v = welcomeStepView(w.steps, i);
+    const backHadFocus = document.activeElement === w.back;
+    welcomeStep = v.index;
+    w.view = v;
+    w.eyebrow.textContent = v.welcome || '';
+    w.eyebrow.hidden = !v.welcome;
+    w.title.textContent = v.step.title;
+    w.position.textContent = v.position;
+    w.lines.replaceChildren(...v.step.lines.map((line) => {
+      const p = el('p', 'btx-welcome-line');
+      for (const part of lineParts(line)) p.appendChild(typeof part === 'string' ? document.createTextNode(part) : extensionIcon());
+      return p;
+    }));
+    w.back.hidden = !v.back;
+    w.skip.hidden = !v.skip;
+    w.next.textContent = v.next;
+    w.card.setAttribute('data-btx-step', v.step.id);
+    if (backHadFocus && !v.back) w.next.focus({ preventScroll: true });
+    if (!w.ring.hidden) {
+      w.ring.classList.add('btx-glide');
+      clearTimeout(w.glide);
+      w.glide = setTimeout(() => w.ring.classList.remove('btx-glide'), 260);
+    }
+    placeWelcome();
+  }
+
+  // The extension's own toolbar icon, drawn where a line names it.
   function extensionIcon() {
     const img = el('img', 'btx-welcome-icon');
     img.alt = 'Translations & Citations';
@@ -1462,78 +1499,68 @@
   }
 
   // Measure, then place: the sheet starts where the body does (below
-  // whichever chrome rows show); each bubble and ring goes where
-  // calloutPlacement puts it for its control's rect, in the layer's
-  // coordinates. A control not showing gets a plain line and no ring.
+  // whichever chrome rows show); the card and ring go where
+  // calloutPlacement puts them for the step's control, in the layer's
+  // coordinates. A control not showing gets a plain card and no ring.
   function placeWelcome() {
-    if (!welcome) return;
-    const { layer, sheet, list, items, rings } = welcome;
+    if (!welcome || !welcome.view) return;
+    const { layer, sheet, track, card, ring, view } = welcome;
     sheet.style.top = `${ui.body.offsetTop}px`;
     const base = layer.getBoundingClientRect();
     const rel = (r) => ({ left: r.left - base.left, top: r.top - base.top, width: r.width, height: r.height });
-    const boxes = {};
-    const boxOf = (name) => {
-      if (!(name in boxes)) boxes[name] = unionRect(controlNodes(name).map((n) => rel(n.getBoundingClientRect())));
-      return boxes[name];
-    };
-    const listBox = { left: list.getBoundingClientRect().left - base.left, width: list.clientWidth };
-    const panelBox = { width: base.width, height: base.height };
-    for (const { item, control } of items) {
-      const p = calloutPlacement({ control: control ? boxOf(control) : null, list: listBox, panel: panelBox });
-      item.style.marginLeft = `${p.card.left}px`;
-      item.style.width = `${p.card.width}px`;
-      item.toggleAttribute('data-btx-pointing', p.caret !== null);
-      if (p.caret !== null) item.style.setProperty('--btx-caret-x', `${p.caret}px`);
-    }
-    const names = Object.keys(rings);
-    const placed = separateRings(names.map((n) => calloutPlacement({ control: boxOf(n), list: listBox, panel: panelBox }).ring));
-    names.forEach((n, i) => {
-      const ring = rings[n];
-      const r = placed[i];
-      ring.hidden = !r;
-      if (!r) return;
-      ring.style.left = `${r.left}px`;
-      ring.style.top = `${r.top}px`;
-      ring.style.width = `${r.width}px`;
-      ring.style.height = `${r.height}px`;
-    });
+    const control = unionRect(controlNodes(view.step.control).map((n) => rel(n.getBoundingClientRect())));
+    const area = { left: track.getBoundingClientRect().left - base.left, width: track.clientWidth };
+    const p = calloutPlacement({ control, area, panel: { width: base.width, height: base.height } });
+    card.style.marginLeft = `${p.card.left}px`;
+    card.style.width = `${p.card.width}px`;
+    card.toggleAttribute('data-btx-pointing', p.caret !== null);
+    if (p.caret !== null) card.style.setProperty('--btx-caret-x', `${p.caret}px`);
+    ring.hidden = !p.ring;
+    if (!p.ring) return;
+    ring.style.left = `${p.ring.left}px`;
+    ring.style.top = `${p.ring.top}px`;
+    ring.style.width = `${p.ring.width}px`;
+    ring.style.height = `${p.ring.height}px`;
   }
 
   // Re-place once per frame on any size change the placement reads: the
   // panel (a drag), the chrome rows and their controls, the body's top and
-  // the list's width (a scrollbar appearing in the sheet).
+  // the track's width (a scrollbar appearing in the sheet).
   function schedulePlaceWelcome() {
     if (!welcome || welcome.frame) return;
     welcome.frame = requestAnimationFrame(() => { if (welcome) { welcome.frame = 0; placeWelcome(); } });
   }
 
   function openWelcome() {
-    welcome = Object.assign(buildWelcome(), { observer: null, frame: 0 });
+    welcome = Object.assign(buildWelcome(), { observer: null, frame: 0, glide: 0 });
     ui.panel.appendChild(welcome.layer);
     if (typeof ResizeObserver === 'function') {
       const observer = new ResizeObserver(schedulePlaceWelcome);
-      for (const node of [ui.panel, ui.header, ui.toolbar, ui.body, welcome.list]) observer.observe(node);
+      for (const node of [ui.panel, ui.header, ui.toolbar, ui.body, welcome.track]) observer.observe(node);
       for (const name of CONTROL_NAMES) for (const node of controlNodes(name)) observer.observe(node);
       welcome.observer = observer;
     }
-    // What the sheet covers is out of reach while it shows: Tab from Got it
-    // never lands on a row or talk control the reader can't see, and Esc
-    // never reaches a talk open under it.
+    // What the sheet covers is out of reach while it shows: Tab from the
+    // card never lands on a row or talk control the reader can't see, and
+    // Esc never reaches a talk open under it.
     ui.body.inert = true;
-    placeWelcome();
+    showStep(welcomeStep);
     if (welcomeTakesFocus({ hidden: document.hidden, focused: document.hasFocus() })) {
-      welcome.layer.querySelector('[role="dialog"]').focus({ preventScroll: true });
+      welcome.card.focus({ preventScroll: true });
     }
   }
 
-  // Collapse, hide or Got it on another computer. Focus inside it goes to
-  // the panel's first control rather than to the page's top.
+  // Collapse, hide, or the welcome done (here or on another computer). Focus
+  // inside it goes to the panel's first control rather than to the page's
+  // top.
   function closeWelcome() {
-    const { layer, observer, frame } = welcome;
+    const { layer, observer, frame, glide } = welcome;
     const hadFocus = layer.contains(document.activeElement);
     welcome = null;
     if (observer) observer.disconnect();
     if (frame) cancelAnimationFrame(frame);
+    clearTimeout(glide);
+    if (state.welcomeSeen) welcomeStep = 0;
     layer.remove();
     ui.body.inert = false;
     if (hadFocus && visible && !state.collapsed) firstControl().focus({ preventScroll: true });
@@ -1543,14 +1570,16 @@
     return ui.controls['translation-tab'][0];
   }
 
-  // Closing moves focus (closeWelcome): Got it had it.
-  function onGotIt() {
+  // Got it, or Skip: the welcome is seen, and starts from its first step if
+  // "Show the welcome again" brings it back. Closing moves focus
+  // (closeWelcome): the button had it.
+  function onWelcomeDone() {
     if (setWelcomeSeen(state, true)) persist({ welcomeSeen: true });
     applyWelcomeUI();
   }
 
   // The nodes a CONTROL_NAMES name stands for (empty for an unknown name or
-  // before the panel is built): what a callout points at.
+  // before the panel is built): what a welcome step points at.
   function controlNodes(name) {
     return (ui && ui.controls[name]) ? ui.controls[name].slice() : [];
   }

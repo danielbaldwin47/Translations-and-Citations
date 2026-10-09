@@ -560,13 +560,14 @@
 }
 
 /* ---- The welcome (panel.js: a labelled dialog over the body) ----
-   The layer covers the whole panel and takes no pointer events: it holds the
-   rings round the controls the lines name (drawn over the header and
-   toolbar, which stay usable through them) and the sheet. The sheet covers
-   the body only (panel.js sets its top to the body's) and holds the dialog.
-   The resize grip (z 5) stays above it all. UI font at fixed px, like the
-   cards; the panel's colours. The sheet scrolls on its own and wraps any
-   word, so 280px never scrolls sideways. */
+   One step at a time. The layer covers the whole panel and takes no pointer
+   events: it holds the ring round the step's control (drawn over the header
+   and toolbar, which stay usable through it) and the sheet. The sheet covers
+   the body only (panel.js sets its top to the body's) and holds the step's
+   card, which points up at the ringed control. The resize grip (z 5) stays
+   above it all. UI font at fixed px, like the cards; the panel's colours.
+   The sheet scrolls on its own and wraps any word, so 280px never scrolls
+   sideways. */
 #btx-root .btx-welcome {
   position: absolute;
   top: 0;
@@ -584,62 +585,35 @@
   left: 0;
   overflow-x: hidden;
   overflow-y: auto;
-  padding: 10px 10px 18px;
-  background: color-mix(in srgb, var(--btx-bg) 80%, transparent);
+  padding: 12px 10px 18px;
+  background: color-mix(in srgb, var(--btx-bg) 82%, transparent);
   pointer-events: auto;
 }
+/* The card's content box: panel.js places the card in it (calloutPlacement
+   sets the card's width and left margin). */
+#btx-root .btx-welcome-track { width: 100%; }
+
+/* The card. Its caret, aimed at the control (--btx-caret-x, from panel.js),
+   is a square turned 45° with the card's fill and its top and left borders:
+   its lower half hides the card's top border where they join. */
 #btx-root .btx-welcome-dialog {
+  --btx-callout-edge: color-mix(in srgb, var(--btx-accent) 55%, var(--btx-border));
+  position: relative;
+  box-sizing: border-box;
   max-width: 100%;
-  padding: 14px 12px 16px;
-  border: 1px solid var(--btx-border);
+  padding: 14px 14px 12px;
+  border: 1px solid var(--btx-callout-edge);
   border-radius: 10px;
   background: var(--btx-bg);
   color: var(--btx-fg);
-  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.14);
+  box-shadow: 0 6px 22px rgba(0, 0, 0, 0.16);
   font-family: var(--btx-ui-font);
   font-size: 14px;
-  line-height: 1.45;
+  line-height: 1.5;
   overflow-wrap: anywhere;
 }
-/* Focus lands on the dialog itself so it is announced; it is no control, so
-   it shows no ring (Got it, next by Tab, does). */
-#btx-root .btx-welcome-dialog:focus { outline: none; }
-#btx-root .btx-welcome-title {
-  margin: 0 0 6px;
-  font-family: inherit;         /* an h2, which the site styles */
-  letter-spacing: normal;
-  font-size: 16px;
-  font-weight: 600;
-  line-height: 1.35;
-  color: var(--btx-fg);
-}
-/* Lines in reading order; panel.js sets each pointing line's width and left
-   margin (calloutPlacement), so items keep their own width. */
-#btx-root .btx-welcome-list {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 8px;
-  margin: 0 0 14px;
-  padding: 0;
-  list-style: none;             /* the site strips bullets anyway: no empty indent */
-}
-#btx-root .btx-welcome-item { margin: 0; padding: 0; max-width: 100%; }
-
-/* A line that names a control is a bubble under it, its caret aimed at the
-   control (--btx-caret-x, from panel.js). The caret is a square turned 45°
-   with the bubble's fill and its top and left borders: its lower half hides
-   the bubble's top border where it joins. */
-#btx-root .btx-welcome-item[data-btx-pointing] {
-  --btx-callout-edge: color-mix(in srgb, var(--btx-accent) 45%, var(--btx-border));
-  position: relative;
-  margin-top: 8px;              /* room for the caret above it */
-  padding: 7px 10px 8px;
-  border: 1px solid var(--btx-callout-edge);
-  border-radius: 8px;
-  background: color-mix(in srgb, var(--btx-accent) 7%, var(--btx-bg));
-}
-#btx-root .btx-welcome-item[data-btx-pointing]::before {
+#btx-root .btx-welcome-dialog[data-btx-pointing] { margin-top: 6px; }
+#btx-root .btx-welcome-dialog[data-btx-pointing]::before {
   content: '';
   position: absolute;
   top: -6px;
@@ -652,23 +626,41 @@
   border-radius: 2px 0 0 0;
   transform: rotate(45deg);
 }
+/* Focus lands on the dialog itself so it is announced; it is no control, so
+   it shows no ring (its buttons, next by Tab, do). */
+#btx-root .btx-welcome-dialog:focus { outline: none; }
 
-/* The ring round a control a line names (panel.js places it). Hovering a
-   line lights its ring and dims the others, so each line finds its control. */
-#btx-root .btx-welcome-ring {
-  position: absolute;
-  border: 2px solid var(--btx-accent);
-  border-radius: 9px;
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--btx-accent) 18%, transparent);
-  transition: opacity 0.12s, box-shadow 0.12s;
+#btx-root .btx-welcome-eyebrow {
+  margin: 0 0 4px;
+  color: var(--btx-muted);
+  font-size: 12.5px;
+  line-height: 1.35;
 }
-#btx-root .btx-welcome-ring[hidden] { display: none; }
-#btx-root .btx-welcome-tracing .btx-welcome-ring { opacity: 0.3; }
-#btx-root .btx-welcome-tracing .btx-welcome-ring.btx-lit {
-  opacity: 1;
-  box-shadow: 0 0 0 4px color-mix(in srgb, var(--btx-accent) 32%, transparent);
+#btx-root .btx-welcome-eyebrow[hidden] { display: none; }
+#btx-root .btx-welcome-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 0 0 6px;
 }
-
+#btx-root .btx-welcome-title {
+  margin: 0;
+  font-family: inherit;         /* an h2, which the site styles */
+  letter-spacing: normal;
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.3;
+  color: var(--btx-fg);
+}
+#btx-root .btx-welcome-position {
+  flex: none;
+  color: var(--btx-muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+#btx-root .btx-welcome-line { margin: 0 0 6px; }
+#btx-root .btx-welcome-line:last-child { margin-bottom: 0; }
 #btx-root .btx-welcome-icon {
   display: inline-block;
   width: 16px;
@@ -676,6 +668,46 @@
   margin: 0 2px;
   vertical-align: -3px;
 }
+
+/* Skip at the start; Back and Next (Got it on the last step) at the end. */
+#btx-root .btx-welcome-foot {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  margin-top: 14px;
+}
+#btx-root .btx-welcome-skip,
+#btx-root .btx-welcome-back {
+  appearance: none;
+  padding: 7px 8px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: var(--btx-muted);
+  font-family: inherit;
+  font-size: 14px;
+  cursor: pointer;
+}
+#btx-root .btx-welcome-back { color: var(--btx-fg); }
+#btx-root .btx-welcome-skip:hover,
+#btx-root .btx-welcome-back:hover { background: color-mix(in srgb, var(--btx-fg) 8%, transparent); }
+#btx-root .btx-welcome-skip[hidden],
+#btx-root .btx-welcome-back[hidden] { display: none; }
+#btx-root .btx-welcome-skip { margin-right: auto; }
+#btx-root .btx-welcome-next { min-width: 72px; }
+#btx-root .btx-welcome-foot button:focus-visible { outline: 2px solid var(--btx-accent); outline-offset: 2px; }
+
+/* The ring round the step's control (panel.js places it); it glides to the
+   next control on a step change, not while a resize re-places it. */
+#btx-root .btx-welcome-ring {
+  position: absolute;
+  border: 2px solid var(--btx-accent);
+  border-radius: 9px;
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--btx-accent) 22%, transparent);
+}
+#btx-root .btx-welcome-ring.btx-glide { transition: left 0.22s ease, top 0.22s ease, width 0.22s ease, height 0.22s ease; }
+#btx-root .btx-welcome-ring[hidden] { display: none; }
 
 #btx-root .btx-cta {
   appearance: none;

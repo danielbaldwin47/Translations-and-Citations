@@ -11,8 +11,9 @@
  * this visit's click, as table-driven journeys — plus the view host's caching rules, which used to be the
  * orchestrator's citCache/transCache bookkeeping, the copy the Translation
  * cards and errors show (setupCopy / besideCopy / errorCopy), the welcome's
- * due rule and callouts table (welcomeDue, WELCOME_CALLOUTS against
- * CONTROL_NAMES, where each callout is drawn: calloutPlacement), and a few
+ * due rule and steps table (welcomeDue, WELCOME_STEPS against CONTROL_NAMES,
+ * one step at a time: welcomeStepView, where its card is drawn:
+ * calloutPlacement), and a few
  * DOM-shell and orchestrator rules read from the source (toggle state and
  * aria-pressed move together; icons are built from nodes; the talk view is
  * cached; the citation-list hooks are guarded).
@@ -922,143 +923,147 @@ eq(P.welcomeTakesFocus({}), false, '...nor when nothing is known');
   eq(P.focusOnToggle(w), 'collapse', 'expanding after Got it: focus lands on Collapse');
 }
 
-// The callouts table: what the welcome says, each line against the panel
-// control it points at (#113 draws them there). Names come from the panel's
-// own list of the controls it builds; the toolbar icon is no panel control,
-// so its line names it in words with the extension's icon drawn inline.
-console.log('welcome callouts:');
+// The steps table: what the welcome says, one step at a time, each against
+// the panel control it points at. Names come from the panel's own list of
+// the controls it builds; the toolbar icon is no panel control, so the last
+// step names it in words with the extension's icon drawn inline.
+console.log('welcome steps:');
 check(Array.isArray(P.CONTROL_NAMES) && P.CONTROL_NAMES.length > 0, 'the panel exports the names of the controls it builds');
 eq(new Set(P.CONTROL_NAMES).size, P.CONTROL_NAMES.length, 'control names are unique');
-for (const c of P.WELCOME_CALLOUTS) {
-  check(c.control === null || P.CONTROL_NAMES.includes(c.control), `callout "${c.id}" points at a control the panel builds (${c.control})`);
+for (const s of P.WELCOME_STEPS) {
+  check(P.CONTROL_NAMES.includes(s.control), `step "${s.id}" points at a control the panel builds (${s.control})`);
 }
-eq(P.WELCOME_CALLOUTS.map((c) => [c.id, c.control]), [
-  ['translation', 'translation-tab'],
+eq(P.WELCOME_STEPS.map((s) => [s.id, s.control]), [
   ['citations', 'citations-tab'],
-  ['languages', 'translation-tab'],
+  ['translation', 'translation-tab'],
   ['settings', 'settings'],
   ['text-size', 'text-size'],
-  ['toolbar-icon', null],
-  ['pin', null],
-], 'the seven callouts, in reading order, against their controls');
-eq(new Set(P.WELCOME_CALLOUTS.map((c) => c.id)).size, P.WELCOME_CALLOUTS.length, 'callout ids are unique');
-const sentences = (t) => t.split(/(?<=\.)\s+/).filter(Boolean);
-for (const c of P.WELCOME_CALLOUTS) {
-  const n = sentences(c.text).length;
-  check(/\.$/.test(c.text) && n >= 1 && n <= (c.id === 'settings' ? 2 : 1), `callout "${c.id}" is one whole sentence (Settings: one or two)`);
-  check(sentences(c.text).every((x) => x.length <= 90), `callout "${c.id}": every sentence is short (90 characters at most)`);
+  ['hide', 'collapse'],
+], 'five steps, in tour order (what the panel opens on first), against their controls');
+eq(new Set(P.WELCOME_STEPS.map((s) => s.id)).size, P.WELCOME_STEPS.length, 'step ids are unique');
+const sentences = (t) => t.split(/(?<=[.?])\s+/).filter(Boolean);
+for (const s of P.WELCOME_STEPS) {
+  check(typeof s.title === 'string' && s.title.length > 0 && s.title.length <= 24, `step "${s.id}" has a short title`);
+  check(s.lines.length >= 1 && s.lines.length <= 2, `step "${s.id}" says one or two things`);
+  for (const l of s.lines) {
+    check(/[.?]$/.test(l.text) && sentences(l.text).length <= 2, `step "${s.id}": "${l.text.slice(0, 30)}…" is whole sentences, two at most`);
+    check(sentences(l.text).every((x) => x.length <= 95), `step "${s.id}": every sentence is short (95 characters at most)`);
+  }
 }
-const byId = (id) => P.WELCOME_CALLOUTS.find((c) => c.id === id) || { text: '' };
-// Spec A's model: Citations is where the panel opens, and a language you add
-// reads beside the page's text whatever the panel shows.
-check(/talks/.test(byId('citations').text) && /opens/.test(byId('citations').text), 'Citations: the talks that quote each verse, and the panel opens there');
-check(/beside the page/.test(byId('languages').text) && /Translation/.test(byId('languages').text), 'languages read beside the page, changed under Translation');
-check(/shows and hides the panel/.test(byId('toolbar-icon').text), 'the toolbar icon shows and hides the panel');
-// The toolbar line draws the extension's icon inline, where its text marks it.
-eq(P.calloutParts({ text: 'The {icon} button hides it.' }), ['The ', { icon: true }, ' button hides it.'], 'calloutParts: the marker becomes the icon, in place');
-eq(P.calloutParts({ text: 'Plain text.' }), ['Plain text.'], 'calloutParts: a line with no marker is one text part');
-eq(P.calloutParts(byId('toolbar-icon')).filter((x) => typeof x !== 'string').length, 1, 'the toolbar line draws the icon once');
-check(P.WELCOME_CALLOUTS.filter((c) => c.id !== 'toolbar-icon').every((c) => !/\{icon\}/.test(c.text)), 'only the toolbar line draws the icon');
+const stepById = (id) => P.WELCOME_STEPS.find((s) => s.id === id) || { title: '', lines: [] };
+const said = (id) => stepById(id).lines.map((l) => l.text).join(' ');
+// The tabs' steps are titled with the tabs' own names, so the ring and the
+// card name the same thing.
+eq(stepById('citations').title, 'Citations', 'the Citations step is titled with the tab\'s name');
+eq(stepById('translation').title, 'Translation', 'the Translation step is titled with the tab\'s name');
+// Spec A's model: Citations is where the panel opens (its step comes first),
+// and a language you add reads on the page whatever the panel shows.
+check(/talks/.test(said('citations')) && /each verse/.test(said('citations')), 'Citations: the talks that quote each verse');
+check(/language/.test(said('translation')) && /Bible/.test(said('translation')), 'Translation: another language or Bible version');
+check(/on the page/.test(said('translation')), 'a language you add reads on the page');
+check(/toolbar/.test(said('hide')) && /bring it back/.test(said('hide')), 'the last step: the toolbar icon brings the panel back');
+// A line draws the extension's icon inline, where its text marks it.
+eq(P.lineParts({ text: 'The {icon} button hides it.' }), ['The ', { icon: true }, ' button hides it.'], 'lineParts: the marker becomes the icon, in place');
+eq(P.lineParts({ text: 'Plain text.' }), ['Plain text.'], 'lineParts: a line with no marker is one text part');
+check(P.lineParts(stepById('hide').lines[0]).some((x) => typeof x !== 'string'), 'the last step draws the toolbar icon');
+check(P.WELCOME_STEPS.filter((s) => s.id !== 'hide').every((s) => s.lines.every((l) => !/\{icon\}/.test(l.text))), 'only the last step draws the icon');
 check(typeof P.WELCOME_COPY.title === 'string' && P.WELCOME_COPY.title && P.WELCOME_COPY.gotIt === 'Got it', 'the welcome has a title and closes on Got it');
 // Which lines show, from what the panel knows (`when`: facts the line needs;
 // the pinning line needs { pinned: false }). A fact nobody has answered
 // hides a `when` line, but the pinning line must show on an unknown answer:
 // welcomeFactsFrom turns the worker's reply into the facts, an unknown one
 // into "not pinned" (a pin suggested twice costs less than a needed one hidden).
-const shownWith = (reply) => P.welcomeCallouts(P.welcomeFactsFrom(reply)).map((c) => c.id);
-const allIds = P.WELCOME_CALLOUTS.map((c) => c.id);
-check(allIds.includes('pin') && JSON.stringify(byId('pin').when) === '{"pinned":false}', 'the pinning line needs { pinned: false }');
-check(/pin/i.test(byId('pin').text) && /toolbar/.test(byId('pin').text), 'the pinning line suggests pinning to the toolbar');
-eq(shownWith({ isOnToolbar: false }), allIds, 'icon not on the toolbar: the pinning line is in the welcome');
-eq(shownWith({ isOnToolbar: true }), allIds.filter((id) => id !== 'pin'), 'icon pinned: no pinning line');
+const pinLine = stepById('hide').lines.find((l) => l.when);
+check(pinLine && JSON.stringify(pinLine.when) === '{"pinned":false}', 'the pinning line needs { pinned: false }');
+check(pinLine && /pin/.test(pinLine.text) && /toolbar/.test(pinLine.text), 'the pinning line says how to pin to the toolbar');
+const hideLines = (reply) => P.welcomeSteps(P.welcomeFactsFrom(reply)).find((s) => s.id === 'hide').lines.length;
+eq(P.welcomeSteps(P.welcomeFactsFrom({ isOnToolbar: true })).map((s) => s.id), P.WELCOME_STEPS.map((s) => s.id), 'every step shows whatever the facts');
+eq(hideLines({ isOnToolbar: false }), 2, 'icon not on the toolbar: the last step carries the pinning line');
+eq(hideLines({ isOnToolbar: true }), 1, 'icon pinned: no pinning line');
 for (const [what, reply] of [['null (API missing)', { isOnToolbar: null }], ['an empty reply', {}], ['no reply', undefined], ['an error reply', { error: { code: 'NETWORK' } }], ['a non-boolean', { isOnToolbar: 'yes' }]]) {
-  eq(shownWith(reply), allIds, `unknown answer, ${what}: the pinning line shows`);
+  eq(hideLines(reply), 2, `unknown answer, ${what}: the pinning line shows`);
 }
-eq(P.welcomeCallouts({}).map((c) => c.id), allIds.filter((id) => id !== 'pin'), 'a `when` line stays hidden on facts nobody gave (the generic rule)');
 {
-  const table = [{ id: 'a', control: null, text: 'A.' }, { id: 'pin', control: null, text: 'Pin it.', when: { pinned: false } }];
-  eq(P.welcomeCallouts({ pinned: false }, table).map((c) => c.id), ['a', 'pin'], 'a line with `when` shows when every fact it names matches');
-  eq(P.welcomeCallouts({ pinned: true }, table).map((c) => c.id), ['a'], '...not when one differs');
-  eq(P.welcomeCallouts({}, table).map((c) => c.id), ['a'], '...nor when the fact is unknown (say nothing unsure)');
+  const table = [{ id: 'a', control: 'settings', title: 'A', lines: [{ text: 'A.' }, { text: 'Pin it.', when: { pinned: false } }] }];
+  eq(P.welcomeSteps({ pinned: false }, table)[0].lines.length, 2, 'a line with `when` shows when every fact it names matches');
+  eq(P.welcomeSteps({ pinned: true }, table)[0].lines.length, 1, '...not when one differs');
+  eq(P.welcomeSteps({}, table)[0].lines.length, 1, '...nor when the fact is unknown (say nothing unsure)');
+  eq(table[0].lines.length, 2, 'the table itself is left as it was');
 }
 
-// Where each callout is drawn (#113): a bubble in the welcome's list, placed
-// under the control it names, its caret aimed at the control's centre, and a
-// ring round the control itself. All in the welcome layer's coordinates (the
-// panel's box); `list` is the list's content box, so the bubble's left comes
-// back relative to it. The shipped geometry: bubbles at most 300px wide, the
-// caret at least 16px in from a bubble's edge, the ring 3px out from the
-// control and never past the panel's edge.
+// One step at a time: what the card shows at each step, and its buttons.
+console.log('welcomeStepView:');
+{
+  const steps = P.welcomeSteps({ pinned: false });
+  const v = (i) => P.welcomeStepView(steps, i);
+  eq([v(0).step.id, v(0).position, v(0).welcome, v(0).back, v(0).skip, v(0).next, v(0).last],
+    ['citations', '1 of 5', P.WELCOME_COPY.title, false, true, 'Next', false],
+    'step 1: the welcome\'s title above the first step, no Back, Skip and Next');
+  eq([v(2).step.id, v(2).position, v(2).welcome, v(2).back, v(2).skip, v(2).next],
+    ['settings', '3 of 5', null, true, true, 'Next'], 'a middle step: Back, Skip and Next; the welcome\'s title only on the first');
+  eq([v(4).step.id, v(4).position, v(4).back, v(4).skip, v(4).next, v(4).last],
+    ['hide', '5 of 5', true, false, 'Got it', true], 'the last step: Back and Got it, no Skip');
+  eq([v(-1).index, v(9).index, v(undefined).index, v(1.5).index], [0, 4, 0, 0], 'an index out of range is held to the tour\'s ends');
+}
+
+// Where the step's card is drawn (#113): under the control it names, its
+// caret aimed at the control's centre, and a ring round the control itself.
+// All in the welcome layer's coordinates (the panel's box); `area` is the
+// card's content box, so the card's left comes back relative to it. The
+// shipped geometry: cards at most 300px wide, the caret at least 18px in
+// from a card's edge, the ring 3px out from the control and never past the
+// panel's edge.
 console.log('calloutPlacement:');
 {
-  const at = (control, list, panel) => P.calloutPlacement({ control, list, panel });
-  // 280px, the panel's narrowest: the list is 236px wide from x=22, so every
-  // bubble is the list's width and only the caret moves.
+  const at = (control, area, panel) => P.calloutPlacement({ control, area, panel });
+  // 280px, the panel's narrowest: the area is 236px wide from x=22, so the
+  // card is the area's width and only the caret moves.
   const NARROW = { width: 280, height: 700 };
-  const NARROW_LIST = { left: 22, width: 236 };
-  eq(at({ left: 10, top: 7, width: 80, height: 30 }, NARROW_LIST, NARROW),
+  const NARROW_AREA = { left: 22, width: 236 };
+  eq(at({ left: 10, top: 7, width: 80, height: 30 }, NARROW_AREA, NARROW),
     { card: { left: 0, width: 236 }, caret: 28, ring: { left: 7, top: 4, width: 86, height: 36 } },
-    '280px, the Translation tab: a full-width bubble, the caret under the tab\'s centre, the tab ringed');
-  eq(at({ left: 214, top: 7, width: 30, height: 30 }, NARROW_LIST, NARROW),
+    '280px, the Translation tab: a full-width card, the caret under the tab\'s centre, the tab ringed');
+  eq(at({ left: 214, top: 7, width: 30, height: 30 }, NARROW_AREA, NARROW),
     { card: { left: 0, width: 236 }, caret: 207, ring: { left: 211, top: 4, width: 36, height: 36 } },
     '280px, Settings: the caret moves right under the gear');
-  eq(at({ left: 222, top: 51, width: 56, height: 28 }, NARROW_LIST, NARROW),
-    { card: { left: 0, width: 236 }, caret: 220, ring: { left: 219, top: 48, width: 61, height: 34 } },
-    '280px, A− / A+ at the edge: the caret stops 16px in from the bubble\'s corner, the ring at the panel\'s edge');
+  eq(at({ left: 222, top: 51, width: 56, height: 28 }, NARROW_AREA, NARROW),
+    { card: { left: 0, width: 236 }, caret: 218, ring: { left: 219, top: 48, width: 61, height: 34 } },
+    '280px, A− / A+ at the edge: the caret stops 18px in from the card\'s corner, the ring at the panel\'s edge');
   for (const none of [null, { left: 0, top: 0, width: 0, height: 0 }]) {
-    eq(at(none, NARROW_LIST, NARROW), { card: { left: 0, width: 236 }, caret: null, ring: null },
-      `280px, ${none ? 'a control not showing (no box)' : 'no control (the toolbar icon)'}: a plain full-width line, no caret, no ring`);
+    eq(at(none, NARROW_AREA, NARROW), { card: { left: 0, width: 236 }, caret: null, ring: null },
+      `280px, ${none ? 'a control not showing (no box)' : 'no control'}: a plain full-width card, no caret, no ring`);
   }
-  // 900px, the widest: bubbles are 300px, each placed under its control,
-  // kept inside the list.
+  // 900px, the widest: the card is 300px, placed under its control, kept
+  // inside the area.
   const WIDE = { width: 900, height: 700 };
-  const WIDE_LIST = { left: 22, width: 856 };
-  eq(at({ left: 10, top: 7, width: 200, height: 30 }, WIDE_LIST, WIDE),
+  const WIDE_AREA = { left: 22, width: 856 };
+  eq(at({ left: 10, top: 7, width: 200, height: 30 }, WIDE_AREA, WIDE),
     { card: { left: 0, width: 300 }, caret: 88, ring: { left: 7, top: 4, width: 206, height: 36 } },
-    '900px, the Translation tab: a 300px bubble held at the list\'s left edge, the caret under the tab');
-  eq(at({ left: 210, top: 7, width: 200, height: 30 }, WIDE_LIST, WIDE).card, { left: 138, width: 300 },
-    '900px, the Citations tab: the bubble centred under the tab');
-  eq(at({ left: 210, top: 7, width: 200, height: 30 }, WIDE_LIST, WIDE).caret, 150, '...the caret at its middle');
-  eq(at({ left: 834, top: 7, width: 30, height: 30 }, WIDE_LIST, WIDE),
+    '900px, the Translation tab: a 300px card held at the area\'s left edge, the caret under the tab');
+  eq(at({ left: 210, top: 7, width: 200, height: 30 }, WIDE_AREA, WIDE).card, { left: 138, width: 300 },
+    '900px, the Citations tab: the card centred under the tab');
+  eq(at({ left: 210, top: 7, width: 200, height: 30 }, WIDE_AREA, WIDE).caret, 150, '...the caret at its middle');
+  eq(at({ left: 834, top: 7, width: 30, height: 30 }, WIDE_AREA, WIDE),
     { card: { left: 556, width: 300 }, caret: 271, ring: { left: 831, top: 4, width: 36, height: 36 } },
-    '900px, Settings: the bubble held at the list\'s right edge, the caret under the gear');
-  eq(at(null, WIDE_LIST, WIDE), { card: { left: 0, width: 856 }, caret: null, ring: null },
-    '900px, no control: a plain line across the list');
+    '900px, Settings: the card held at the area\'s right edge, the caret under the gear');
+  eq(at(null, WIDE_AREA, WIDE), { card: { left: 0, width: 856 }, caret: null, ring: null },
+    '900px, no control: a plain card across the area');
   // A tab from x=10.4 to 90.7: centre 50.55, so the caret at 28.55 from the
-  // list's edge; the ring from 7.4 to 93.7.
-  eq(at({ left: 10.4, top: 7.2, width: 80.3, height: 29.6 }, NARROW_LIST, NARROW),
+  // area's edge; the ring from 7.4 to 93.7.
+  eq(at({ left: 10.4, top: 7.2, width: 80.3, height: 29.6 }, NARROW_AREA, NARROW),
     { card: { left: 0, width: 236 }, caret: 29, ring: { left: 7, top: 4, width: 87, height: 36 } },
     'measured fractions come back as whole pixels');
   // A short panel (the browser window squeezed): the A− / A+ stepper's
   // bottom sits 1px above the panel's bottom, so its ring stops at the edge.
-  eq(at({ left: 222, top: 51, width: 56, height: 28 }, NARROW_LIST, { width: 280, height: 80 }).ring,
+  eq(at({ left: 222, top: 51, width: 56, height: 28 }, NARROW_AREA, { width: 280, height: 80 }).ring,
     { left: 219, top: 48, width: 61, height: 32 },
     'a control near the panel\'s bottom: the ring stops at the bottom edge too');
 }
-// Both Translation-tab lines point at one tab: one ring per control.
-eq(P.welcomeRings(P.WELCOME_CALLOUTS), ['translation-tab', 'citations-tab', 'settings', 'text-size'],
-  'welcomeRings: each control a line names, once, in reading order (the toolbar icon has none)');
 eq(P.unionRect([{ left: 212, top: 51, width: 28, height: 28 }, { left: 244, top: 51, width: 28, height: 28 }]),
   { left: 212, top: 51, width: 60, height: 28 }, 'unionRect: A− and A+ are one box');
 eq(P.unionRect([{ left: 212, top: 51, width: 0, height: 0 }, { left: 244, top: 51, width: 28, height: 28 }]),
   { left: 244, top: 51, width: 28, height: 28 }, '...a button not showing adds nothing');
 eq(P.unionRect([]), null, '...no nodes, no box');
-// The Translation and Citations tabs are joined halves, so their rings would
-// cross: rings that overlap side by side meet at the middle of the overlap,
-// 2px apart.
-eq(P.separateRings([
-  { left: 7, top: 4, width: 86, height: 36 }, // Translation tab, x 7–93
-  { left: 87, top: 4, width: 86, height: 36 }, // Citations tab, x 87–173
-  null, // a control not showing
-  { left: 211, top: 4, width: 36, height: 36 }, // Settings: clear of both
-  { left: 150, top: 48, width: 62, height: 34 }, // A− / A+, the row below: no overlap
-]), [
-  { left: 7, top: 4, width: 82, height: 36 },
-  { left: 91, top: 4, width: 82, height: 36 },
-  null,
-  { left: 211, top: 4, width: 36, height: 36 },
-  { left: 150, top: 48, width: 62, height: 34 },
-], 'separateRings: joined tabs\' rings meet at their middle, 2px apart; rings clear of each other stay');
 
 // ---- What the Translation cards and errors say ----
 // Copy rules the DOM shell renders verbatim: which heading, which action.
@@ -1370,23 +1375,25 @@ const controlsLit = (panelSrcText.match(/const controls = \{([\s\S]*?)\};/) || [
 eq((controlsLit.match(/'[a-z-]+'(?=:)|\b[a-z]+(?=:)/g) || []).map((k) => k.replace(/'/g, '')).sort(), P.CONTROL_NAMES.slice().sort(),
   'the shell maps exactly the exported control names to the nodes it built');
 const welcomeSrc = (panelSrcText.match(/function buildWelcome\(\) \{[\s\S]*?\n {2}\}\n/) || [''])[0];
-check(/setAttribute\('role', 'dialog'\)/.test(welcomeSrc) && /setAttribute\('aria-labelledby', /.test(welcomeSrc),
+check(/setAttribute\('role', 'dialog'\)/.test(welcomeSrc) && /setAttribute\('aria-label', WELCOME_COPY\.title\)/.test(welcomeSrc),
   'the welcome is a labelled dialog');
 check(welcomeSrc && !/innerHTML/.test(welcomeSrc), 'the welcome is built from text nodes, never markup');
 check(/addEventListener\('keydown', \(e\) => \{ if \(e\.key === 'Escape'\) e\.stopPropagation\(\); \}\)/.test(welcomeSrc),
   'Esc stops at the welcome: the talk reader\'s listener on #btx-root never sees it');
-check(/welcomeCallouts\(welcomeFacts\)/.test(welcomeSrc), 'the welcome is built from the facts the worker answered');
+check(/welcomeSteps\(welcomeFacts\)/.test(welcomeSrc), 'the welcome is built from the facts the worker answered');
+const stepSrc = (panelSrcText.match(/function showStep\(i\) \{[\s\S]*?\n {2}\}\n/) || [''])[0];
+check(/welcomeStepView\(/.test(stepSrc) && /lineParts\(/.test(stepSrc) && !/innerHTML/.test(stepSrc), 'each step is drawn by the pure view, from text nodes');
 check(/persist\(\{ welcomeSeen: true \}\)/.test(panelSrcText), 'Got it writes the flag through __BTX.settings');
 const placeSrc = (panelSrcText.match(/function placeWelcome\(\) \{[\s\S]*?\n {2}\}\n/) || [''])[0];
-check(/calloutPlacement\(/.test(placeSrc) && /separateRings\(/.test(placeSrc) && /controlNodes\(/.test(placeSrc),
-  'the shell places each callout and ring by the pure rule, from the controls\' measured nodes');
+check(/calloutPlacement\(/.test(placeSrc) && /controlNodes\(/.test(placeSrc),
+  'the shell places the card and ring by the pure rule, from the control\'s measured nodes');
 const openSrc = (panelSrcText.match(/function openWelcome\(\) \{[\s\S]*?\n {2}\}\n/) || [''])[0];
 const closeSrc = (panelSrcText.match(/function closeWelcome\(\) \{[\s\S]*?\n {2}\}\n/) || [''])[0];
-const gotItSrc = (panelSrcText.match(/function onGotIt\(\) \{[\s\S]*?\n {2}\}\n/) || [''])[0];
+const gotItSrc = (panelSrcText.match(/function onWelcomeDone\(\) \{[\s\S]*?\n {2}\}\n/) || [''])[0];
 check(/ui\.body\.inert = true/.test(openSrc) && /ui\.body\.inert = false/.test(closeSrc),
   'the body under the welcome is inert while it shows (Tab never reaches a hidden row; Esc never reaches a hidden talk), and not after');
 check(/welcomeTakesFocus\(/.test(openSrc), 'the welcome takes focus only by the pure rule (a background tab keeps its focus)');
-check(gotItSrc && !/\.focus\(/.test(gotItSrc), 'Got it moves focus once: closeWelcome does it, onGotIt does not again');
+check(gotItSrc && !/\.focus\(/.test(gotItSrc), 'Got it and Skip move focus once: closeWelcome does it, onWelcomeDone does not again');
 check(/focusOnToggle\(state\)/.test((panelSrcText.match(/function setCollapsed\([\s\S]*?\n {2}\}\n/) || [''])[0]),
   'a collapse or an expand puts focus where the pure rule says');
 check(/PANEL_HANDLED_KEYS = \[[^\]]*'welcomeSeen'/.test(panelSrcText),
