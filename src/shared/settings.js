@@ -205,8 +205,6 @@
     // ('columns', side by side; 'interlinear', under each verse — see
     // __BTX.pageSplit) or in the side panel ('panel').
     churchLanguageLayout: { def: 'columns', norm: oneOf(['columns', 'interlinear', 'panel'], 'columns') },
-    // Only act on English pages (the site serves other languages too).
-    actOnNonEngOnly: { def: true, norm: bool(true) },
     sidebarWidth: {
       def: SIDEBAR_WIDTH_DEFAULT,
       norm: clampedInt(SIDEBAR_WIDTH_MIN, SIDEBAR_WIDTH_MAX, SIDEBAR_WIDTH_DEFAULT),

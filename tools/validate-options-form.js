@@ -517,18 +517,18 @@ const fieldsTable = (shell.match(/const FIELDS = \[[\s\S]*?\n {2}\];/) || [''])[
 check(fieldsTable, 'FIELDS is still one literal table in the shell');
 const CONTROL = {
   apiKey: 'apiKey', churchLanguages: 'churchLanguages', churchLanguageLayout: 'churchLanguageLayout',
-  scrollSync: 'scrollSync', actOnNonEngOnly: 'showOnOtherLanguages', sidebarWidth: 'sidebarWidth', fontScale: 'fontScale',
+  scrollSync: 'scrollSync', sidebarWidth: 'sidebarWidth', fontScale: 'fontScale',
 };
 for (const [key, id] of Object.entries(CONTROL)) {
   check(new RegExp(`key: '${key}'`).test(fieldsTable), `${key} is a FIELDS row (so the autosave writes it and fillForm repaints it)`);
   check(new RegExp(`id="${id}"`).test(html), `${key} has a control on the options page (#${id})`);
 }
-check(/key: 'actOnNonEngOnly',[\s\S]*?read: \(\) => !els\.showOnOtherLanguages\.checked/.test(fieldsTable),
-  '"Also show on pages in other languages" is actOnNonEngOnly, inverted');
 // Retired settings: the panel owns the citation layout, and the rest are gone.
-for (const key of ['citationView', 'citationSourceMark', 'showCitationToggle', 'scrollToSnippet']) {
+for (const key of ['citationView', 'citationSourceMark', 'showCitationToggle', 'scrollToSnippet', 'actOnNonEngOnly']) {
   check(!new RegExp(key).test(src) && !new RegExp(key).test(html), `${key} is not on the options page`);
 }
+check(!/showOnOtherLanguages|pages in other languages/.test(src + html),
+  'the "Also show on pages in other languages" row is gone (the panel shows on every chapter page)');
 check(!/id="save"|Save settings/.test(html), 'there is no Save button — every change saves itself');
 check(/id="saveStatus"[^>]*role="status"/.test(html), 'the autosave status is announced (role=status)');
 
