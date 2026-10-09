@@ -4,7 +4,9 @@
  *   - the fit: while the panel is open, the site's reading column fits the
  *     visible reading area, in every mode, split or not (fitColumn, #89);
  *   - the page split: a Church-language chapter set into that column, paired
- *     verse by verse with the English it translates.
+ *     verse by verse with the English it translates, while the panel's
+ *     arrangement names a page's language — in either mode (wantsSplit has
+ *     no mode input: the split stays on the page in Citations).
  *
  * Interface:
  *   start()                start the fit, once (content.js's init). From then
@@ -105,9 +107,11 @@
   // The least padding a column narrowed into the reading area keeps each side (#89).
   const FIT_PAD_PX = 16;
 
-  // Whether the page should be split right now.
-  function wantsSplit({ visible, mode, row, layout }) {
-    return visible === true && mode === 'translation' && !!row && row.provider === 'church'
+  // Whether the page should be split right now: `row` is the page's language
+  // (the panel's arrangement answers it, in either mode), `visible` whether
+  // the chapter shows at all.
+  function wantsSplit({ visible, row, layout }) {
+    return visible === true && !!row && row.provider === 'church'
       && (layout === 'columns' || layout === 'interlinear');
   }
 

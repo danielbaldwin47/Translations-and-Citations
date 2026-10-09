@@ -26,13 +26,16 @@
  *  - writes the cards' picks through __BTX.settings (a Church language added
  *    from the setup card, the beside card's layout) and renders them itself,
  *    since its settings subscriber skips its own writes
- *  - keeps the page split (__BTX.pageSplit) in step with Translation mode; a
- *    new chapter drops it, a same-chapter re-render keeps it unless what it
- *    shows changed, and bringing it or taking it away keeps the paragraph at
- *    the top of the screen in place
+ *  - keeps the page split (__BTX.pageSplit) on the arrangement's page's
+ *    language, in either mode (syncSplit), running the chapter check for it
+ *    when the arrangement names one unchecked (`pageNext`), in Citations too,
+ *    without holding up the panel body; a new chapter drops the split, a
+ *    same-chapter re-render keeps it unless what it shows changed, and
+ *    bringing it or taking it away keeps the paragraph at the top of the
+ *    screen in place
  *  - Citations: builds the list opened at the verse being read (readingVerse:
  *    only in the article of the chapter being rendered, read before the split
- *    goes), moves that verse's mark as the page scrolls (citPanel.markVerse,
+ *    comes or goes), moves that verse's mark as the page scrolls (citPanel.markVerse,
  *    By verse only), and brings a list re-mounted by a mode switch to that
  *    verse when the reader has moved on (citPanel.revealVerse). An open talk
  *    (openEntry) survives a trip to Translation under its stored view key; a
@@ -100,6 +103,7 @@
   let themeMirror = null; // theme.mirror handle — the theme module keeps the panel in sync
   let currentKey = null; // dedupes repeat navigation events for the same chapter
   let shownChapter = null; // the chapter last shown (currentKey is reset to force a re-render)
+  let arrangedKey = null; // the chapter the panel's arrangement describes (render's showChapter)
   // The talk open in Citations mode, re-opened when Citations comes back; the
   // list's layout when it was built (another layout asks for the list).
   let openEntry = null;
@@ -292,7 +296,7 @@
 
     // Skip spurious events (e.g. verse-anchor hashchange) for the same chapter.
     // Panel-initiated changes arrive via renderMode instead, bypassing this.
-    const key = `${parsed.collection}/${parsed.ldsBook}/${parsed.chapter}/${parsed.lang}`;
+    const key = chapterKey(parsed);
     if (key === currentKey) return;
     currentKey = key;
     clearTimeout(retryTimer);
@@ -324,6 +328,7 @@
     const offer = offerFor(parsed, textsForChapter(parsed, e));
     texts = offer.texts.filter((t) => t.offered !== false);
     panel.showChapter(Object.assign({ key }, factsFor(e, offer)));
+    arrangedKey = key;
     if (themeMirror) themeMirror.refresh(); // the panel is on screen: theme it now
 
     await renderActiveMode();
@@ -341,10 +346,10 @@
 
   function renderModeBody(opts) {
     if (panel.effectiveMode() === 'citations') {
-      // Read before the split goes: taking it away reflows the page (and
+      // Read before the split comes or goes: either reflows the page (and
       // keeps the reader's place on screen).
       const paragraph = readingParagraph();
-      syncSplit({ anchor: splitAnchor() }); // the split belongs to Translation mode
+      syncSplit({ anchor: splitAnchor() }); // the page's language stays; a new chapter's arrives
       // A talk left open comes back where it was left — unless the reader has
       // since picked another citation layout, which asks for the list.
       if (panel.citationView() !== citViewShown) openEntry = null;
@@ -358,32 +363,48 @@
     return `${citKey(parsed)}|${row.lang}|${layout}`;
   }
 
-  // The page split follows Translation mode: it shows while the active row is a
-  // Church language whose layout is in-page, and goes with everything else —
-  // Citations, an api.bible version, the panel closed, the page left. Called
-  // wherever one of those inputs moves; pageSplit.show is a no-op for the key
-  // already showing. `anchor`: the paragraph to keep in place while the split
-  // comes or goes (splitAnchor).
+  function chapterKey(parsed) {
+    return `${parsed.collection}/${parsed.ldsBook}/${parsed.chapter}/${parsed.lang}`;
+  }
+
+  // The page split shows the arrangement's page language, in either mode: the
+  // first Church language in pick order that offers the chapter, while the
+  // split layout is in-page. It goes when there is none, when the chapter
+  // doesn't show (another language's page the preference hides, the page
+  // left). Called wherever one of those inputs moves; pageSplit.show is a
+  // no-op for the key already showing. While a language in the way is not
+  // checked yet (`pageNext`), the chapter check asks for it first — in
+  // Citations too, where nothing else runs it; the panel's body never waits
+  // on it. `anchor`: the paragraph to keep in place while the split comes or
+  // goes (splitAnchor).
   async function syncSplit(opts) {
+    const anchor = opts && opts.anchor;
+    const token = ++splitToken;
+    const parsed = current;
     const e = enabled;
-    const row = findTranslation(activeId);
-    const layout = e && e.churchLanguageLayout;
-    const want = pageSplit.wantsSplit({
-      visible: !!current && !!e && showsOn(current, e),
-      mode: panel.effectiveMode(),
-      row,
-      layout,
-    });
-    if (!want) {
-      ++splitToken;
-      pageSplit.hide({ anchor: opts && opts.anchor });
+    if (!parsed || !e || !showsOn(parsed, e)) {
+      pageSplit.hide({ anchor });
       return;
     }
-    const parsed = current;
-    const anchor = opts && opts.anchor;
+    // render() hasn't described this chapter to the panel yet: it syncs
+    // once it has (a new chapter dropped the split already).
+    if (arrangedKey !== chapterKey(parsed)) return;
+    let a = panel.arrangement();
+    if (a.pageNext) {
+      const stale = () => token !== splitToken || !current || chapterKey(current) !== chapterKey(parsed);
+      const rows = textsForChapter(parsed, e);
+      const offer = await runCheck(parsed, rows, (o) => !panel.arrange(factsFor(e, o)).pageNext, stale);
+      if (!offer) return;
+      a = panel.arrangement();
+    }
+    const row = a.page ? churchText.rowFor(a.page.slice(churchText.ID_PREFIX.length)) : null;
+    const layout = placement();
+    if (!pageSplit.wantsSplit({ visible: true, row, layout })) {
+      pageSplit.hide({ anchor });
+      return;
+    }
     const key = splitKey(parsed, row, layout);
     if (pageSplit.currentKey() === key) return;
-    const token = ++splitToken;
     const res = await churchText.load(parsed, row.lang);
     if (token !== splitToken) return;
     if (!res || res.error) { pageSplit.hide(); return; } // the panel card says why
@@ -750,6 +771,9 @@
     SETTINGS.patch({ churchLanguageLayout: layout });
     if (!current || panel.effectiveMode() !== 'translation' || after === before) return;
     if (before !== 'panel' && after !== 'panel') {
+      // The layout is one of the arrangement's facts (the page's language
+      // needs an in-page one); the chapter check's results are the tab's.
+      panel.arrange(factsFor(enabled, offerFor(current, textsForChapter(current, enabled))));
       panel.updateBeside({ layout: after });
       syncSplit({ anchor: splitAnchor() });
     } else {

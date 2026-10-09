@@ -33,11 +33,12 @@ function eq(actual, expected, msg) {
 console.log('wantsSplit:');
 const SPA = { id: 'church:spa', provider: 'church', lang: 'spa' };
 const NIV = { id: 'niv', provider: 'api.bible' };
-const on = { visible: true, mode: 'translation', row: SPA, layout: 'columns' };
-eq(P.wantsSplit(on), true, 'a Church language in Translation mode, laid out in the page, splits it');
+// `row` is the page's language (the arrangement's `page`), whatever the panel shows.
+const on = { visible: true, row: SPA, layout: 'columns' };
+eq(P.wantsSplit(on), true, 'a page language laid out in the page splits it');
 eq(P.wantsSplit({ ...on, layout: 'interlinear' }), true, '...under each verse too');
 eq(P.wantsSplit({ ...on, layout: 'panel' }), false, 'the panel layout never touches the page');
-eq(P.wantsSplit({ ...on, mode: 'citations' }), false, 'Citations mode takes the split away');
+eq(P.wantsSplit({ ...on, mode: 'citations' }), true, 'the mode is no input: the split stays on the page in Citations');
 eq(P.wantsSplit({ ...on, row: NIV }), false, 'an api.bible version stays in the panel');
 eq(P.wantsSplit({ ...on, row: null }), false, 'no row, no split');
 eq(P.wantsSplit({ ...on, visible: false }), false, 'no chapter shown (or one the language preference hides) means no split');
@@ -318,6 +319,9 @@ check(cs.css.includes('src/content/page-split.css'), 'page-split.css is a conten
 check(!cs.js.some((f) => /prototype/.test(f)), 'no prototype ships in the manifest');
 const content = fs.readFileSync(path.join(ROOT, 'src/content/content.js'), 'utf8');
 check(/pageSplit\.wantsSplit\(/.test(content), 'the orchestrator asks the pure rule whether to split');
+const syncSrc = (content.match(/async function syncSplit\([^)]*\) \{[\s\S]*?\n {2}\}\n/) || [''])[0];
+check(/panel\.arrangement\(\)/.test(syncSrc) && !/effectiveMode|activeId/.test(syncSrc),
+  'the split follows the arrangement\'s page language, never the mode or the panel\'s text');
 check(/\+\+splitToken;\s*pageSplit\.hide\(\);/.test(content), 'a new chapter drops the split before anything else');
 check((shell.match(/if \(moved\(geo, geometry\(\)\)\) schedule\(\);/g) || []).length === 2 && /layout\(\);\s*geo = geometry\(\);/.test(shell),
   'both watches (split and fit) refit when the column moved since the last fit, measured after the fit\'s own writes');

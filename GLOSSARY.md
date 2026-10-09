@@ -161,7 +161,9 @@ volume lacks the chapter is excluded with no fetch, and a Bible row needs none.
 "Found" and "not available" are remembered per language and chapter for the
 tab, so a mode click, a settings change or a resize never fetches again. While
 it runs the arrangement answers Translation's loading state wherever an
-unchecked language stands before the pick.
+unchecked language stands before the pick. It also runs, in either mode, for
+the **page split**'s language (`pageNext`); that walk never holds up the panel
+body.
 The decision over its results is the pure `churchText.chapterOffer`; the
 fetching loop is `content.js`'s `runCheck`.
 
@@ -172,10 +174,11 @@ panel's pure core). Inputs: the chapter's texts, each marked offered or not
 layout, whether the **no-translation line** is dismissed, the stored **mode**
 and this visit's mode click. Answer: the effective mode, the body (Citations,
 loading, the **setup card**, the **beside card**, or a text), the text the
-Translation tab is about, the note (`no-translation` or none, with the
-language it names) and the mode a click saves. With Translation stored:
-- a text offers the chapter: the latest pick that does (the beside card for a
-  Church language on the page);
+Translation tab is about, the page's language (the **page split**'s, in
+either mode, or none), the note (`no-translation` or none, with the language
+it names) and the mode a click saves. With Translation stored:
+- a text offers the chapter: the latest pick that does (the beside card when
+  that text is the page's language);
 - a language not yet checked stands before it: the loading state;
 - nothing offers it and no Church language is on: the setup card;
 - nothing offers it and languages are on: Citations with the **no-translation
@@ -210,7 +213,8 @@ Bible, set up api.bible for more translations (opens settings at the `bible`
 card via `OPEN_OPTIONS {section}`), or go to the talks that cite the chapter.
 
 **Beside card**:
-Translation mode's body while the page split shows: where the text is (by the
+Translation mode's body while the text the tab is about is the page split's
+language: where the text is (by the
 layout that actually fits), the split-layout control, and "Collapse panel for
 wider columns" when collapsing would make room (`pageSplit.collapseFits`).
 
@@ -239,10 +243,23 @@ World English Bible.
 **Page split**:
 A Church-language chapter set into the site's own reading column, each block
 paired with the English element of the same id (`__BTX.pageSplit`,
-ADR-0007). It shows while the panel is in Translation mode with a Church
-language picked, and the panel body shows the **beside card**. The alternative
-to showing the text in the panel.
+ADR-0007). It is independent of the mode: it shows, in Translation and
+Citations alike, while the **arrangement** names a page's language — the
+first Church language in pick order (the pick memory, then the enabled list)
+that offers the chapter, while the **split layout** is columns or
+interlinear. A Bible version never holds the page, so on John 3 NIV can show
+in the panel with Español on the page. The next chapter keeps the language if
+it offers it, else the next pick that does, else no split. Taking it off the
+page is "In the panel" on the **beside card**. The alternative to showing the
+text in the panel.
 _Avoid_: overlay (that's its mechanism, not the feature)
+
+**Reading layer**:
+Everything the extension writes into the site's reader, owned by
+`__BTX.pageSplit` (ADR-0007): the fit (while the panel is open, the site's
+reading column fits the visible reading area, in every mode, split or not)
+and the **page split** (while the **arrangement** names a page's language).
+_Avoid_: overlay
 
 **Split layout**:
 How the page split arranges a pair — the `churchLanguageLayout` setting:
