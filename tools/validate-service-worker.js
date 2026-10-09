@@ -29,7 +29,13 @@
  *     and the content script injects no script;
  *   - the bundled World English Bible (provider `bundled`, #78) is offered and
  *     served on a fresh profile with no key, from the packaged files only: no
- *     api.bible call, no report, nothing cached.
+ *     api.bible call, no report, nothing cached;
+ *   - the chapter cache keeps fewer than C.CACHE_MAX_VERSES (500) verses of
+ *     api.bible text (#127): verses counted from the IR's verse markers, the
+ *     least recently read chapters dropped first, a record with no count
+ *     dropped before any counted one, the chapter just written never dropped,
+ *     and a re-read still a cache hit (cache.js `versesIn` / `dropKeys`, and
+ *     the worker end to end).
  *
  * Exits non-zero on any failure so it can gate a commit.
  */
@@ -149,7 +155,7 @@ function apiBible(opts) {
       if (/\/bibles\?language=eng$/.test(url)) {
         return o.badKey ? response(403, { message: 'Invalid API key' }) : response(200, LIST);
       }
-      if (/\/chapters\//.test(url)) return response(200, o.chapter || CHAPTER);
+      if (/\/chapters\//.test(url)) return response(200, (o.chapterFor && o.chapterFor(url)) || o.chapter || CHAPTER);
       if (/\/bibles\/[^/]+$/.test(url)) return response(200, { data: { copyright: 'All rights reserved.' } });
       return response(404, {});
     },
@@ -294,6 +300,114 @@ async function run() {
     eq(web && web.copyright, C.BUNDLED_BIBLE.copyright, '...under the ebible.org public-domain line');
     check(calls.length > 0 && calls.every((u) => u.startsWith(C.BUNDLED_BIBLE.dir + '/')), 'it reads only the packaged files: no api.bible call, no usage report');
     eq(Object.keys(disk.local), [], 'nothing is cached or counted against the rate limit');
+  }
+
+  // ---- the cache keeps fewer than 500 api.bible verses (#127) ----
+  {
+    const CACHE = require(path.join(ROOT, 'src/background/cache.js'));
+    eq(C.CACHE_MAX_VERSES, 500, 'the verse cap is C.CACHE_MAX_VERSES, 500');
+    check(CACHE && typeof CACHE.versesIn === 'function' && typeof CACHE.dropKeys === 'function',
+      'cache.js exports its pure core to Node (versesIn, dropKeys)');
+    if (CACHE && typeof CACHE.versesIn === 'function' && typeof CACHE.dropKeys === 'function') {
+      // verse counts come from the IR's verse markers
+      const run = (n) => ({ t: 'v', n: String(n) });
+      const txt = { t: 'txt', s: 'text', wj: false };
+      eq(CACHE.versesIn({ blocks: [
+        { type: 'heading', text: 'A heading' },
+        { type: 'para', style: 'p', runs: [run(1), txt, run(2), txt] },
+        { type: 'para', style: 'q', runs: [txt, run(3), txt] },
+      ] }), 3, 'versesIn counts the verse markers across paragraphs');
+      eq(CACHE.versesIn({ blocks: [
+        { type: 'para', style: 'q', runs: [run(5), txt] },
+        { type: 'para', style: 'q', runs: [run(5), txt, run(6)] },
+      ] }), 2, 'versesIn counts a verse once when its marker repeats');
+      eq(CACHE.versesIn({ blocks: [{ type: 'para', style: 'p', runs: [txt] }] }), 1, 'a chapter with no marker counts as one verse, never zero');
+      eq(CACHE.versesIn({}), 1, 'a payload with no blocks counts as one verse');
+
+      // the pure rule: index -> keys to drop
+      const P = C.CACHE_PREFIX + C.PROVIDER_APIBIBLE + '::niv::';
+      const rec = (n, ts, verses) => (verses === undefined ? { key: P + n, ts } : { key: P + n, ts, verses });
+      eq(CACHE.dropKeys([rec('A', 1, 200), rec('B', 2, 200), rec('C', 3, 99)], P + 'C'), [], 'dropKeys: 499 verses is under the cap, nothing drops');
+      eq(CACHE.dropKeys([rec('A', 1, 200), rec('B', 2, 200), rec('C', 3, 100)], P + 'C'), [P + 'A'], 'dropKeys: exactly 500 is not fewer than 500, the oldest drops');
+      eq(CACHE.dropKeys([rec('C', 3, 100), rec('B', 2, 200), rec('A', 1, 200)], P + 'C'), [P + 'A'], 'dropKeys: order of the index does not matter, only the stamps');
+      eq(CACHE.dropKeys([rec('A', 1, 150), rec('B', 2, 150), rec('C', 3, 150), rec('D', 4, 150), rec('E', 5, 150)], P + 'E'), [P + 'A', P + 'B'],
+        'dropKeys: drops oldest first until under the cap');
+      eq(CACHE.dropKeys([rec('A', 1, 300), rec('B', 2, 300)], P + 'A'), [P + 'B'], 'dropKeys: the chapter just written is never dropped, though it is the oldest');
+      eq(CACHE.dropKeys([rec('A', 1, 176)], P + 'A'), [], 'dropKeys: a lone chapter is kept');
+      eq(CACHE.dropKeys([rec('A', 1, 100), rec('B', 2), rec('C', 3, 100)], P + 'C'), [P + 'B'],
+        'dropKeys: a record with no count drops, though newer than a counted one');
+      eq(CACHE.dropKeys([rec('A', 1), rec('B', 2), rec('C', 3, 10)], P + 'C'), [P + 'A', P + 'B'], 'dropKeys: all records with no count drop, even under the cap');
+      const other = { key: C.CACHE_PREFIX + 'other::x::GEN.1', ts: 0 };
+      eq(CACHE.dropKeys([other, rec('A', 1, 400), rec('B', 2, 400)], P + 'B'), [P + 'A'], 'dropKeys: only api.bible records count toward the cap and drop');
+    }
+  }
+
+  {
+    const verses = (n) => ({ data: { reference: 'x', copyright: 'c', content: [{ type: 'tag', name: 'para', attrs: { style: 'p' },
+      items: Array.from({ length: n }, (_, i) => ({ type: 'tag', name: 'verse', attrs: { number: String(i + 1) }, items: [] })).concat([{ type: 'text', text: 'words' }]) }] },
+      meta: { fumsToken: 'T' } });
+    const net0 = () => apiBible({ chapterFor: () => verses(200) });
+    const get = (n) => ({ type: C.MSG.GET_CHAPTER, provider: C.PROVIDER_APIBIBLE, bibleId: 'niv', chapterId: 'JHN.' + n, ldsBook: 'john', chapter: n });
+    const keyOf = (n) => `${C.CACHE_PREFIX}${C.PROVIDER_APIBIBLE}::niv::JHN.${n}`;
+    const held = (disk) => Object.keys(disk.local).filter((k) => k.startsWith(C.CACHE_PREFIX)).sort();
+    const indexOf = (disk) => disk.local[C.CACHE_INDEX_KEY] || [];
+
+    // writing past the cap drops the least recently read chapter
+    {
+      const disk = freshDisk();
+      const net = net0();
+      const w = boot(disk, net);
+      for (const n of [1, 2]) await w.send(get(n));
+      eq(held(disk), [keyOf(1), keyOf(2)], '400 verses: both chapters are held');
+      eq(indexOf(disk).map((r) => r.verses), [200, 200], 'each index record carries its verse count, from the verse markers');
+      await w.send(get(3));
+      eq(held(disk), [keyOf(2), keyOf(3)], 'the third chapter takes the total past 500: the oldest chapter and its record go');
+      eq(indexOf(disk).map((r) => r.key).sort(), [keyOf(2), keyOf(3)], '...and its index record');
+      const before = net.chapters().length;
+      const again = await w.send(get(3));
+      eq(net.chapters().length, before, 'the chapter just written re-reads from the cache');
+      check(again && Array.isArray(again.blocks), '...and answers with the chapter');
+      await w.send(get(1));
+      eq(net.chapters().length, before + 1, 'the dropped chapter is fetched again');
+    }
+
+    // reading counts: the chapter read most recently outlives an older write
+    {
+      const disk = freshDisk();
+      const net = net0();
+      const w = boot(disk, net);
+      await w.send(get(1));
+      await new Promise((r) => setTimeout(r, 5));
+      await w.send(get(2));
+      await new Promise((r) => setTimeout(r, 5));
+      await w.send(get(1)); // read chapter 1 again: chapter 2 is now the least recently read
+      await new Promise((r) => setTimeout(r, 5));
+      await w.send(get(3));
+      eq(held(disk), [keyOf(1), keyOf(3)], 'reading a chapter protects it: the least recently READ chapter is the one dropped');
+    }
+
+    // a record from before this change has no count: it drops first
+    {
+      const disk = freshDisk();
+      const old = `${C.CACHE_PREFIX}${C.PROVIDER_APIBIBLE}::niv::PSA.23`;
+      disk.local[old] = { payload: { blocks: [] }, ts: Date.now() };
+      disk.local[C.CACHE_INDEX_KEY] = [{ key: old, ts: Date.now() }];
+      const w = boot(disk, net0());
+      await w.send(get(1));
+      eq(held(disk), [keyOf(1)], 'an old record with no verse count is dropped on the next write, newer than the chapters it sits among');
+      eq(indexOf(disk).map((r) => r.key), [keyOf(1)], '...with its index record');
+    }
+
+    // the bundled Bible is never indexed
+    {
+      const disk = { local: {}, sync: {} };
+      const w = boot(disk, { calls: [], answer: (url) => {
+        const file = path.join(ROOT, url);
+        return /^https?:/.test(url) || !fs.existsSync(file) ? response(404, {}) : response(200, JSON.parse(fs.readFileSync(file, 'utf8')));
+      } });
+      await w.send({ type: C.MSG.GET_CHAPTER, provider: C.PROVIDER_BUNDLED, bibleId: C.BUNDLED_BIBLE.id, chapterId: 'JHN.3', ldsBook: 'john', chapter: 3 });
+      eq(indexOf(disk), [], 'a bundled chapter leaves no cache index record');
+    }
   }
 
   // ---- install opens Alma 5 in Gospel Library, not the settings page (#111) ----
