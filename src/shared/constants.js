@@ -13,7 +13,7 @@
 
   const CONST = {
     // --- API endpoints ---
-    API_BIBLE_BASE: 'https://api.scripture.api.bible/v1',
+    API_BIBLE_BASE: 'https://rest.api.bible/v1',
     // api.bible usage reports (background/fums.js); a host permission.
     FUMS_BASE: 'https://fums.api.bible',
 
@@ -133,6 +133,9 @@
     // "Check for new translations" refreshes on demand).
     BIBLES_TTL_MS: 7 * 24 * 60 * 60 * 1000, // 7 days
     CACHE_MAX_ENTRIES: 500,
+    // api.bible's terms: a cache holds fewer than 500 verses of its text
+    // (cache.js dropKeys evicts the least recently read chapters to stay under).
+    CACHE_MAX_VERSES: 500,
 
     // --- Rate limits (api.bible) ---
     RATE_WINDOW_MS: 30 * 1000,

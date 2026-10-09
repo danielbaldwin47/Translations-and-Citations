@@ -7,7 +7,7 @@
  *     Chrome's 75-character limit;
  *   - the description is at most 132 characters and names both modes
  *     (translation, citations);
- *   - host_permissions are exactly api.bible, its FUMS reporting host and
+ *   - host_permissions are exactly rest.api.bible, its FUMS reporting host and
  *     scriptures.byu.edu, all in version 1 (a host added in an update
  *     disables every install until the reader accepts it); `storage` is the
  *     only API permission;
@@ -56,7 +56,7 @@ check(/translation/i.test(desc), 'the description names Translation mode');
 check(/\bcit(e|es|ation|ations)\b/i.test(desc), 'the description names Citations mode');
 
 console.log('Permissions (A23):');
-const HOSTS = ['https://api.scripture.api.bible/*', 'https://fums.api.bible/*', 'https://scriptures.byu.edu/*'];
+const HOSTS = ['https://rest.api.bible/*', 'https://fums.api.bible/*', 'https://scriptures.byu.edu/*'];
 check(same(manifest.host_permissions || [], HOSTS),
   `host_permissions are exactly ${HOSTS.join(', ')} (got ${JSON.stringify(manifest.host_permissions)})`);
 check(!manifest.optional_host_permissions, 'no optional host permissions: every host ships in version 1');
@@ -128,6 +128,12 @@ check(policy.includes(C.ABOUT.citationSource), 'the policy carries the BYU sourc
 // Every host the manifest lets the extension reach is a named party.
 const hosts = [...(manifest.host_permissions || []), ...scriptMatches].map((p) => new URL(p.replace(/\*$/, '')).hostname);
 for (const h of hosts) check(policy.includes(h), `the policy names ${h} as a party contacted`);
+// The old api.bible host still answers but is no longer the one the extension names.
+check(C.API_BIBLE_BASE === 'https://rest.api.bible/v1', `the api.bible base is https://rest.api.bible/v1 (got ${C.API_BIBLE_BASE})`);
+const OLD_HOST = 'api.scripture.api.bible';
+for (const [what, text] of [['the manifest', JSON.stringify(manifest)], ['the Store listing', listing], ['the privacy policy', policy]]) {
+  check(!text.includes(OLD_HOST), `${what} does not name ${OLD_HOST}`);
+}
 for (const word of [/\bsync\b/i, /\bdevice\b/i, /\buninstall/i]) {
   check(word.test(policy), `the policy covers ${word} (where data is stored, and how to delete it)`);
 }
