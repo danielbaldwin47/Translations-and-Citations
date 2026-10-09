@@ -79,10 +79,16 @@
     owner = owner || node;
     node.title = text;
     const desc = el('span', 'btx-cit-desc', text);
-    desc.id = `btx-cit-desc-${++describedIds}`;
+    describedBy(owner, desc, 'btx-cit-desc');
+    return desc;
+  }
+
+  // Give `desc` a fresh id (`prefix`-N) and name it in `owner`'s
+  // aria-describedby, after any description the owner already has.
+  function describedBy(owner, desc, prefix) {
+    desc.id = `${prefix}-${++describedIds}`;
     const had = owner.getAttribute('aria-describedby');
     owner.setAttribute('aria-describedby', had ? `${had} ${desc.id}` : desc.id);
-    return desc;
   }
 
   // The list the panel has mounted right now (the body holds one view at a time).
@@ -139,7 +145,7 @@
     if (row.sub) node.appendChild(el('div', 'btx-cit-sub', row.sub));
     if (row.snippet && row.snippet.text) {
       const snippet = el('div', 'btx-cit-snippet', row.snippet.text);
-      describe(node, snippet);
+      describedBy(node, snippet, 'btx-cit-snippet');
       node.appendChild(snippet);
     } else if (row.snippet && row.snippet.fetch) {
       node.appendChild(reserveSlot(row.snippet.chars));
@@ -151,11 +157,6 @@
     return node;
   }
 
-  function describe(node, snippet) {
-    snippet.id = `btx-cit-snippet-${++describedIds}`;
-    const had = node.getAttribute('aria-describedby');
-    node.setAttribute('aria-describedby', had ? `${had} ${snippet.id}` : snippet.id);
-  }
 
   // --- fetched excerpts ------------------------------------------------------
   // A row of a fetched corpus (row.snippet.fetch) reserves its excerpt's
@@ -263,7 +264,7 @@
   function fillSlot(node, slot, text) {
     slot.textContent = text;
     slot.classList.remove('btx-cit-pending');
-    describe(node, slot);
+    describedBy(node, slot, 'btx-cit-snippet');
     node.dataset.btxExcerpt = 'filled';
     if (!node.isConnected) return;
     slot.classList.add('btx-cit-arrive');
