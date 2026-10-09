@@ -44,13 +44,11 @@ split while the panel's arrangement names a page's language (#109).
 The split follows the arrangement, not the mode. A reader reading Spanish
 side by side keeps it on the page in Citations and reads the talks that cite
 each verse beside it. `wantsSplit` has no mode input; `content.js`'s
-`syncSplit` shows the arrangement's `page` (the first Church language in pick
-order that offers the chapter, while the split layout is in-page) whenever
-the chapter shows at all, and runs the chapter check for it in Citations too.
+`syncSplit` shows the arrangement's `page` (`churchText.pageLanguage`, while
+the split layout is in-page; GLOSSARY: Page split) whenever the chapter shows
+at all, and runs the chapter check for it in Citations too.
 
 The fit: a widened panel otherwise left the column wider
-than the space between the site's docked drawer and the panel, so verse text
-ran under both. A widened panel otherwise left the column wider
 than the space between the site's docked drawer and the panel, so verse text
 ran under both. The fit is one more id-scoped `<style>` rule, on
 `section#content`: it places the column inside the visible reading area
