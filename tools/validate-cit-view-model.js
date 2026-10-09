@@ -565,6 +565,41 @@ console.log('Footer:');
   eq(VM.buildView(makeData([], Object.assign({}, PUBLIC, { vintage: '' })), OPTS).footerTitle, null, 'no vintage, no footer title');
 }
 
+// --- source-type notes: hover text on a source-type header -------------------
+console.log('Source-type notes:');
+{
+  const GC_NOTE = 'Talks from the Church\u2019s general conferences';
+  const JD_NOTE = 'Sermons by early Church leaders, published 1854\u20131886';
+  const noted = Object.assign({}, PUBLIC, { corpora: {
+    G: Object.assign({}, CORPORA.G, { sourceNote: GC_NOTE }),
+    E: Object.assign({}, CORPORA.E, { sourceNote: GC_NOTE }),
+    J: Object.assign({}, CORPORA.J, { sourceNote: JD_NOTE }),
+  } });
+  const cites = [
+    { citId: 'g', verses: [3], source: gc('A', 'T', '2020-04') },
+    { citId: 'j', verses: [3], source: jod('B', 'T', '1870-01') },
+  ];
+  const titles = (view) => allGroups(view).filter((g) => g.kind === 'sourceType').map((g) => [g.label, g.title]);
+
+  const verse = VM.buildView(makeData(cites, noted), OPTS);
+  deep(titles(verse), [['General Conference', GC_NOTE], ['Journal of Discourses', JD_NOTE]],
+    'each source-type header is titled by its descriptor note (verse layout)');
+  deep(titles(VM.buildView(makeData(cites, noted), SRC)), [['General Conference', GC_NOTE], ['Journal of Discourses', JD_NOTE]],
+    'and in the by-source layout');
+  eq(verse.groups[0].title, null, 'a verse header has no title');
+  eq(verse.groups[0].a11yLabel, 'Verse 3, 2 talks', 'the note never changes the group\u2019s screen-reader label');
+
+  deep(titles(VM.buildView(makeData(cites, PUBLIC), OPTS)).map((t) => t[1]), [null, null],
+    'a descriptor without notes gives no title (today\u2019s pack)');
+  const partial = Object.assign({}, PUBLIC, { corpora: Object.assign({}, CORPORA, {
+    J: Object.assign({}, CORPORA.J, { sourceNote: JD_NOTE }) }) });
+  deep(titles(VM.buildView(makeData(cites, partial), OPTS)).map((t) => t[1]), [null, JD_NOTE],
+    'a source type without a note has no title while another has one');
+  const blank = Object.assign({}, PUBLIC, { corpora: Object.assign({}, CORPORA, {
+    G: Object.assign({}, CORPORA.G, { sourceNote: '' }) }) });
+  eq(titles(VM.buildView(makeData(cites, blank), OPTS))[0][1], null, 'an empty note is no title');
+}
+
 console.log('Empty states:');
 {
   const none = VM.buildView(null, OPTS);
