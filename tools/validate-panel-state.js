@@ -40,7 +40,7 @@ function fresh(init) {
 // ---- createState ----
 console.log('createState:');
 let s = fresh();
-eq(s.mode, 'translation', 'mode defaults to translation');
+eq(s.mode, 'citations', 'mode defaults to citations');
 eq(s.citationView, 'source', 'citationView defaults to source');
 eq(s.collapsed, false, 'collapsed defaults to false');
 eq(s.translatable, true, 'a fresh panel assumes a translatable chapter');
@@ -52,7 +52,7 @@ eq(s.citationView, 'verse', 'persisted citationView is adopted');
 eq(s.collapsed, true, 'persisted collapsed is adopted');
 
 s = fresh({ mode: 'nonsense', citationView: 42, collapsed: 'yes' });
-eq(s.mode, 'translation', 'garbage mode falls back to translation');
+eq(s.mode, 'citations', 'garbage mode falls back to citations');
 eq(s.citationView, 'source', 'garbage citationView falls back to source');
 eq(s.collapsed, false, 'garbage collapsed falls back to false');
 
@@ -167,7 +167,7 @@ eq([s.mode, s.override], ['citations', true], 'a settings change that still offe
 P.setChapter(s, { key: 'john/4', translatable: true });
 eq([s.mode, P.effectiveMode(s)], ['citations', 'citations'], '...and a chapter left before it was answered drops the request');
 
-s = fresh();
+s = fresh({ mode: 'translation' });
 P.setChapter(s, { key: 'alma/5', translatable: false });
 P.selectMode(s, 'translation');
 P.setChapter(s, { translatable: false });
@@ -363,7 +363,7 @@ eq(r.entry.scrollTop, 500, '...at its own saved offset, untouched by scroll-sync
 // predicate after each of them and nowhere else.
 console.log('wantsScrollSync:');
 const syncable = { visible: true, scrollSync: true };
-eq(P.wantsScrollSync(fresh(), syncable), true, 'a visible, expanded Translation view syncs');
+eq(P.wantsScrollSync(fresh({ mode: 'translation' }), syncable), true, 'a visible, expanded Translation view syncs');
 eq(P.wantsScrollSync(fresh(), { visible: false, scrollSync: true }), false, 'a hidden panel does not sync');
 eq(P.wantsScrollSync(fresh({ collapsed: true }), syncable), false, 'a collapsed panel does not sync');
 eq(P.wantsScrollSync(fresh({ mode: 'citations' }), syncable), false, 'citations mode does not sync');
@@ -376,7 +376,7 @@ eq(P.wantsScrollSync(untranslatable, syncable), true, "the visit's override is T
 // Defensive: a missing flag must not read as "on" for visibility, nor as "off"
 // for the setting (the panel asks before its first settings read resolves).
 eq(P.wantsScrollSync(fresh(), {}), false, 'no visibility means no sync');
-eq(P.wantsScrollSync(fresh(), { visible: true }), true, 'an unknown setting reads as its default (on)');
+eq(P.wantsScrollSync(fresh({ mode: 'translation' }), { visible: true }), true, 'an unknown setting reads as its default (on)');
 
 // ---- Damped scroll step ----
 // The body eases toward a target instead of teleporting. Frame-rate

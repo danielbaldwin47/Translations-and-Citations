@@ -133,7 +133,7 @@
 
   function createState(init) {
     return {
-      mode: init.mode === 'citations' ? 'citations' : 'translation',
+      mode: init.mode === 'translation' ? 'translation' : 'citations', // agrees with the settings default
       citationView: init.citationView === 'verse' ? 'verse' : 'source',
       collapsed: init.collapsed === true,
       translatable: true,
@@ -1709,8 +1709,8 @@
     }
   }
 
-  // The translation dropdown, from __BTX.churchText.menuFor: headed groups when
-  // both kinds are on offer. Empty, it hides — the setup card is showing.
+  // The translation dropdown, from __BTX.churchText.menuFor: its groups, headed
+  // or not as menuFor says. Empty, it hides — the setup card is showing.
   function populateTranslations(menu, selectedId) {
     ensureRoot();
     ui.select.textContent = '';
