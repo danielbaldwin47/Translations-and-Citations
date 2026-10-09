@@ -321,6 +321,16 @@ details > summary:hover { background: var(--accent-soft); }
 /* The one control: it replays the welcome, it isn't a setting. */
 .about-welcome { margin: 14px 0 0; }
 .about-links { display: flex; flex-wrap: wrap; gap: 4px 20px; margin: 14px 0 0; font-weight: 600; }
+/* "Your data": three short lists, each under a small heading; a site's
+   hostnames sit on their own muted line under what the site is for. */
+.about-data { margin: 18px 0 0; padding-top: 14px; border-top: 1px solid var(--border); }
+.about-data h3 { font-size: 15px; line-height: 1.3; margin: 0; }
+.about-data-head { font-size: 13.5px; font-weight: 600; margin: 12px 0 0; }
+.about-data-list { margin: 4px 0 0; padding-left: 18px; font-size: 13.5px; }
+.about-data-list li + li { margin-top: 4px; }
+.about-host { display: block; color: var(--muted); font-size: 12.5px; overflow-wrap: anywhere; }
+.about-policy { margin: 12px 0 0; font-size: 13.5px; }
+.about-policy a { overflow-wrap: anywhere; }
 
 @media (max-width: 480px) {
   .wrap { padding: 20px 16px 72px; }

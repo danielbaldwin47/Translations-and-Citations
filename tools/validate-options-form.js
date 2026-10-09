@@ -434,10 +434,38 @@ eq(F.aboutCopy({ version: '1.0.0', pack: null }).vintage, null, 'no pack found: 
 eq(F.aboutCopy({ version: '1.0.0', pack: { vintage: 'soon' } }).vintage, null, 'an unreadable vintage: no vintage line');
 eq(about.sources, [BYU_LINE, JOD_LINE, WEB_LINE],
   'the source lines: BYU compiled source with the not-affiliated line, Wikisource, the World English Bible wording');
-eq(about.links.map((l) => l.label), ['Privacy policy', 'Support'], 'the card links the privacy policy and support');
-check(about.links.every((l) => /^https:\/\/\S+$/.test(l.href)), 'both links are https URLs');
-eq(about.links[1].href, 'https://github.com/danielbaldwin47/Translations-and-Citations/issues',
+eq(about.links.map((l) => l.label), ['Support'], 'the card\'s links row is Support (the policy sits in "Your data")');
+check(about.links.every((l) => /^https:\/\/\S+$/.test(l.href)), 'the links are https URLs');
+eq(about.links[0].href, 'https://github.com/danielbaldwin47/Translations-and-Citations/issues',
   'support defaults to the repository\'s issues (owner decision, spec #69 Further Notes)');
+
+// "Your data" (#128): three short lists from C.ABOUT.yourData, then the policy
+// with its address as the link's text. A site line leads with what it is for;
+// its hostnames follow.
+const yours = about.yourData;
+eq(yours.title, 'Your data', 'the section is headed "Your data"');
+eq(yours.lists.map((l) => l.head), ['On this computer', 'Synced through your Chrome account', 'Sites it contacts'],
+  'three lists: on this computer, synced, sites');
+eq(yours.lists, [C.ABOUT.yourData.local, C.ABOUT.yourData.synced, C.ABOUT.yourData.sites].map((l) => ({
+  head: l.head, items: l.items.map((i) => (typeof i === 'string' ? { text: i, hosts: [] } : i)),
+})), 'every list renders from C.ABOUT.yourData, in order; a plain line has no hostnames');
+const [localList, syncedList, sitesList] = yours.lists;
+const listText = (l) => l.items.map((i) => i.text).join(' | ');
+for (const [what, re] of [['highlights', /highlight/i], ['cached chapters', /chapters/i], ['the cached version list', /list of translations/i],
+  ['the usage report\'s device id', /\bid\b[\s\S]*usage report/i], ['the monthly count', /this month/i], ['the pick memory', /picked/i]]) {
+  check(re.test(listText(localList)), `"On this computer" names ${what}`);
+}
+check(/settings/i.test(listText(syncedList)) && /api\.bible key/.test(listText(syncedList)) && /languages/i.test(listText(syncedList)),
+  '"Synced" names the settings, the api.bible key and the languages');
+eq(sitesList.items.map((i) => i.hosts), [['www.churchofjesuschrist.org'], ['scriptures.byu.edu'], ['rest.api.bible', 'fums.api.bible']],
+  'the sites, by full hostname, Church site first');
+check(sitesList.items.every((i) => i.text && i.hosts.every((h) => i.text.indexOf(h) < 0)),
+  'each site line leads with a plain description; its hostnames are shown beside it, not in it');
+check(/only once you connect a key/i.test(sitesList.items[2].text), 'api.bible is contacted only once you connect a key');
+check(yours.lists.every((l) => l.items.every((i) => i.text.length <= 100)), 'every line is short (100 characters at most)');
+eq(yours.policy.href, C.ABOUT.privacyUrl, 'the section ends with the privacy policy');
+eq(yours.policy.text, C.ABOUT.privacyUrl.replace(/^https:\/\//, ''), 'the policy link\'s text is its address');
+check(/privacy policy/i.test(yours.policy.label), 'the address is labelled as the privacy policy');
 const settingKeys = Object.keys(S.defaults());
 check(!Object.keys(about).some((k) => settingKeys.indexOf(k) >= 0), 'nothing the About card shows is a setting');
 
@@ -673,6 +701,9 @@ check(/aboutCopy\(\{ version: chrome\.runtime\.getManifest\(\)\.version, pack \}
   'the card shows the running manifest\'s version through aboutCopy');
 check(/citData\.loadPack\(\)/.test(renderAboutBody), 'the vintage comes from the pack the reader loads (personal first, then public)');
 check(!/queueCommit|write\(|dirty|SETTINGS/.test(renderAboutBody), 'rendering the About card touches no setting');
+check(/<div id="aboutData"[^>]*>\s*<h3 id="aboutDataHead"/.test(aboutCard), 'the About card holds the "Your data" section, under its heading');
+check(/copy\.yourData/.test(renderAboutBody) && /els\.aboutData/.test(renderAboutBody), 'renderAbout draws "Your data" from aboutCopy');
+check(!/innerHTML/.test(renderAboutBody), 'the About card is drawn as text (no innerHTML)');
 check(/renderAbout\(\)/.test(bodyOf('init')), 'init renders the About card');
 check(/cit-data\.js"><\/script>\s*<script src="\.\.\/citations\/cit-view-model\.js"><\/script>[\s\S]*<script src="options\.js">/.test(html),
   'the options page loads the pack loader and the view-model (vintageLine) before its own script');

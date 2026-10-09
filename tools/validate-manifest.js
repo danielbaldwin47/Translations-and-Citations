@@ -24,7 +24,12 @@
  *     names, carries the Limited Use statement verbatim and the BYU source
  *     line, names every host the manifest reaches as a party, and covers
  *     synced vs device storage, deletion (uninstall), and no analytics, sale
- *     or ads.
+ *     or ads;
+ *   - every host the manifest reaches is also named, by the same literal
+ *     match, in settings' "Your data" sites list (C.ABOUT.yourData.sites);
+ *   - the listing's description and the policy say the one analytics
+ *     sentence (NO_ANALYTICS) word for word, and mention analytics nowhere
+ *     else.
  * Run: node tools/validate-manifest.js   Exits non-zero on failure.
  */
 'use strict';
@@ -128,6 +133,17 @@ check(policy.includes(C.ABOUT.citationSource), 'the policy carries the BYU sourc
 // Every host the manifest lets the extension reach is a named party.
 const hosts = [...(manifest.host_permissions || []), ...scriptMatches].map((p) => new URL(p.replace(/\*$/, '')).hostname);
 for (const h of hosts) check(policy.includes(h), `the policy names ${h} as a party contacted`);
+// The same hosts, by the same literal match, in settings' "Your data" sites list.
+const sitesText = JSON.stringify((C.ABOUT.yourData && C.ABOUT.yourData.sites) || null);
+for (const h of hosts) check(sitesText.includes(h), `"Your data"'s sites list (C.ABOUT.yourData.sites) names ${h}`);
+// One analytics sentence, word for word, in the listing and the policy (#128).
+const NO_ANALYTICS = 'No analytics of our own. Only api.bible\'s required usage report, and only once you connect a key.';
+const oneLine = (t) => t.replace(/\s*\n\s*/g, ' ');
+check(oneLine(storeDesc).includes(NO_ANALYTICS), `the Store description says "${NO_ANALYTICS}"`);
+check(oneLine(policy).includes(NO_ANALYTICS), `the policy says "${NO_ANALYTICS}"`);
+for (const [what, text] of [['the Store description', storeDesc], ['the policy', policy]]) {
+  eq((oneLine(text).match(/no analytics/gi) || []).length, 1, `${what} states analytics once`);
+}
 // The old api.bible host still answers but is no longer the one the extension names.
 check(C.API_BIBLE_BASE === 'https://rest.api.bible/v1', `the api.bible base is https://rest.api.bible/v1 (got ${C.API_BIBLE_BASE})`);
 const OLD_HOST = 'api.scripture.api.bible';

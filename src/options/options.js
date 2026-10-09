@@ -5,11 +5,12 @@
  * reader's own languages on top as "Your languages"), `bible` (api.bible key
  * and which translations the panel offers), `reading` (text size, panel width,
  * scroll sync),
- * and `about` (version, pack vintage, source lines, privacy and support
- * links: text, plus one button, "Show the welcome again", which writes the
- * welcome-seen flag false and asks the worker to open Alma 5, all or nothing:
- * a failure of either half is said on its own line, welcomeAgainError, and
- * never joins Try again; aboutCopy).
+ * and `about` (version, pack vintage, source lines, "Your data" — what stays
+ * on this computer, what syncs, which sites, the privacy policy's address —
+ * and the support link: text, plus one button, "Show the welcome again",
+ * which writes the welcome-seen flag false and asks the worker to open
+ * Alma 5, all or nothing: a failure of either half is said on its own line,
+ * welcomeAgainError, and never joins Try again; aboutCopy).
  *
  * The form is an editor of the stored settings, not a second copy of them.
  * Every change is written as it happens, through __BTX.settings.patch (never
@@ -399,17 +400,28 @@
 
   // The About card, all text: the manifest version, the pack vintage as the
   // Citations footer words it (null when no pack or no readable vintage), the
-  // source lines, and the privacy and support links. It has no control, so
+  // source lines, "Your data" and the support link. It has no control, so
   // nothing here reaches the autosave.
+  //
+  // "Your data" is C.ABOUT.yourData's three lists, every line as
+  // { text, hosts } (a plain line has no hosts), then the privacy policy,
+  // whose link text is its address without the scheme.
   function aboutCopy({ version, pack }) {
+    const D = C.ABOUT.yourData;
+    const list = (l) => ({
+      head: l.head,
+      items: l.items.map((i) => (typeof i === 'string' ? { text: i, hosts: [] } : { text: i.text, hosts: i.hosts.slice() })),
+    });
     return {
       version: `Version ${version}`,
       vintage: VM.vintageLine(pack),
       sources: [C.ABOUT.citationSource, C.ABOUT.jodSource, C.BUNDLED_BIBLE.copyright],
-      links: [
-        { label: 'Privacy policy', href: C.ABOUT.privacyUrl },
-        { label: 'Support', href: C.ABOUT.supportUrl },
-      ],
+      yourData: {
+        title: 'Your data',
+        lists: [D.local, D.synced, D.sites].map(list),
+        policy: { label: 'Privacy policy:', text: C.ABOUT.privacyUrl.replace(/^https:\/\//, ''), href: C.ABOUT.privacyUrl },
+      },
+      links: [{ label: 'Support', href: C.ABOUT.supportUrl }],
     };
   }
 
@@ -477,6 +489,8 @@
     aboutVersion: $('aboutVersion'),
     aboutVintage: $('aboutVintage'),
     aboutSources: $('aboutSources'),
+    aboutData: $('aboutData'),
+    aboutDataHead: $('aboutDataHead'),
     aboutLinks: $('aboutLinks'),
     welcomeAgain: $('welcomeAgain'),
     welcomeAgainStatus: $('welcomeAgainStatus'),
@@ -1103,22 +1117,40 @@
   // ---- About ----
 
   // Text only (aboutCopy): the running version, the vintage of the pack the
-  // reader would load (personal first, then public), the source lines, links.
+  // reader would load (personal first, then public), the source lines, "Your
+  // data" (each list under its own heading; a site's hostnames on a muted line
+  // under what it is for), links.
   async function renderAbout() {
     let pack = null;
     try { pack = (await root.__BTX.citData.loadPack()).descriptor; } catch (e) { /* no pack: no vintage line */ }
     const copy = aboutCopy({ version: chrome.runtime.getManifest().version, pack });
+    const link = (href, text) => {
+      const a = el('a', null, text);
+      a.href = href;
+      a.target = '_blank';
+      a.rel = 'noopener';
+      return a;
+    };
     els.aboutVersion.textContent = copy.version;
     els.aboutVintage.textContent = copy.vintage || '';
     els.aboutVintage.hidden = !copy.vintage;
     els.aboutSources.replaceChildren(...copy.sources.map((line) => el('li', null, line)));
-    els.aboutLinks.replaceChildren(...copy.links.map((link) => {
-      const a = el('a', null, link.label);
-      a.href = link.href;
-      a.target = '_blank';
-      a.rel = 'noopener';
-      return a;
-    }));
+    const data = copy.yourData;
+    els.aboutDataHead.textContent = data.title;
+    const parts = [els.aboutDataHead];
+    for (const l of data.lists) {
+      const ul = el('ul', 'about-data-list');
+      for (const item of l.items) {
+        const li = ul.appendChild(el('li', null, item.text));
+        if (item.hosts.length) li.appendChild(el('span', 'about-host', item.hosts.join(', ')));
+      }
+      parts.push(el('h4', 'about-data-head', l.head), ul);
+    }
+    const policy = el('p', 'about-policy', `${data.policy.label} `);
+    policy.appendChild(link(data.policy.href, data.policy.text));
+    parts.push(policy);
+    els.aboutData.replaceChildren(...parts);
+    els.aboutLinks.replaceChildren(...copy.links.map((l) => link(l.href, l.label)));
   }
 
   // "Show the welcome again": the flag first, so the tab the worker opens finds
