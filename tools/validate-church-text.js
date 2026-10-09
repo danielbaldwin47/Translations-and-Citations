@@ -81,8 +81,23 @@ list = T.textsFor({ isBible: false, bibleRows: [NIV], languages: [L1.code], page
 eq(list.map((t) => t.id), ['church:' + L1.code], 'a non-Bible chapter offers only the Church languages');
 eq(T.textsFor({ isBible: false, bibleRows: [NIV], languages: [], pageLang: 'eng' }), [],
   'a non-Bible chapter with no Church language has nothing to show (the panel forces citations)');
-eq(T.textsFor({ isBible: true, bibleRows: [], languages: [L1.code], pageLang: L1.code }), [],
+eq(T.textsFor({ isBible: true, bibleRows: [], languages: [L1.code], pageLang: L1.code }).map((t) => t.id), ['church:eng'],
   "the page's own language is never offered beside itself");
+{
+  // A page read in another language offers English, unticked (#119).
+  const spaPage = (languages, extra) => T.textsFor(Object.assign({ isBible: false, collection: 'bofm', languages, pageLang: 'spa' }, extra));
+  eq(spaPage([]).map((t) => t.id), ['church:eng'], 'a Spanish page with no language ticked offers English');
+  eq(spaPage([])[0], T.rowFor('eng'), '...as an ordinary Church-language row');
+  eq(spaPage(['spa', 'jpn']).map((t) => t.id), ['church:jpn', 'church:eng'],
+    "...after the ticked languages, still leaving out the page's own (Spanish)");
+  eq(spaPage(['eng', 'jpn']).map((t) => t.id), ['church:eng', 'church:jpn'], '...and never twice when English is ticked too');
+  eq(T.textsFor({ isBible: true, collection: 'nt', bibleRows: [NIV], languages: ['jpn'], pageLang: 'spa' }).map((t) => t.id),
+    ['niv', 'church:jpn', 'church:eng'], '...after the Bible versions on a Bible chapter');
+  eq(T.textsFor({ isBible: false, collection: 'bofm', languages: ['jpn'], pageLang: 'eng' }).map((t) => t.id), ['church:jpn'],
+    'an English page adds no English row');
+  eq(T.textsFor({ isBible: false, collection: 'bofm', languages: ['jpn'] }).map((t) => t.id), ['church:jpn'],
+    '...nor does a page whose language is not given (detect reads a missing lang as English)');
+}
 eq(T.textsFor({ isBible: true, bibleRows: [], languages: ['xxx', L1.code] }).map((t) => t.id), ['church:' + L1.code],
   'a code the table does not know is skipped, not rendered as a blank row');
 eq(T.textsFor({}), [], 'no inputs, no texts');
@@ -220,6 +235,27 @@ console.log('pageLanguage (the page\'s language, from the pick memory):');
     '...Japanese not checked yet: check it next');
   eq(page([FAILED(SPA(true))], ['church:spa'], 'columns'), { id: null, next: null },
     '...no other pick: no page language');
+
+  // A page read in Spanish (?lang=spa): textsFor's English row holds the page
+  // by the same rules as a ticked language (#119). The split pairs the
+  // fetched English by element id with the Spanish article.
+  const onSpa = (languages, results, picks, extra) => {
+    const texts = T.textsFor(Object.assign({ isBible: false, collection: 'bofm', languages, pageLang: 'spa' }, extra));
+    return page(T.chapterOffer({ texts, results, preferredIds: picks }).texts, picks, 'columns');
+  };
+  eq(onSpa([], {}, []), { id: null, next: 'eng' }, 'Spanish Alma 5, nothing ticked: check English first');
+  eq(onSpa([], { eng: 'found' }, []), { id: 'church:eng', next: null }, '...found: English holds the page, like a lone ticked language');
+  eq(onSpa(['spa'], { eng: 'found' }, ['church:spa']), { id: 'church:eng', next: null },
+    'Español ticked and picked: on its own page English takes its place');
+  eq(onSpa(['jpn'], { eng: 'found', jpn: 'found' }, ['church:jpn']), { id: 'church:jpn', next: null },
+    'Japanese picked: Japanese holds the page, English stays in the dropdown');
+  eq(onSpa(['jpn'], { eng: 'found', jpn: 'found' }, ['church:eng', 'church:jpn']), { id: 'church:eng', next: null },
+    '...English picked since: English holds the page');
+  const WEB = { id: C.BUNDLED_BIBLE.id, provider: C.BUNDLED_BIBLE.provider };
+  const john = { isBible: true, collection: 'nt', bibleRows: [WEB] };
+  eq(onSpa([], { eng: 'found' }, [], john), { id: null, next: null },
+    'Spanish John 3, no picks: the tab selects the Bible, so no page language');
+  eq(onSpa([], { eng: 'found' }, ['church:eng'], john), { id: 'church:eng', next: null }, '...English picked: English holds the page');
 }
 
 console.log('mruFrom / rememberPick:');
