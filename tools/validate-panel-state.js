@@ -1192,9 +1192,9 @@ console.log('errorCopy:');
   eq(e('INVALID_KEY').action, 'settings', 'a rejected key points to settings');
   eq(e('INVALID_KEY').message, 'api.bible didn’t accept your key.', '...in plain words, not a licensing problem');
   eq(e('FORBIDDEN').message, 'NIV isn’t included with your api.bible key.', 'an unlicensed version names the version');
-  eq(e('FORBIDDEN', { alternatives: true }).hint, 'Add it at scripture.api.bible, or choose another translation above.',
-    '...and offers the dropdown only when it has something else');
-  eq(e('FORBIDDEN').hint, 'Add it at scripture.api.bible.', '...not when it has nothing else');
+  eq(e('FORBIDDEN', { alternatives: true }).hint, 'Add it in your api.bible dashboard, or choose another translation above.',
+    '...says where to add it, by the site\'s own name, and offers the dropdown only when it has something else');
+  eq(e('FORBIDDEN').hint, 'Add it in your api.bible dashboard.', '...not when it has nothing else');
   eq(e('NOT_FOUND'), { message: 'NIV doesn’t include Psalm 23.', hint: '', action: null }, 'a missing api.bible chapter: no action to take');
   eq(e('NOT_FOUND', { church: true, name: 'Chinese, Simplified (Mandarin)', alternatives: true }),
     { message: 'Psalm 23 isn’t available in Chinese, Simplified (Mandarin).', hint: 'Choose another language above.', action: null },

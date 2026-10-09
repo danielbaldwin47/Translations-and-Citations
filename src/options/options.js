@@ -35,7 +35,7 @@
  * Every explicit try (Connect, Enter, that button) visibly re-runs: it holds
  * "Checking…" for checkingWait, then its answer goes through statusChange,
  * which re-announces a repeat in the status's live region. A rejected key's
- * line links api.bible's dashboard and sign-up (keyErrorLinks, linkedParts).
+ * line links api.bible's dashboard and sign-up (keyErrorText, linked text).
  *
  * On open, the page stays hidden until the first fill, which draws the stored
  * rows plus the worker's cached list (chrome.storage.local, any age); the
@@ -303,58 +303,47 @@
     return `${count}: ${list.map((t) => t.abbr || t.name).join(', ')}`;
   }
 
-  // The note under "Your translations": a list the worker couldn't fully
-  // check is a guess, and says so; an empty group says how to fill it.
+  // The note under "Your translations", as linked text (strings, and
+  // { text, href } for a link; [] is no note): a list the worker couldn't
+  // fully check is a guess, and says so; an empty group links the api.bible
+  // dashboard that fills it.
   function yoursNote({ partial, yours }) {
-    if (partial) return 'Couldn’t check which translations are yours. Try Connect again later.';
+    if (partial) return ['Couldn’t check which translations are yours. Try Connect again later.'];
     if (!yours) {
-      return 'This key has no NIV, NKJV or other copyrighted translations yet. Add them at scripture.api.bible, '
-        + 'then choose Check for new translations — or turn on a free one below.';
+      return [
+        'This key has no NIV, NKJV or other copyrighted translations yet. Add them in your ',
+        { text: 'api.bible dashboard', href: C.API_BIBLE_PAGES.dashboard },
+        ' (Plan, then Edit Plan, then Edit Bible Licenses), then choose Check for new translations — or turn on a free one below.',
+      ];
     }
-    return '';
+    return [];
   }
 
-  // A failed connect, in words that say what to do. api.bible answers a
-  // wrong key with 403, which the worker reports as INVALID_KEY. A rejected
-  // key names both fixes — a miscopy, or no account yet — and links each
-  // (keyErrorLinks: phrases of this sentence, rendered by linkedParts).
-  const API_BIBLE_DASHBOARD_URL = 'https://api.bible/team';
-  const API_BIBLE_SIGN_UP_URL = 'https://api.bible/sign-up';
+  // A failed connect, as linked text, in words that say what to do. api.bible
+  // answers a wrong key with 403, which the worker reports as INVALID_KEY; a
+  // rejected key names both fixes — a miscopy, or no account yet — and links
+  // each to its api.bible page.
   const keyRejected = (error) => !!error && (error.code === C.ERR.INVALID_KEY || error.code === C.ERR.FORBIDDEN);
   function keyErrorText(error) {
     const code = error && error.code;
     if (keyRejected(error)) {
-      return 'api.bible didn’t accept that key. Copy it again from your api.bible account page, or create a free account first.';
+      return [
+        'api.bible didn’t accept that key. Copy it again from ',
+        { text: 'your api.bible account page', href: C.API_BIBLE_PAGES.dashboard },
+        ', or ',
+        { text: 'create a free account', href: C.API_BIBLE_PAGES.signUp },
+        ' first.',
+      ];
     }
-    if (code === C.ERR.NETWORK) return 'Couldn’t reach api.bible. Check your connection and try again.';
-    if (code === C.ERR.RATE_LIMITED) return 'api.bible is busy. Try again in a minute.';
+    if (code === C.ERR.NETWORK) return ['Couldn’t reach api.bible. Check your connection and try again.'];
+    if (code === C.ERR.RATE_LIMITED) return ['api.bible is busy. Try again in a minute.'];
     const detail = (error && error.message && error.message !== code ? error.message : code) || 'no answer';
-    return `Couldn’t check the key (${detail}). Try again.`;
-  }
-  function keyErrorLinks(error) {
-    if (!keyRejected(error)) return [];
-    return [
-      { text: 'your api.bible account page', href: API_BIBLE_DASHBOARD_URL },
-      { text: 'create a free account', href: API_BIBLE_SIGN_UP_URL },
-    ];
+    return [`Couldn’t check the key (${detail}). Try again.`];
   }
 
-  // A status line as parts to render, in reading order: plain strings, and
-  // each link (`{ text, href }`) where its phrase first appears in `text`. A
-  // link whose phrase isn't there links nothing. The parts' text joined is
-  // exactly `text`, so the line reads (and is announced) as the sentence.
-  function linkedParts(text, links) {
-    const parts = [];
-    let rest = String(text || '');
-    for (const link of links || []) {
-      const at = rest.indexOf(link.text);
-      if (!link.text || at < 0) continue;
-      if (at) parts.push(rest.slice(0, at));
-      parts.push(link);
-      rest = rest.slice(at + link.text.length);
-    }
-    if (rest || !parts.length) parts.push(rest);
-    return parts;
+  // Linked text as the words it reads (and a live region announces).
+  function plainText(parts) {
+    return (parts || []).map((part) => (typeof part === 'string' ? part : part.text)).join('');
   }
 
   // ---- Church languages ----
@@ -494,7 +483,7 @@
       WELCOME_AGAIN, welcomeAgainError, aboutCopy, isAdded, dedupeVersions, versionGroups, stableGroups, mergeVersions, listGuesses, withStored, initialChecks, pickDefaultId,
       translationPatch, commitPatch, patchLanded, failedWrites, fillPlan, keyFromField, keyControls,
       CHECKING_MIN_MS, checkingWait, REANNOUNCE_MS, statusChange,
-      versionLabel, moreLabel, connectedText, yoursNote, keyErrorText, keyErrorLinks, linkedParts,
+      versionLabel, moreLabel, connectedText, yoursNote, keyErrorText, plainText,
       offeredLanguages, languageGroups, languageList, languageTick, groupCount, matchesLanguage,
     };
   }
@@ -576,6 +565,19 @@
     if (cls) n.className = cls;
     if (text != null) n.textContent = text;
     return n;
+  }
+
+  // Fills `node` with linked text from the pure core: a string is a text
+  // node, a { text, href } part a link that opens in a new tab.
+  function linkedText(node, parts) {
+    node.replaceChildren(...parts.map((part) => {
+      if (typeof part === 'string') return document.createTextNode(part);
+      const a = el('a', null, part.text);
+      a.href = part.href;
+      a.target = '_blank';
+      a.rel = 'noopener';
+      return a;
+    }));
   }
 
   // ---- Autosave ----
@@ -750,8 +752,8 @@
     for (const t of more) els.moreRows.appendChild(versionRow(t, on.has(t.id)));
     els.versions.hidden = !available.length;
     const note = yoursNote({ partial: listPartial, yours: yours.length });
-    els.yoursNote.textContent = note;
-    els.yoursNote.hidden = !note;
+    linkedText(els.yoursNote, note);
+    els.yoursNote.hidden = !note.length;
     els.yoursNote.classList.toggle('warn', listPartial);
     els.moreVersions.hidden = !more.length;
     els.moreSummary.textContent = moreLabel(more.length);
@@ -783,40 +785,36 @@
     queueCommit(LIST_KEYS);
   }
 
-  // The key's status line, its one writer. The text goes in as linkedParts
-  // (its `links` as elements, the rest as text nodes); statusChange decides
+  // The key's status line, its one writer. `content` is a string or linked
+  // text (keyErrorText), rendered through linkedText; statusChange decides
   // whether the live region is written at all, and re-announces a repeat
   // asked to be announced (`announce`: the answer to an explicit Connect).
-  function setKeyStatus(text, kind, opts) {
+  function setKeyStatus(content, kind, opts) {
     const o = opts || {};
+    const parts = typeof content === 'string' ? (content ? [content] : []) : content;
     const node = els.keyStatus;
     node.className = 'status' + (kind ? ' ' + kind : '');
     clearTimeout(statusTimer); // a write supersedes a re-announce still waiting
-    const change = statusChange({ shown: statusShown, text, announce: !!o.announce });
+    node.style.minHeight = '';
+    node.style.marginTop = '';
+    const change = statusChange({ shown: statusShown, text: plainText(parts), announce: !!o.announce });
     if (change === 'keep') return;
-    if (change === 'set') { writeKeyStatus(text, o.links); return; }
+    if (change === 'set') { writeKeyStatus(parts); return; }
     // Cleared for a rendered frame, then set again; the line keeps its room
     // meanwhile, so nothing below it moves.
     node.style.minHeight = `${node.offsetHeight}px`;
     node.style.marginTop = getComputedStyle(node).marginTop;
-    writeKeyStatus('', []);
+    writeKeyStatus([]);
     statusTimer = setTimeout(() => {
-      writeKeyStatus(text, o.links);
+      writeKeyStatus(parts);
       node.style.minHeight = '';
       node.style.marginTop = '';
     }, REANNOUNCE_MS);
   }
 
-  function writeKeyStatus(text, links) {
-    els.keyStatus.replaceChildren(...(text ? linkedParts(text, links) : []).map((part) => {
-      if (typeof part === 'string') return document.createTextNode(part);
-      const a = el('a', null, part.text);
-      a.href = part.href;
-      a.target = '_blank';
-      a.rel = 'noopener';
-      return a;
-    }));
-    statusShown = text;
+  function writeKeyStatus(parts) {
+    linkedText(els.keyStatus, parts);
+    statusShown = plainText(parts);
   }
 
   function showKeyState(opts) {
@@ -864,7 +862,7 @@
     if (seq !== connectSeq) return;
     if (res.error) {
       keyState = 'error';
-      setKeyStatus(keyErrorText(res.error), 'error', { links: keyErrorLinks(res.error) });
+      setKeyStatus(keyErrorText(res.error), 'error');
       updateConnect();
       return;
     }
@@ -914,7 +912,7 @@
         shown = null;
         renderTranslations([], '');
       }
-      setKeyStatus(keyErrorText(res.error), 'error', { links: keyErrorLinks(res.error), announce });
+      setKeyStatus(keyErrorText(res.error), 'error', { announce });
       updateConnect();
       settleKeyFocus(from);
       return;

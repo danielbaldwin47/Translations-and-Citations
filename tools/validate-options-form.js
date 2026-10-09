@@ -302,48 +302,48 @@ eq(F.connectedText([NIV]), 'Connected — 1 translation: NIV', 'one translation 
 eq(F.connectedText([NIV, NKJV, NIRV, OKE, KJV]), 'Connected — 5 translations: NIV, NKJV, NIrV, OKE, KJV', 'up to five are named');
 eq(F.connectedText([NIV, NKJV, NIRV, OKE, KJV, WEBU1]), 'Connected — 6 translations', 'more than five are counted, so the line stays a line');
 eq(F.connectedText([]), 'Connected. Choose the translations to show in the panel.', 'connected with nothing on says what to do');
-eq(F.yoursNote({ partial: true, yours: 3 }), 'Couldn’t check which translations are yours. Try Connect again later.',
+// api.bible's own pages, as verified on 2026-10-09 (spec #101): the free
+// account, and the dashboard that holds the key and the Bibles on it.
+eq(C.API_BIBLE_PAGES, { signUp: 'https://api.bible/sign-up', dashboard: 'https://api.bible/team' },
+  'api.bible\'s sign-up and dashboard addresses, with no redirect');
+// yoursNote is linked text: strings, and { text, href } for a link.
+eq(F.yoursNote({ partial: true, yours: 3 }), ['Couldn’t check which translations are yours. Try Connect again later.'],
   'a partial list owns up to its guess, whatever it guessed');
 eq(F.yoursNote({ partial: true, yours: 0 }), F.yoursNote({ partial: true, yours: 3 }),
   'a partial list never claims the key has no copyrighted translations');
-check(/^This key has no NIV, NKJV or other copyrighted translations yet\. .*Check for new translations/.test(F.yoursNote({ partial: false, yours: 0 })),
-  'an empty "yours" says how to fill it, through the button that refetches (Connect rests on a connected key)');
-eq(F.yoursNote({ partial: false, yours: 2 }), '', 'a full list with versions in "yours" needs no note');
-// A wrong key (#124): both fixes, for a reader who miscopied and for one with
-// no account yet, each phrase a link straight to api.bible's page.
-const bad = 'api.bible didn’t accept that key. Copy it again from your api.bible account page, or create a free account first.';
-const badLinks = [
-  { text: 'your api.bible account page', href: 'https://api.bible/team' },
-  { text: 'create a free account', href: 'https://api.bible/sign-up' },
-];
-eq(F.keyErrorText({ code: C.ERR.INVALID_KEY }), bad, 'a wrong key names both fixes');
-eq(F.keyErrorText({ code: C.ERR.FORBIDDEN }), bad, 'a 403 on the list is a key problem too');
-eq(F.keyErrorLinks({ code: C.ERR.INVALID_KEY }), badLinks, 'the wrong-key line links the dashboard and sign-up');
-eq(F.keyErrorLinks({ code: C.ERR.FORBIDDEN }), badLinks, '...for a forbidden key too');
-for (const code of Object.values(C.ERR).filter((c) => c !== C.ERR.INVALID_KEY && c !== C.ERR.FORBIDDEN)) {
-  eq(F.keyErrorLinks({ code }), [], `${code}: no links (the fix is to wait or retry)`);
-}
-eq(F.keyErrorLinks(undefined), [], 'no response: no links');
-eq(F.linkedParts(bad, badLinks), [
+eq(F.yoursNote({ partial: false, yours: 0 }), [
+  'This key has no NIV, NKJV or other copyrighted translations yet. Add them in your ',
+  { text: 'api.bible dashboard', href: 'https://api.bible/team' },
+  ' (Plan, then Edit Plan, then Edit Bible Licenses), then choose Check for new translations — or turn on a free one below.',
+], 'an empty "yours" links the dashboard, names the path there, and refills through the button that refetches (Connect rests on a connected key)');
+eq(F.yoursNote({ partial: false, yours: 2 }), [], 'a full list with versions in "yours" needs no note');
+// keyErrorText is linked text too. A wrong key (#124): both fixes, for a
+// reader who miscopied and for one with no account yet, each phrase a link
+// straight to api.bible's page.
+const bad = [
   'api.bible didn’t accept that key. Copy it again from ',
-  badLinks[0],
+  { text: 'your api.bible account page', href: 'https://api.bible/team' },
   ', or ',
-  badLinks[1],
+  { text: 'create a free account', href: 'https://api.bible/sign-up' },
   ' first.',
-], 'the line renders as text with its two phrases linked, in reading order');
-eq(F.linkedParts('Plain line.', []), ['Plain line.'], 'a line without links is one text part');
-eq(F.linkedParts('Plain line.', [{ text: 'absent', href: 'https://x' }]), ['Plain line.'], 'a link whose phrase is missing links nothing');
-eq(F.linkedParts(bad, badLinks).map((p) => (typeof p === 'string' ? p : p.text)).join(''), bad,
-  'the parts read exactly as the sentence (what the live region announces)');
-eq(F.keyErrorText({ code: C.ERR.NETWORK, message: 'Failed to fetch' }), 'Couldn’t reach api.bible. Check your connection and try again.',
+];
+eq(F.keyErrorText({ code: C.ERR.INVALID_KEY }), bad, 'a wrong key names both fixes, linking the dashboard and sign-up');
+eq(F.keyErrorText({ code: C.ERR.FORBIDDEN }), bad, 'a 403 on the list is a key problem too');
+eq(F.plainText(bad), 'api.bible didn’t accept that key. Copy it again from your api.bible account page, or create a free account first.',
+  'the line reads (and is announced) as one sentence');
+eq(F.plainText([]), '', 'no parts is no text');
+eq(F.keyErrorText({ code: C.ERR.NETWORK, message: 'Failed to fetch' }), ['Couldn’t reach api.bible. Check your connection and try again.'],
   'offline says to check the connection');
-eq(F.keyErrorText({ code: C.ERR.RATE_LIMITED }), 'api.bible is busy. Try again in a minute.', 'rate-limited says to wait');
-eq(F.keyErrorText({ code: C.ERR.UNKNOWN, message: 'HTTP 500' }), 'Couldn’t check the key (HTTP 500). Try again.',
+eq(F.keyErrorText({ code: C.ERR.RATE_LIMITED }), ['api.bible is busy. Try again in a minute.'], 'rate-limited says to wait');
+eq(F.keyErrorText({ code: C.ERR.UNKNOWN, message: 'HTTP 500' }), ['Couldn’t check the key (HTTP 500). Try again.'],
   'anything else names what happened, never a bare error code');
-eq(F.keyErrorText(undefined), 'Couldn’t check the key (no answer). Try again.', 'no response at all is still a sentence');
+eq(F.keyErrorText(undefined), ['Couldn’t check the key (no answer). Try again.'], 'no response at all is still a sentence');
 for (const code of Object.values(C.ERR)) {
-  check(!/^[A-Z_]+$/.test(F.keyErrorText({ code })) && !new RegExp(`^Error: `).test(F.keyErrorText({ code })),
-    `${code} reads as a sentence`);
+  const words = F.plainText(F.keyErrorText({ code }));
+  check(!/^[A-Z_]+$/.test(words) && !/^Error: /.test(words), `${code} reads as a sentence`);
+  if (code !== C.ERR.INVALID_KEY && code !== C.ERR.FORBIDDEN) {
+    check(F.keyErrorText({ code }).every((part) => typeof part === 'string'), `${code}: no links (the fix is to wait or retry)`);
+  }
 }
 
 // ---- Church languages ----
@@ -512,8 +512,8 @@ for (const reply of [{ error: { code: 'UNKNOWN', message: 'x' } }, null, undefin
 console.log('Shell:');
 eq(Object.keys(F).sort(), [
   'aboutCopy', 'CHECKING_MIN_MS', 'checkingWait', 'commitPatch', 'connectedText', 'dedupeVersions', 'failedWrites', 'fillPlan', 'groupCount', 'initialChecks', 'isAdded',
-  'keyControls', 'keyErrorLinks', 'keyFromField', 'keyErrorText', 'languageGroups', 'linkedParts', 'languageList', 'languageTick', 'listGuesses', 'matchesLanguage', 'mergeVersions', 'moreLabel', 'offeredLanguages',
-  'patchLanded', 'pickDefaultId', 'REANNOUNCE_MS', 'stableGroups', 'statusChange', 'translationPatch', 'versionGroups', 'versionLabel', 'welcomeAgainError', 'withStored',
+  'keyControls', 'keyFromField', 'keyErrorText', 'languageGroups', 'languageList', 'languageTick', 'listGuesses', 'matchesLanguage', 'mergeVersions', 'moreLabel', 'offeredLanguages',
+  'patchLanded', 'pickDefaultId', 'plainText', 'REANNOUNCE_MS', 'stableGroups', 'statusChange', 'translationPatch', 'versionGroups', 'versionLabel', 'welcomeAgainError', 'withStored',
   'WELCOME_AGAIN', 'yoursNote',
 ].sort(), 'requiring the page in Node exposes the pure core and nothing else');
 
@@ -570,17 +570,16 @@ check((bodyOf('connect').match(/settleKeyFocus\(from\)/g) || []).length === 2 &&
 check(/const since = Date\.now\(\);\s*const res = await send\(/.test(bodyOf('connect'))
   && /await sleep\(checkingWait\(\{ explicit, since, now: Date\.now\(\) \}\)\);\s*if \(seq !== connectSeq\) return;/.test(bodyOf('connect')),
   'an explicit Connect holds "Checking…" for checkingWait, and a newer try still wins');
-check(/setKeyStatus\(keyErrorText\(res\.error\), 'error', \{ links: keyErrorLinks\(res\.error\), announce \}\)/.test(bodyOf('connect'))
+check(/setKeyStatus\(keyErrorText\(res\.error\), 'error', \{ announce \}\)/.test(bodyOf('connect'))
   && /showKeyState\(\{ announce \}\)/.test(bodyOf('connect')),
   'a Connect\'s answer, error or success, is announced even when it repeats the last one');
-check(/keyErrorLinks\(res\.error\)/.test(bodyOf('refreshList')), 'a stored key rejected on open shows the same linked line');
-check(/statusChange\(\{ shown: statusShown, text, announce/.test(bodyOf('setKeyStatus'))
+check(/setKeyStatus\(keyErrorText\(res\.error\), 'error'\)/.test(bodyOf('refreshList')), 'a stored key rejected on open shows the same linked line');
+check(/statusChange\(\{ shown: statusShown, text: plainText\(parts\), announce/.test(bodyOf('setKeyStatus'))
   && /setTimeout\([\s\S]*?REANNOUNCE_MS\)/.test(bodyOf('setKeyStatus')),
   'the key status writes through statusChange, re-announcing a repeat after its clear has rendered');
-check(/linkedParts\(text, links\)/.test(bodyOf('writeKeyStatus')) && /createTextNode\(part\)/.test(bodyOf('writeKeyStatus'))
-  && !/innerHTML/.test(shell),
-  'the status line is built from text nodes and link elements (never innerHTML)');
-check((shell.match(/els\.keyStatus\.(textContent|replaceChildren)/g) || []).length === 1,
+check(/linkedText\(els\.keyStatus, parts\)/.test(bodyOf('writeKeyStatus')) && !/innerHTML/.test(shell),
+  'the status line renders through linkedText (text nodes and anchors, never innerHTML)');
+check((shell.match(/linkedText\(els\.keyStatus/g) || []).length === 1 && !/els\.keyStatus\.(textContent|innerText|replaceChildren)/.test(shell),
   'the key status line has one writer');
 check(!/apiKey\.value\.trim\(\)/.test(shell) && (shell.match(/keyFromField\(els\.apiKey\.value\)/g) || []).length >= 5,
   'the shell reads the key field through keyFromField, so stray spaces never cost a reader');
@@ -782,6 +781,39 @@ check(/languagePicker\(copy, langs\)\);\s*block\.appendChild\(el\('p', '[^']+', 
   'setup card: the Church-language sentence renders right under the picker with Add');
 check(/copy\.bible\.button[^\n]*\n\s*block\.appendChild\(el\('p', '[^']+', copy\.bible\.disclosure\)\)/.test(renderSetupSrc),
   'setup card: the api.bible sentence renders right under its button');
+
+// ---- api.bible setup (spec #101, #123): no account to NIV showing ----
+console.log('api.bible setup:');
+{
+  const card = cardOf('bible');
+  const setup = (card.match(/<div class="hint setup" id="bibleSetup">([\s\S]*?)<\/div>/) || [])[1] || '';
+  const words = (h) => h.replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim();
+  const steps = [...((setup.match(/<ol[^>]*>([\s\S]*?)<\/ol>/) || [])[1] || '').matchAll(/<li>([\s\S]*?)<\/li>/g)].map((m) => m[1]);
+  check(card.indexOf('id="bibleSetup"') >= 0 && card.indexOf('id="bibleSetup"') < card.indexOf('id="apiKey"'),
+    'the setup steps sit above the key field they end in');
+  eq(steps.map(words), [
+    'Create a free account at api.bible. Sign-up asks about your app, such as what it’s for and how many people use it, and your organisation.',
+    'Pick up to 3 Bibles, such as NIV, on the free plan.',
+    'Copy the key from the top right of your api.bible dashboard, and paste it below.',
+  ], 'three numbered steps, in order');
+  check(/<a href="https:\/\/api\.bible\/sign-up"[^>]*>Create a free account<\/a>/.test(steps[0] || ''), 'step 1 links api.bible\'s sign-up page');
+  check(/<a href="https:\/\/api\.bible\/team"[^>]*>api\.bible dashboard<\/a>/.test(steps[2] || ''), 'step 3 links the dashboard');
+  check(/Plan, then Edit Plan, then Edit Bible Licenses/.test(words(setup.replace(/<ol[\s\S]*<\/ol>/, '')))
+    && /<a href="https:\/\/api\.bible\/team"/.test(setup.replace(/<ol[\s\S]*<\/ol>/, '')),
+    'the add-later path names the dashboard\'s menus and links the dashboard');
+  const links = setup.match(/<a\b[^>]*>/g) || [];
+  check(links.length >= 3 && links.every((a) => /target="_blank"/.test(a) && /rel="noopener"/.test(a)),
+    'every setup link opens in a new tab with noopener');
+  check(links.every((a) => /href="https:\/\/api\.bible\/(sign-up|team)"/.test(a)), 'every setup link goes straight to api.bible\'s current pages');
+  // Reader-facing copy names the site api.bible; only the API host may say scripture.
+  for (const rel of ['src/options/options.html', 'src/options/options.js', 'src/content/panel.js', 'src/content/content.js']) {
+    const text = fs.readFileSync(path.join(ROOT, rel), 'utf8');
+    check(!/(?<!api\.)scripture\.api\.bible/.test(text), `${rel} never names scripture.api.bible to the reader`);
+  }
+  check(/yoursNote\(\{[^)]*\}\);\s*\n\s*linkedText\(els\.yoursNote, note\)/.test(src), 'the note renders through linkedText');
+  check(/n\.textContent = text/.test(bodyOf('el')) && /createTextNode/.test(bodyOf('linkedText')) && !/innerHTML/.test(bodyOf('linkedText')),
+    'linked text is built from text nodes and anchors, never innerHTML');
+}
 
 // The language search must not live inside the churchLanguages FIELDS node, or
 // typing in it would mark the setting dirty.
