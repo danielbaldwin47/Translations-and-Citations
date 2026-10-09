@@ -160,7 +160,12 @@
  * false (the pure welcomeDue; collapsing hides it without counting as seen).
  * Its content is the pure callouts table (WELCOME_CALLOUTS: each line's copy
  * and the CONTROL_NAMES control it points at, filtered by welcomeCallouts).
- * Only Got it closes it: it writes the flag true and focuses the panel's
+ * Each line with a control showing is a bubble under it, caret aimed at it,
+ * and the control is ringed; a line without one (no control, or a control
+ * not showing) is a plain line. Placement is the pure calloutPlacement over
+ * rects measured inside the layer (separateRings keeps the joined tabs'
+ * rings apart), redone on any resize of the panel, its chrome or its
+ * controls. Only Got it closes it: it writes the flag true and focuses the panel's
  * first control. Esc stops at the layer, so the talk reader never sees it.
  *
  * The panel's top: 0, except while the site's header band, laid out for the
@@ -451,6 +456,84 @@
       if (t) out.push(t);
     });
     return out;
+  }
+
+  // Where a callout is drawn: a bubble in the welcome's list under the
+  // control it names, its caret aimed at the control's centre, and a ring
+  // round the control. Inputs in the welcome layer's coordinates (the panel's
+  // box): `control` the control's measured rect (null, or a box of no size —
+  // a control not showing, or a line with no control — gives a plain line
+  // across the list: no caret, no ring), `list` the list's content box
+  // ({left, width}), `panel` ({width}). Out, whole pixels: `card` {left
+  // (relative to the list), width}, `caret` (x within the card, or null),
+  // `ring` (a rect, or null). The bubble is the list's width up to
+  // `cardMax`, centred under the control and kept inside the list; the
+  // caret stays `caretInset` in from the bubble's corners; the ring sits
+  // `ringPad` out from the control and stops at the panel's edges.
+  const CALLOUT_GEOMETRY = { cardMax: 300, caretInset: 16, ringPad: 3 };
+  function calloutPlacement({ control, list, panel }, geometry) {
+    const g = Object.assign({}, CALLOUT_GEOMETRY, geometry);
+    const listW = Math.round(list.width);
+    if (!control || !(control.width > 0) || !(control.height > 0)) {
+      return { card: { left: 0, width: listW }, caret: null, ring: null };
+    }
+    const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+    const cx = control.left + control.width / 2;
+    const width = Math.min(listW, g.cardMax);
+    const left = clamp(Math.round(cx - width / 2), Math.round(list.left), Math.round(list.left) + listW - width);
+    const caret = clamp(Math.round(cx - left), g.caretInset, width - g.caretInset);
+    const x0 = Math.max(0, Math.round(control.left - g.ringPad));
+    const y0 = Math.max(0, Math.round(control.top - g.ringPad));
+    const x1 = Math.min(Math.round(panel.width), Math.round(control.left + control.width + g.ringPad));
+    const y1 = Math.round(control.top + control.height + g.ringPad);
+    return {
+      card: { left: left - Math.round(list.left), width },
+      caret,
+      ring: { left: x0, top: y0, width: x1 - x0, height: y1 - y0 },
+    };
+  }
+
+  // The controls the welcome rings: each one a line names, once, in reading
+  // order (both Translation-tab lines share one ring).
+  function welcomeRings(callouts) {
+    return [...new Set(callouts.map((c) => c.control).filter(Boolean))];
+  }
+
+  // Rings that overlap side by side (the Translation and Citations tabs are
+  // joined halves) would cross: each such pair meets at the middle of its
+  // overlap, `gap` px apart. Null entries (no ring) pass through.
+  function separateRings(rings, gap) {
+    const g = gap === undefined ? 2 : gap;
+    const out = rings.map((r) => (r ? Object.assign({}, r) : null));
+    for (let i = 0; i < out.length; i++) {
+      for (let j = 0; j < out.length; j++) {
+        const a = out[i];
+        const b = out[j];
+        if (i === j || !a || !b || a.left >= b.left) continue; // a is the left one
+        const aRight = a.left + a.width;
+        const bRight = b.left + b.width;
+        const rowsMeet = a.top < b.top + b.height && b.top < a.top + a.height;
+        if (!rowsMeet || aRight + g <= b.left || aRight >= bRight) continue;
+        const mid = (aRight + b.left) / 2;
+        a.width = Math.floor(mid - g / 2) - a.left;
+        const left = Math.ceil(mid + g / 2);
+        b.width = bRight - left;
+        b.left = left;
+      }
+    }
+    return out;
+  }
+
+  // One box round several (the A− / A+ stepper is two buttons); a node not
+  // showing (no size) adds nothing. Null when nothing shows.
+  function unionRect(rects) {
+    const shown = rects.filter((r) => r && r.width > 0 && r.height > 0);
+    if (!shown.length) return null;
+    const left = Math.min(...shown.map((r) => r.left));
+    const top = Math.min(...shown.map((r) => r.top));
+    const right = Math.max(...shown.map((r) => r.left + r.width));
+    const bottom = Math.max(...shown.map((r) => r.top + r.height));
+    return { left, top, width: right - left, height: bottom - top };
   }
 
   // ---- Pure translation-state copy (Node-testable) ------------------------
@@ -990,6 +1073,7 @@
     module.exports = {
       createState, arrangement, layoutChoice, arrangementOf, effectiveMode, selectMode, selectText, selectCitationView, setChapter, sameChapter,
       welcomeDue, setWelcomeSeen, CONTROL_NAMES, WELCOME_COPY, WELCOME_CALLOUTS, welcomeCallouts, calloutParts,
+      CALLOUT_GEOMETRY, calloutPlacement, welcomeRings, separateRings, unionRect,
       stepFontScale, setupCopy, noteCopy, besideCopy, pressedLayout, layoutClick, roomHint, errorCopy, retryWait, LAYOUTS, RETRY_MAX_WAIT_MS, RETRY_MAX,
       createViews, saveViewScroll, selectView, keepView, settleView, dropViews, SAME_CHAPTER_VIEWS,
       viewRestoresScroll, wantsScrollSync,
@@ -1246,7 +1330,7 @@
   // a modal: the page beside it stays fully usable, and only Got it closes it
   // — a click elsewhere, a scroll or Esc leave it up. Focus moves into it when
   // it appears, and to the panel's first control on Got it.
-  let welcome = null; // { layer, observer } while it shows
+  let welcome = null; // { layer, sheet, list, items, rings, observer, frame } while it shows
 
   function applyWelcomeUI() {
     if (!ui) return;
@@ -1255,8 +1339,22 @@
     else if (!want && welcome) closeWelcome();
   }
 
+  // The layer covers the whole panel but takes no pointer events: it holds
+  // the rings drawn round the controls the lines name (header and toolbar
+  // stay usable through them) and the sheet, which covers the body only and
+  // holds the dialog. Each line that names a control is a bubble placed
+  // under it (calloutPlacement, from measured rects: placeWelcome).
   function buildWelcome() {
     const layer = el('div', 'btx-welcome');
+    const rings = {};
+    for (const name of welcomeRings(welcomeCallouts({}))) {
+      const ring = el('div', 'btx-welcome-ring');
+      ring.setAttribute('data-btx-control', name);
+      ring.setAttribute('aria-hidden', 'true');
+      rings[name] = ring;
+      layer.appendChild(ring);
+    }
+    const sheet = el('div', 'btx-welcome-sheet');
     const dialog = el('div', 'btx-welcome-dialog');
     dialog.setAttribute('role', 'dialog');
     dialog.setAttribute('aria-labelledby', 'btx-welcome-title');
@@ -1264,11 +1362,19 @@
     const title = el('h2', 'btx-welcome-title', WELCOME_COPY.title);
     title.id = 'btx-welcome-title';
     const list = el('ul', 'btx-welcome-list');
+    const items = [];
     for (const c of welcomeCallouts({})) {
       const item = el('li', 'btx-welcome-item');
       item.setAttribute('data-btx-callout', c.id);
       if (c.control) item.setAttribute('data-btx-control', c.control);
       for (const part of calloutParts(c)) item.appendChild(typeof part === 'string' ? document.createTextNode(part) : extensionIcon());
+      // Hovering a line lights its control's ring and dims the others.
+      const ring = c.control && rings[c.control];
+      if (ring) {
+        item.addEventListener('pointerenter', () => { layer.classList.add('btx-welcome-tracing'); ring.classList.add('btx-lit'); });
+        item.addEventListener('pointerleave', () => { layer.classList.remove('btx-welcome-tracing'); ring.classList.remove('btx-lit'); });
+      }
+      items.push({ item, control: c.control });
       list.appendChild(item);
     }
     const done = el('button', 'btx-cta btx-welcome-done', WELCOME_COPY.gotIt);
@@ -1276,10 +1382,11 @@
     dialog.appendChild(title);
     dialog.appendChild(list);
     dialog.appendChild(done);
-    layer.appendChild(dialog);
+    sheet.appendChild(dialog);
+    layer.appendChild(sheet);
     // Esc is not Got it, and must not reach the talk reader's Back either.
     layer.addEventListener('keydown', (e) => { if (e.key === 'Escape') e.stopPropagation(); });
-    return layer;
+    return { layer, sheet, list, items, rings };
   }
 
   // The extension's own toolbar icon, drawn where the toolbar line names it.
@@ -1292,28 +1399,73 @@
     return img;
   }
 
-  // The layer starts where the body does: below whichever chrome rows show.
+  // Measure, then place: the sheet starts where the body does (below
+  // whichever chrome rows show); each bubble and ring goes where
+  // calloutPlacement puts it for its control's rect, in the layer's
+  // coordinates. A control not showing gets a plain line and no ring.
   function placeWelcome() {
-    if (welcome) welcome.layer.style.top = `${ui.body.offsetTop}px`;
+    if (!welcome) return;
+    const { layer, sheet, list, items, rings } = welcome;
+    sheet.style.top = `${ui.body.offsetTop}px`;
+    const base = layer.getBoundingClientRect();
+    const rel = (r) => ({ left: r.left - base.left, top: r.top - base.top, width: r.width, height: r.height });
+    const boxes = {};
+    const boxOf = (name) => {
+      if (!(name in boxes)) boxes[name] = unionRect(controlNodes(name).map((n) => rel(n.getBoundingClientRect())));
+      return boxes[name];
+    };
+    const listBox = { left: list.getBoundingClientRect().left - base.left, width: list.clientWidth };
+    const panelBox = { width: base.width, height: base.height };
+    for (const { item, control } of items) {
+      const p = calloutPlacement({ control: control ? boxOf(control) : null, list: listBox, panel: panelBox });
+      item.style.marginLeft = `${p.card.left}px`;
+      item.style.width = `${p.card.width}px`;
+      item.toggleAttribute('data-btx-pointing', p.caret !== null);
+      if (p.caret !== null) item.style.setProperty('--btx-caret-x', `${p.caret}px`);
+    }
+    const names = Object.keys(rings);
+    const placed = separateRings(names.map((n) => calloutPlacement({ control: boxOf(n), list: listBox, panel: panelBox }).ring));
+    names.forEach((n, i) => {
+      const ring = rings[n];
+      const r = placed[i];
+      ring.hidden = !r;
+      if (!r) return;
+      ring.style.left = `${r.left}px`;
+      ring.style.top = `${r.top}px`;
+      ring.style.width = `${r.width}px`;
+      ring.style.height = `${r.height}px`;
+    });
+  }
+
+  // Re-place once per frame on any size change the placement reads: the
+  // panel (a drag), the chrome rows and their controls, the body's top and
+  // the list's width (a scrollbar appearing in the sheet).
+  function schedulePlaceWelcome() {
+    if (!welcome || welcome.frame) return;
+    welcome.frame = requestAnimationFrame(() => { if (welcome) { welcome.frame = 0; placeWelcome(); } });
   }
 
   function openWelcome() {
-    const layer = buildWelcome();
-    ui.panel.appendChild(layer);
-    const observer = typeof ResizeObserver === 'function' ? new ResizeObserver(placeWelcome) : null;
-    if (observer) observer.observe(ui.body);
-    welcome = { layer, observer };
+    welcome = Object.assign(buildWelcome(), { observer: null, frame: 0 });
+    ui.panel.appendChild(welcome.layer);
+    if (typeof ResizeObserver === 'function') {
+      const observer = new ResizeObserver(schedulePlaceWelcome);
+      for (const node of [ui.panel, ui.header, ui.toolbar, ui.body, welcome.list]) observer.observe(node);
+      for (const name of CONTROL_NAMES) for (const node of controlNodes(name)) observer.observe(node);
+      welcome.observer = observer;
+    }
     placeWelcome();
-    layer.querySelector('[role="dialog"]').focus({ preventScroll: true });
+    welcome.layer.querySelector('[role="dialog"]').focus({ preventScroll: true });
   }
 
   // Collapse, hide or Got it on another computer. Focus inside it goes to
   // the panel's first control rather than to the page's top.
   function closeWelcome() {
-    const { layer, observer } = welcome;
+    const { layer, observer, frame } = welcome;
     const hadFocus = layer.contains(document.activeElement);
     welcome = null;
     if (observer) observer.disconnect();
+    if (frame) cancelAnimationFrame(frame);
     layer.remove();
     if (hadFocus && visible && !state.collapsed) firstControl().focus({ preventScroll: true });
   }

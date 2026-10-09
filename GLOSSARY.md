@@ -212,8 +212,10 @@ note slot renders it, above the mounted view and never inside it.
 **Welcome**:
 A new reader's introduction, laid over the panel's body as a labelled dialog:
 a short list of **callouts**, each one line of copy and the panel control it
-points at (`WELCOME_CALLOUTS` and `CONTROL_NAMES` in the panel's pure core;
-the toolbar icon's line names the browser's icon in words). It shows on any
+points at (`WELCOME_CALLOUTS` and `CONTROL_NAMES` in the panel's pure core).
+A callout with a control is a bubble placed under it, its caret aimed at it,
+and the control is ringed (`calloutPlacement`); one with none — the toolbar
+icon's line, which draws the extension's icon inline — is a plain line. It shows on any
 panel shown while the synced `welcomeSeen` setting is false (`welcomeDue`),
 so it greets on every chapter until **Got it**, which writes the setting true.
 Collapsing hides it without counting as seen. Install leaves the setting false
