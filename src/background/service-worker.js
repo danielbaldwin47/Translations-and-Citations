@@ -225,8 +225,11 @@ chrome.action.onClicked.addListener((tab) => {
 // nothing. The welcome (GLOSSARY: Welcome) greets new installs only: a profile
 // from before it has no `welcomeSeen`, which reads as not seen, so an update
 // marks it seen. Install leaves it unseen, and Alma 5 opens with it up.
+// Neither has anyone to answer: a refused tab or a failed write is logged,
+// never an unhandled rejection.
 chrome.runtime.onInstalled.addListener((details) => {
   const reason = details && details.reason;
-  if (reason === 'install') openWelcome();
-  else if (reason === 'update') SETTINGS.patch({ welcomeSeen: true });
+  const logged = (what) => (e) => console.warn(`[BTX] ${what}:`, e);
+  if (reason === 'install') openWelcome().catch(logged('could not open the welcome tab'));
+  else if (reason === 'update') SETTINGS.patch({ welcomeSeen: true }).catch(logged('could not mark the welcome seen'));
 });

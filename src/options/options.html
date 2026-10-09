@@ -130,15 +130,17 @@
     </section>
 
     <!-- Text and links (options.js aboutCopy / renderAbout) and one button,
-         "Show the welcome again" (options.js showWelcomeAgain): no field, so
-         nothing here is a setting the autosave edits. -->
+         "Show the welcome again" (options.js showWelcomeAgain) with its own
+         status line: no field, so nothing here is a setting the autosave
+         edits. -->
     <section class="card" id="about" aria-labelledby="aboutHead">
       <h2 id="aboutHead">About</h2>
       <p id="aboutVersion" class="about-meta"></p>
       <p id="aboutVintage" class="about-meta" hidden></p>
       <ul id="aboutSources" class="about-sources"></ul>
       <p id="aboutLinks" class="about-links"></p>
-      <p class="about-welcome"><button id="welcomeAgain" type="button">Show the welcome again</button></p>
+      <p class="about-welcome"><button id="welcomeAgain" type="button" aria-describedby="welcomeAgainStatus">Show the welcome again</button></p>
+      <p id="welcomeAgainStatus" class="status error" role="status" aria-live="polite"></p>
     </section>
   </main>
 

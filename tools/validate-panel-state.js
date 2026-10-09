@@ -71,6 +71,7 @@ const WEB = { id: 'engwebp', provider: 'bundled', offered: true };
 const NIV = { id: 'niv', provider: 'apibible', offered: true };
 const church = (lang, offered) => ({ id: 'church:' + lang, provider: 'church', lang, offered });
 const failed = (row) => Object.assign(row, { failed: true }); // chapterOffer's mark: the check hit a network error
+const engAsked = (offered) => Object.assign(church('eng', offered), { onRequest: true }); // English, unticked, on a page read in another language
 // A chapter as content.js describes it to the panel.
 const chapter = (key, texts, languages, more) => Object.assign({ key, texts, picks: [], languages, layout: 'columns' }, more);
 const MOSIAH3 = chapter('bofm/mosiah/3', [], []); // no Church language on: nothing offers it
@@ -299,6 +300,36 @@ const ARRANGEMENT_CASES = [
     [{ pick: 'church:pon' }, { body: 'loading' }],
     [{ chapter: chapter('dc-testament/dc/84', [church('pon', false)], ['pon'], { picks: ['church:pon'] }) },
       { mode: 'citations', note: 'no-translation', noteLang: 'pon' }],
+  ] },
+  // English on a page read in Spanish is on request (#119, churchText
+  // textsFor): offered in the dropdown, but neither fetched nor set into the
+  // page until the reader chooses it — a pick, or opening Translation where
+  // it is the text the tab shows. That arrangement `chooses` it: content.js
+  // remembers it (the pick memory) and arranges again, and from then on it is
+  // any language's (split by the layout, beside card, In the panel).
+  { name: 'Spanish Alma 5, nothing ticked: English waits in Citations, Translation chooses it', init: {}, steps: [
+    [{ chapter: chapter('bofm/alma/5', [engAsked(null)], []) },
+      { mode: 'citations', body: 'citations', page: null, pageNext: null, chooses: null }],
+    [{ click: 'translation' }, { mode: 'translation', body: 'loading', page: null, pageNext: null, chooses: null }],
+    [{ chapter: chapter('bofm/alma/5', [engAsked(true)], []) },
+      { mode: 'translation', body: 'beside', text: 'church:eng', page: 'church:eng', chooses: 'church:eng' }],
+    [{ chapter: chapter('bofm/alma/5', [engAsked(true)], [], { picks: ['church:eng'] }) },
+      { mode: 'translation', body: 'beside', text: 'church:eng', page: 'church:eng', chooses: null }],
+    [{ click: 'citations' }, { mode: 'citations', page: 'church:eng', chooses: null }],
+  ] },
+  { name: 'Spanish Alma 5, In the panel: Translation chooses English and shows it in the panel', init: { mode: 'translation' }, steps: [
+    [{ chapter: chapter('bofm/alma/5', [engAsked(true)], [], { layout: 'panel' }) },
+      { body: 'text', text: 'church:eng', page: null, chooses: 'church:eng' }],
+    [{ chapter: chapter('bofm/alma/5', [engAsked(true)], [], { layout: 'panel', picks: ['church:eng'] }) },
+      { body: 'text', text: 'church:eng', page: null, chooses: null }],
+    [{ layout: 'columns' }, { body: 'beside', text: 'church:eng', page: 'church:eng', layout: 'columns' }],
+  ] },
+  { name: 'Spanish John 3, nothing ticked: the Bible shows, English waits in the dropdown', init: { mode: 'translation' }, steps: [
+    [{ chapter: chapter('nt/john/3', [WEB, engAsked(null)], []) },
+      { body: 'text', text: 'engwebp', page: null, pageNext: null, chooses: null }],
+    [{ pick: 'church:eng' }, { body: 'loading', chooses: null }],
+    [{ chapter: chapter('nt/john/3', [WEB, engAsked(true)], [], { picks: ['church:eng'] }) },
+      { body: 'beside', text: 'church:eng', page: 'church:eng', chooses: null }],
   ] },
   { name: 'before any chapter: the stored mode, Translation as its loading state', init: { mode: 'translation' }, steps: [
     [{}, { mode: 'translation', body: 'loading', saved: 'translation' }],
@@ -871,6 +902,26 @@ for (const bad of ['true', 1, null, {}]) {
   eq(P.welcomeDue(w), true, `a stored ${JSON.stringify(bad)} is not seen`);
 }
 
+// Where focus goes when the welcome appears, and across a collapse or an
+// expand. A welcome opening in a tab the reader isn't looking at (each open
+// tab when "Show the welcome again" writes the flag, a tab loading behind
+// another) leaves focus where it is; only the tab in front takes it.
+console.log('welcome focus:');
+eq(P.welcomeTakesFocus({ hidden: false, focused: true }), true, 'the tab in front, its window focused: focus moves into the welcome');
+eq(P.welcomeTakesFocus({ hidden: true, focused: false }), false, 'a background tab: focus stays where it is');
+eq(P.welcomeTakesFocus({ hidden: false, focused: false }), false, '...and a visible tab in a window without focus (settings in front)');
+eq(P.welcomeTakesFocus({}), false, '...nor when nothing is known');
+{
+  const w = fresh();
+  P.setChapter(w, ALMA_5);
+  w.collapsed = true;
+  eq(P.focusOnToggle(w), 'tab', 'collapsing: focus lands on the tab');
+  w.collapsed = false;
+  eq(P.focusOnToggle(w), null, 'expanding with the welcome due: nothing here, the welcome takes focus when it opens');
+  P.setWelcomeSeen(w, true);
+  eq(P.focusOnToggle(w), 'collapse', 'expanding after Got it: focus lands on Collapse');
+}
+
 // The callouts table: what the welcome says, each line against the panel
 // control it points at (#113 draws them there). Names come from the panel's
 // own list of the controls it builds; the toolbar icon is no panel control,
@@ -978,6 +1029,11 @@ console.log('calloutPlacement:');
   eq(at({ left: 10.4, top: 7.2, width: 80.3, height: 29.6 }, NARROW_LIST, NARROW),
     { card: { left: 0, width: 236 }, caret: 29, ring: { left: 7, top: 4, width: 87, height: 36 } },
     'measured fractions come back as whole pixels');
+  // A short panel (the browser window squeezed): the A− / A+ stepper's
+  // bottom sits 1px above the panel's bottom, so its ring stops at the edge.
+  eq(at({ left: 222, top: 51, width: 56, height: 28 }, NARROW_LIST, { width: 280, height: 80 }).ring,
+    { left: 219, top: 48, width: 61, height: 32 },
+    'a control near the panel\'s bottom: the ring stops at the bottom edge too');
 }
 // Both Translation-tab lines point at one tab: one ring per control.
 eq(P.welcomeRings(P.WELCOME_CALLOUTS), ['translation-tab', 'citations-tab', 'settings', 'text-size'],
@@ -1324,6 +1380,15 @@ check(/persist\(\{ welcomeSeen: true \}\)/.test(panelSrcText), 'Got it writes th
 const placeSrc = (panelSrcText.match(/function placeWelcome\(\) \{[\s\S]*?\n {2}\}\n/) || [''])[0];
 check(/calloutPlacement\(/.test(placeSrc) && /separateRings\(/.test(placeSrc) && /controlNodes\(/.test(placeSrc),
   'the shell places each callout and ring by the pure rule, from the controls\' measured nodes');
+const openSrc = (panelSrcText.match(/function openWelcome\(\) \{[\s\S]*?\n {2}\}\n/) || [''])[0];
+const closeSrc = (panelSrcText.match(/function closeWelcome\(\) \{[\s\S]*?\n {2}\}\n/) || [''])[0];
+const gotItSrc = (panelSrcText.match(/function onGotIt\(\) \{[\s\S]*?\n {2}\}\n/) || [''])[0];
+check(/ui\.body\.inert = true/.test(openSrc) && /ui\.body\.inert = false/.test(closeSrc),
+  'the body under the welcome is inert while it shows (Tab never reaches a hidden row; Esc never reaches a hidden talk), and not after');
+check(/welcomeTakesFocus\(/.test(openSrc), 'the welcome takes focus only by the pure rule (a background tab keeps its focus)');
+check(gotItSrc && !/\.focus\(/.test(gotItSrc), 'Got it moves focus once: closeWelcome does it, onGotIt does not again');
+check(/focusOnToggle\(state\)/.test((panelSrcText.match(/function setCollapsed\([\s\S]*?\n {2}\}\n/) || [''])[0]),
+  'a collapse or an expand puts focus where the pure rule says');
 check(/PANEL_HANDLED_KEYS = \[[^\]]*'welcomeSeen'/.test(panelSrcText),
   'welcomeSeen is panel-handled: a write from another context shows or hides the welcome, no re-render');
 

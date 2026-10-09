@@ -84,10 +84,13 @@ eq(T.textsFor({ isBible: false, bibleRows: [NIV], languages: [], pageLang: 'eng'
 eq(T.textsFor({ isBible: true, bibleRows: [], languages: [L1.code], pageLang: L1.code }).map((t) => t.id), ['church:eng'],
   "the page's own language is never offered beside itself");
 {
-  // A page read in another language offers English, unticked (#119).
+  // A page read in another language offers English, unticked (#119), on
+  // request: the reader didn't add it, so nothing fetches it or sets it into
+  // the page until they choose it (pageLanguage, chapterOffer's `unchecked`).
   const spaPage = (languages, extra) => T.textsFor(Object.assign({ isBible: false, collection: 'bofm', languages, pageLang: 'spa' }, extra));
   eq(spaPage([]).map((t) => t.id), ['church:eng'], 'a Spanish page with no language ticked offers English');
-  eq(spaPage([])[0], T.rowFor('eng'), '...as an ordinary Church-language row');
+  eq(spaPage([])[0], Object.assign({}, T.rowFor('eng'), { onRequest: true }), '...as a Church-language row on request');
+  eq(spaPage(['eng'])[0], T.rowFor('eng'), '...English ticked (a value stored in settings) is an ordinary row');
   eq(spaPage(['spa', 'jpn']).map((t) => t.id), ['church:jpn', 'church:eng'],
     "...after the ticked languages, still leaving out the page's own (Spanish)");
   eq(spaPage(['eng', 'jpn']).map((t) => t.id), ['church:eng', 'church:jpn'], '...and never twice when English is ticked too');
@@ -178,6 +181,16 @@ console.log('chapterOffer:');
   o = offer(john, { spa: 'unavailable' }, ['church:spa']);
   eq([o.next, o.pick], [null, WEB.id], '...and a missing Español falls back to the Bible');
 
+  // English on a Spanish page is on request: the background check never
+  // fetches it for the dropdown before the reader chooses it.
+  const spaJohn = T.textsFor({ isBible: true, collection: 'nt', bibleRows: [WEB], languages: ['jpn'], pageLang: 'spa' });
+  o = offer(spaJohn, {}, []);
+  eq([o.pick, o.unchecked], [WEB.id, ['jpn']], 'Spanish John 3, the Bible shows: the background check asks Japanese, not English (never chosen)');
+  o = offer(spaJohn, {}, ['church:eng']);
+  eq(o.next, 'eng', '...English chosen: it is walked and checked like any language');
+  o = offer(spaJohn, { eng: 'found' }, ['church:eng']);
+  eq(o.unchecked, ['jpn'], '...and the rest are asked in the background');
+
   o = offer([], {}, ['church:spa']);
   eq([o.next, o.pick, o.translatable], [null, null, false], 'no texts at all: nothing to check, not translatable');
   o = T.chapterOffer({});
@@ -236,21 +249,28 @@ console.log('pageLanguage (the page\'s language, from the pick memory):');
   eq(page([FAILED(SPA(true))], ['church:spa'], 'columns'), { id: null, next: null },
     '...no other pick: no page language');
 
-  // A page read in Spanish (?lang=spa): textsFor's English row holds the page
-  // by the same rules as a ticked language (#119). The split pairs the
-  // fetched English by element id with the Spanish article.
+  // A page read in Spanish (?lang=spa): textsFor's English row is on
+  // request. Unchosen, it never holds the page, so nothing checks it either
+  // (Citations fetches nothing the reader didn't add). Once the reader
+  // chooses it (the pick memory), it holds the page by the same rules as a
+  // ticked language (#119), and the split pairs the fetched English by
+  // element id with the Spanish article.
   const onSpa = (languages, results, picks, extra) => {
     const texts = T.textsFor(Object.assign({ isBible: false, collection: 'bofm', languages, pageLang: 'spa' }, extra));
     return page(T.chapterOffer({ texts, results, preferredIds: picks }).texts, picks, 'columns');
   };
-  eq(onSpa([], {}, []), { id: null, next: 'eng' }, 'Spanish Alma 5, nothing ticked: check English first');
-  eq(onSpa([], { eng: 'found' }, []), { id: 'church:eng', next: null }, '...found: English holds the page, like a lone ticked language');
-  eq(onSpa(['spa'], { eng: 'found' }, ['church:spa']), { id: 'church:eng', next: null },
-    'Español ticked and picked: on its own page English takes its place');
+  eq(onSpa([], {}, []), { id: null, next: null }, 'Spanish Alma 5, nothing ticked, English never chosen: no page language, nothing to check');
+  eq(onSpa([], { eng: 'found' }, []), { id: null, next: null }, '...even with its chapter known: offered, not shown unasked');
+  eq(onSpa([], {}, ['church:eng']), { id: null, next: 'eng' }, 'English chosen (in the pick memory), not checked yet: check it');
+  eq(onSpa([], { eng: 'found' }, ['church:eng']), { id: 'church:eng', next: null }, '...found: English holds the page, like a lone ticked language');
+  eq(onSpa(['spa'], { eng: 'found' }, ['church:spa']), { id: null, next: null },
+    'Español ticked and picked: on its own page English is offered, not set in unasked');
   eq(onSpa(['jpn'], { eng: 'found', jpn: 'found' }, ['church:jpn']), { id: 'church:jpn', next: null },
     'Japanese picked: Japanese holds the page, English stays in the dropdown');
   eq(onSpa(['jpn'], { eng: 'found', jpn: 'found' }, ['church:eng', 'church:jpn']), { id: 'church:eng', next: null },
     '...English picked since: English holds the page');
+  eq(onSpa(['jpn'], { jpn: 'unavailable' }, ['church:jpn']), { id: null, next: null },
+    '...Japanese lacking the chapter: English, never chosen, does not stand in for it');
   const WEB = { id: C.BUNDLED_BIBLE.id, provider: C.BUNDLED_BIBLE.provider };
   const john = { isBible: true, collection: 'nt', bibleRows: [WEB] };
   eq(onSpa([], { eng: 'found' }, [], john), { id: null, next: null },

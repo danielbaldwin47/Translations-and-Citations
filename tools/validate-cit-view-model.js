@@ -563,6 +563,8 @@ console.log('Footer:');
   eq(VM.buildView(null, OPTS).footerTitle, null, 'no data, no footer title');
   eq(VM.buildView(makeData([], Object.assign({}, PUBLIC, { vintage: '' })), OPTS).footer, null, 'no vintage, no footer');
   eq(VM.buildView(makeData([], Object.assign({}, PUBLIC, { vintage: '' })), OPTS).footerTitle, null, 'no vintage, no footer title');
+  const bad = VM.buildView(makeData([], Object.assign({}, PUBLIC, { vintage: '2026-13' })), OPTS);
+  deep([bad.footer, bad.footerTitle], [null, null], 'a vintage with no such month: neither footer nor title');
 }
 
 // --- source-type notes: hover text on a source-type header -------------------

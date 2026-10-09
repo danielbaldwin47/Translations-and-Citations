@@ -78,17 +78,23 @@
   // The vintage as the reader reads it: '2026-04' -> "Citations through April 2026".
   const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July',
     'August', 'September', 'October', 'November', 'December'];
-  function vintageLine(pack) {
+  // The pack's vintage as words, '2026-04' -> "April 2026"; null without one.
+  function vintageWords(pack) {
     const m = /^(\d{4})-(\d{2})$/.exec(String((pack && pack.vintage) || ''));
     const month = m && MONTHS[Number(m[2]) - 1];
-    return month ? `Citations through ${month} ${m[1]}` : null;
+    return month ? `${month} ${m[1]}` : null;
+  }
+
+  function vintageLine(pack) {
+    const when = vintageWords(pack);
+    return when ? `Citations through ${when}` : null;
   }
 
   // What hovering the footer says, in plain words: "Includes talks through the
   // April 2026 general conference". Null with no vintage, like vintageLine.
   function vintageTitle(pack) {
-    const line = vintageLine(pack);
-    return line ? line.replace(/^Citations through /, 'Includes talks through the ') + ' general conference' : null;
+    const when = vintageWords(pack);
+    return when ? `Includes talks through the ${when} general conference` : null;
   }
 
   // Below this many talks the filter box and Collapse all are noise.

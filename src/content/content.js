@@ -8,7 +8,9 @@
  *    (loading, rate-limit wait, error, setup card, beside card, text); the
  *    dropdown's rows and labels are __BTX.churchText's pure textsFor /
  *    menuFor, and the row shown is the arrangement's, walking a
- *    most-recently-used list (C.SELECTION_KEY in chrome.storage.local). The options page writes
+ *    most-recently-used list (C.SELECTION_KEY in chrome.storage.local); a row
+ *    on request the arrangement `chooses` (English on a page read in another
+ *    language, shown by the Translation tab) is remembered there. The options page writes
  *    it too (a Church language ticked there leads) and this tab adopts that
  *    write through storage.onChanged
  *  - describes the chapter to the panel's arrangement (factsFor: the texts
@@ -463,6 +465,13 @@
       if (!offer) return;
       shown = panel.arrange(factsFor(e, offer));
     }
+    if (shown.chooses) {
+      // The tab shows a row on request (English on a page read in another
+      // language): the reader chose it by opening Translation on it, so it
+      // joins the pick memory and holds the page from now on, in Citations too.
+      remember(shown.chooses);
+      shown = panel.arrange(factsFor(e, offer));
+    }
     applyNote(); // the beside-the-page line comes with a Bible version, goes with anything else
     // Nothing offers the chapter and Church languages are on: Citations.
     if (shown.mode !== 'translation') return renderActiveMode();
@@ -827,7 +836,7 @@
       onAddLanguage: addLanguage,
       onLayoutChange: changeLayout,
       onDismissNote: dismissNote,
-      welcomeFacts: () => send({ type: C.MSG.GET_TOOLBAR_PIN }), // is the toolbar icon pinned? (the welcome's pinning line)
+      askToolbarPin: () => send({ type: C.MSG.GET_TOOLBAR_PIN }), // is the toolbar icon pinned? (the welcome's pinning line)
     });
 
     // Hand the theme module the panel root (null while there's nothing shown);

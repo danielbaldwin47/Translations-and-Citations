@@ -117,8 +117,9 @@ const REPORT = arg('--report');
 // reader learns every per-corpus fact from here and nowhere else:
 //   sourceType  the panel's source-type group the corpus files under
 //   sourceNote  that source type's one-line hover text on the group header; the same
-//               for every corpus of a source type (SOURCE_NOTES), read by the reader
-//               only from here (validate-citations holds a pack to it)
+//               for every corpus of a source type: packDescriptor looks it up in
+//               SOURCE_NOTES by sourceType. Read by the reader only from here
+//               (validate-citations holds a pack to it)
 //   text        where talk HTML comes from: 'bundled' (talks/{id}.html.gz),
 //               'live-church' (the Church site), 'live-byu' (scriptures.byu.edu)
 //   target      the corpus plan's scroll-target rule: 'anchor' | 'citationSpan' | 'bodyPassage'
@@ -138,11 +139,11 @@ const SOURCE_NOTES = {
   'Teachings of the Prophet Joseph Smith': 'Sermons and writings of Joseph Smith, compiled by Joseph Fielding Smith',
 };
 const CORPORA = {
-  G: { sourceType: 'General Conference', sourceNote: SOURCE_NOTES['General Conference'], text: 'live-church', target: 'anchor', excerpt: 'fetched', inclusion: 'all' },
-  E: { sourceType: 'General Conference', sourceNote: SOURCE_NOTES['General Conference'], text: 'live-byu', target: 'citationSpan', excerpt: 'fetched', inclusion: 'all' },
-  J: { sourceType: 'Journal of Discourses', sourceNote: SOURCE_NOTES['Journal of Discourses'], text: 'bundled', target: 'citationSpan', excerpt: 'bundled', inclusion: 'all', attribution: 'wikisource' },
+  G: { sourceType: 'General Conference', text: 'live-church', target: 'anchor', excerpt: 'fetched', inclusion: 'all' },
+  E: { sourceType: 'General Conference', text: 'live-byu', target: 'citationSpan', excerpt: 'fetched', inclusion: 'all' },
+  J: { sourceType: 'Journal of Discourses', text: 'bundled', target: 'citationSpan', excerpt: 'bundled', inclusion: 'all', attribution: 'wikisource' },
   // The gated element (ADR-0008): personal pack only.
-  T: { sourceType: 'Teachings of the Prophet Joseph Smith', sourceNote: SOURCE_NOTES['Teachings of the Prophet Joseph Smith'], text: 'bundled', target: 'bodyPassage', excerpt: 'bundled', inclusion: 'all' },
+  T: { sourceType: 'Teachings of the Prophet Joseph Smith', text: 'bundled', target: 'bodyPassage', excerpt: 'bundled', inclusion: 'all' },
 };
 const PACK_CORPORA = { public: ['G', 'E', 'J'], personal: ['G', 'E', 'J', 'T'] };
 const INCLUSION_RULES = ['all', 'verbatim'];
@@ -155,7 +156,9 @@ function packDescriptor(mode, facts, inclusion) {
   if (!list) return null;
   const corpora = {};
   for (const c of list) {
-    corpora[c] = Object.assign({}, CORPORA[c]);
+    // sourceNote follows sourceType, ahead of the rest (the descriptor's key order).
+    const { sourceType, ...rest } = CORPORA[c];
+    corpora[c] = Object.assign({ sourceType, sourceNote: SOURCE_NOTES[sourceType] }, rest);
     if (inclusion && inclusion[c]) corpora[c].inclusion = inclusion[c];
   }
   return { flavor: mode, vintage: facts.vintage, base: facts.base, derived: facts.derived, corpora };

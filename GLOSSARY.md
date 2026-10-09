@@ -151,8 +151,8 @@ on it.
 **Translatable** (of a chapter):
 Some enabled text offers *this chapter*: on a Bible chapter always (the
 bundled World English Bible is always enabled), elsewhere an enabled Church
-language (or English, on a page read in another language) the **chapter
-check** found the chapter in. Publishing the volume is
+language (or English, on a page read in another language, once the reader
+chose it) the **chapter check** found the chapter in. Publishing the volume is
 not enough (a language can lack a chapter of a volume it publishes). The
 **arrangement** reads it from each text's `offered` mark (`null` while the
 check has not asked that language).
@@ -185,8 +185,10 @@ this visit's mode click and this visit's dropdown pick. Answer: the effective
 mode, the body (Citations, loading, the **setup card**, the **beside card**, or
 a text), the text the Translation tab is about, the page's language (the
 **page split**'s, in either mode, or none), the note (`no-translation`,
-`beside-page`, `missing-chapter` or none, with the language it names) and the
-mode a click saves. With Translation stored:
+`beside-page`, `missing-chapter` or none, with the language it names), the
+mode a click saves, and `chooses`: a row on request (English on a page read in
+another language) the Translation tab shows, which the reader thereby chose
+and `content.js` adds to the pick memory. With Translation stored:
 - a text offers the chapter: the latest pick that does (the beside card when
   that text is the page's language; a Bible version beside a page's language
   carries the beside-the-page line; when this visit's dropdown pick lacks the
@@ -284,8 +286,12 @@ World English Bible.
 A Church-language chapter set into the site's own reading column, each block
 paired with the page's element of the same id (`__BTX.pageSplit`,
 ADR-0007). A page read in another language (`?lang=spa`) offers English as a
-Church language, unticked (`churchText.textsFor`), so the same rules can set
-English into the Spanish page. It is independent of the mode: it shows, in Translation and
+Church language, unticked and on request (`churchText.textsFor`,
+`onRequest`): the reader didn't add it, so it is neither fetched nor the
+page's language until they choose it — a dropdown pick, or opening
+Translation where the tab shows it (the arrangement's `chooses`, remembered
+in the pick memory). Chosen, the same rules set English into the Spanish
+page. It is independent of the mode: it shows, in Translation and
 Citations alike, while the **split layout** is columns or interlinear and the
 **arrangement** names a page's language (`churchText.pageLanguage`): the
 first Church language in the pick memory that offers the chapter; with none,
