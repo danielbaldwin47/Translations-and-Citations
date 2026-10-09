@@ -7,3 +7,5 @@
 *.md export-ignore
 .gitattributes export-ignore
 .gitignore export-ignore
+# The Store zip's stamp replaces the repo's (tools/build-store-zip.js).
+/src/citations/store-stamp.json export-ignore

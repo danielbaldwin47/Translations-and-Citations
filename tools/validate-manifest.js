@@ -68,6 +68,7 @@ console.log('Web-accessible packs:');
 const wars = (manifest.web_accessible_resources || []).flatMap((w) => w.resources || []);
 check(wars.includes('src/citations/data/*'), 'the public pack directory is web-accessible');
 check(wars.includes('src/citations/data-personal/*'), 'the personal pack directory is web-accessible');
+check(wars.includes('src/citations/store-stamp.json'), 'the Store stamp is web-accessible (the pack probe reads it first, issue #90)');
 
 console.log('Key (A25):');
 if (manifest.key == null) {

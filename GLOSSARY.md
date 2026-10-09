@@ -437,7 +437,9 @@ _Avoid_: bridge run, scrape
 
 **Store zip**:
 The upload package for the Chrome Web Store, made from the committed tree
-alone, so nothing gitignored can ship.
+alone, so nothing gitignored can ship. Its one change to that tree is the
+**Store stamp**: `src/citations/store-stamp.json` says `storeZip: true`, so
+the reader probes the public pack alone (issue #90).
 _Avoid_: bundle, release build
 
 **Derived cite**:

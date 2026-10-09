@@ -5,6 +5,11 @@
  * (the personal pack, source-data/) can ship. `.gitattributes` marks what the
  * archive leaves out: docs/, tools/, markdown files and git's dotfiles.
  *
+ * The one file the zip carries that the commit does not: the Store stamp
+ * (issue #90). The committed src/citations/store-stamp.json is export-ignored
+ * and `git archive --add-virtual-file` writes cit-data's STORE_STAMP at the
+ * same path, so the reader probes the public pack alone (cit-data.js header).
+ *
  *   node tools/build-store-zip.js [--ref HEAD] [--out dist/translations-and-citations-{version}.zip]
  *
  * Archives the commit, not the working tree: commit first, and build the zip
@@ -20,6 +25,7 @@ const fs = require('fs');
 const path = require('path');
 const zlib = require('node:zlib');
 const { execFileSync } = require('child_process');
+const citData = require('../src/citations/cit-data.js');
 
 const ROOT = path.resolve(__dirname, '..');
 
@@ -28,10 +34,12 @@ function zipName(manifest) {
   return `translations-and-citations-${manifest.version}.zip`;
 }
 
-// Archive `ref` into `out` as a zip; returns `out`.
+// Archive `ref` into `out` as a zip; returns `out`. The committed stamp is
+// export-ignored and the Store stamp stands in its place.
 function storeZip({ ref = 'HEAD', out }) {
   fs.mkdirSync(path.dirname(out), { recursive: true });
-  execFileSync('git', ['archive', '--format=zip', `--output=${out}`, ref], { cwd: ROOT });
+  const stamp = `--add-virtual-file=${citData.STAMP_PATH}:${JSON.stringify(citData.STORE_STAMP)}\n`;
+  execFileSync('git', ['archive', '--format=zip', `--output=${out}`, stamp, ref], { cwd: ROOT });
   return out;
 }
 

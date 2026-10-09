@@ -15,6 +15,13 @@
  * memoizes the probe, so it runs once per page session. The probe exists only
  * because a gated element exists; if none remains, remove it.
  *
+ * The Store stamp (issue #90): loadPack first reads STAMP_PATH, a committed
+ * file that says {"storeZip": false}; tools/build-store-zip.js ships
+ * STORE_STAMP in its place. Under the Store stamp packDirs asks the public
+ * pack alone, so the Store zip never requests the personal directory it lacks
+ * (Chrome logs a missed extension fetch, and no catch silences it). Both
+ * builds hold the stamp file, so reading it never misses.
+ *
  * Descriptor contract: loadPack() -> { dir, descriptor, index }, and
  * chapterData's result carries the same descriptor as `pack`. The descriptor
  * is the reader's only source of per-corpus facts: which corpora exist, each
@@ -41,12 +48,20 @@
   'use strict';
 
   // Probe order: the personal pack first, then the public one.
-  const PACK_DIRS = ['src/citations/data-personal/', 'src/citations/data/'];
+  const PUBLIC_DIR = 'src/citations/data/';
+  const PACK_DIRS = ['src/citations/data-personal/', PUBLIC_DIR];
+  const STAMP_PATH = 'src/citations/store-stamp.json';
+  const STORE_STAMP = { storeZip: true };
 
-  // Pure over `probe(dir) -> Promise<index|null>`: the first directory whose
+  // Pure: the stamp (parsed STAMP_PATH, or null) -> the directories to probe.
+  function packDirs(stamp) {
+    return stamp && stamp.storeZip === true ? [PUBLIC_DIR] : PACK_DIRS;
+  }
+
+  // Pure over `probe(dir) -> Promise<index|null>`: the first of `dirs` whose
   // index carries a descriptor -> { dir, descriptor, index }, or null.
-  async function pickPack(probe) {
-    for (const dir of PACK_DIRS) {
+  async function pickPack(probe, dirs = PACK_DIRS) {
+    for (const dir of dirs) {
       let index = null;
       try { index = await probe(dir); } catch (e) { index = null; }
       if (index && index.pack && typeof index.pack === 'object') return { dir, descriptor: index.pack, index };
@@ -57,9 +72,10 @@
   let packPromise = null;
   function loadPack() {
     if (!packPromise) {
-      const probe = (dir) => fetch(chrome.runtime.getURL(dir + 'index.json'))
-        .then((res) => (res.ok ? res.json() : null));
-      packPromise = pickPack(probe).then((pack) => {
+      const read = (p) => fetch(chrome.runtime.getURL(p)).then((res) => (res.ok ? res.json() : null));
+      const probe = (dir) => read(dir + 'index.json');
+      packPromise = read(STAMP_PATH).catch(() => null)
+        .then((stamp) => pickPack(probe, packDirs(stamp))).then((pack) => {
         if (!pack) { packPromise = null; throw new Error('no citation data pack'); }
         return pack;
       });
@@ -224,7 +240,7 @@
   }
 
   const API = {
-    PACK_DIRS, pickPack, loadPack, loadSources, loadShard, loadTalkHtml, chapterData, chapterIndex, citedVerses,
+    PACK_DIRS, STAMP_PATH, STORE_STAMP, packDirs, pickPack, loadPack, loadSources, loadShard, loadTalkHtml, chapterData, chapterIndex, citedVerses,
     refRanks,
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = API;

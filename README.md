@@ -57,7 +57,8 @@ git clone <private-repo-url> /tmp/btx-private && cp -r /tmp/btx-private/data-per
 Then `chrome://extensions` → **Developer mode** → **Load unpacked** → the repo
 folder. The reader probes `src/citations/data-personal/` first and falls back to
 the public pack, so the same checkout without that directory *is* the public
-release. Once `manifest.json` carries the Store listing's `key`, both flavors
+release's data. (The Store zip carries a stamp that skips the personal probe,
+so it requests no missing file.) Once `manifest.json` carries the Store listing's `key`, both flavors
 share one extension id and therefore one set of settings and highlights; Chrome
 runs one extension per id, so the Store install is disabled while the unpacked
 one is loaded.

@@ -3,7 +3,7 @@
  * Sanity-check the generated citation data packs and cit-data.js's pure core.
  * Run: node tools/validate-citations.js   (after build-citation-data.js)
  *
- * Covers src/citations/cit-data.js (the pack probe, chapterIndex, citedVerses,
+ * Covers src/citations/cit-data.js (the pack probe and its Store stamp, chapterIndex, citedVerses,
  * refRanks, chapterData over a stub pack) and tools/build-citation-data.js's
  * pure core (toChurchUrl, excerptChars, packDescriptor in both modes,
  * parseInclusion, citeRecord) on fixtures.
@@ -204,8 +204,21 @@ async function probeChecks() {
     'the personal pack is probed before the public one');
   const [personalDir, publicDir] = citData.PACK_DIRS;
 
+  // The Store stamp (issue #90): the Store zip asks for the public pack alone.
+  deep(citData.packDirs({ storeZip: true }), ['src/citations/data/'], 'a Store stamp probes the public pack alone');
+  deep(citData.packDirs({ storeZip: false }), citData.PACK_DIRS, 'a repo stamp probes both packs');
+  deep(citData.packDirs(null), citData.PACK_DIRS, 'a missing or unreadable stamp probes both packs');
+  deep(citData.STORE_STAMP, { storeZip: true }, 'the stamp the Store zip ships reads as a Store stamp');
+  const committed = JSON.parse(fs.readFileSync(path.join(ROOT, citData.STAMP_PATH), 'utf8'));
+  deep(citData.packDirs(committed), citData.PACK_DIRS, `the committed ${citData.STAMP_PATH} probes both packs`);
+
   let p = probing({ [personalDir]: PERSONAL, [publicDir]: PUBLIC });
-  let got = await citData.pickPack(p.probe);
+  let got = await citData.pickPack(p.probe, citData.packDirs({ storeZip: true }));
+  check(got && got.dir === publicDir && got.descriptor.flavor === 'public', 'under the Store stamp, the public pack is read');
+  deep(p.asked, [publicDir], 'under the Store stamp, the personal directory is never asked');
+
+  p = probing({ [personalDir]: PERSONAL, [publicDir]: PUBLIC });
+  got = await citData.pickPack(p.probe);
   check(got && got.dir === personalDir && got.descriptor.flavor === 'personal', 'with the personal pack present, it is the one read');
   deep(p.asked, [personalDir], 'the public pack is not read when the personal one answers');
 
