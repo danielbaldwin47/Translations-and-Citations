@@ -12,7 +12,7 @@
  * Interface:
  *   init(handlers)                 build the DOM, adopt persisted state, wire
  *                                  controls; must be awaited before use
- *   showChapter({ key, texts, picks, languages, layout }) -> arrangement
+ *   showChapter({ key, texts, picks, languages, layout, dismissed }) -> arrangement
  *                                  make the panel visible for a chapter and
  *                                  arrange it: `key` names the chapter, the
  *                                  rest are the arrangement's facts (see the
@@ -21,12 +21,22 @@
  *                                  invalidates every cached view; the same
  *                                  one again (a settings change) keeps the
  *                                  click, Citations and the talk
- *   arrange({ texts, picks, languages, layout }) -> arrangement
+ *   arrange({ texts, picks, languages, layout, dismissed }) -> arrangement
  *                                  a fact about the chapter showing moved
  *                                  (the chapter check settled, a pick): the
  *                                  arrangement again, no view dropped
  *   arrangement()                  the current answer: { mode, body, text,
- *                                  saves }; the orchestrator applies `body`
+ *                                  saves, note, noteLang }; the orchestrator
+ *                                  applies `body` and `note`
+ *   setNote({ kind, language, chapter } | null)
+ *                                  the note slot: one quiet line at the top of
+ *                                  the body, above the mounted view (copy: the
+ *                                  pure noteCopy). It shows while the view it
+ *                                  belongs to is mounted (the no-translation
+ *                                  line: Citations) and goes with any other; a
+ *                                  line coming or going keeps the reader's
+ *                                  place. Its buttons: Add a language = a
+ *                                  Translation click, × = onDismissNote
  *   hide()
  *   toggleCollapsed(force)         collapse to the edge tab or expand — flip,
  *                                  or `force` true/false like classList.toggle
@@ -83,7 +93,7 @@
  *   getRootEl()
  *
  * handlers: { renderMode(mode), onTranslationChange(id), onGear(section),
- *   onRetry, onAddLanguage(code), onLayoutChange(layout) }.
+ *   onRetry, onAddLanguage(code), onLayoutChange(layout), onDismissNote }.
  *   `renderMode` fires whenever the panel invalidated its own body content
  *   (mode toggle, citation-layout toggle, a synced change from another
  *   context); the orchestrator answers by rendering that mode's content.
@@ -91,8 +101,9 @@
  *   answered itself — showChapter and arrange never fire events. `onGear(section)` opens the
  *   options page, at a card when `section` names one ('bible' from the setup
  *   card and the key errors; none from the header's Settings button).
- *   `onAddLanguage` and `onLayoutChange` are the cards' picks; the panel
- *   writes no setting for them, the orchestrator does.
+ *   `onAddLanguage`, `onLayoutChange` and `onDismissNote` are the cards' and
+ *   the note's picks; the panel writes no setting for them, the orchestrator
+ *   does.
  *
  * Body scroll has exactly one owner and one writer. Each view either *owns* its
  * position (Citations, the talk reader: restored on the way back to where it
@@ -159,6 +170,8 @@
   //     body:  'citations' | 'loading' | 'setup' | 'beside' | 'text'
   //     text:  row id | null    the row the Translation tab is about ('beside', 'text')
   //     saves: 'translation' | 'citations' | null   what the click writes to panelMode
+  //     note:  'no-translation' | null   the one quiet line above the body
+  //     noteLang: Church code | null     the language the line names
   //   }
   // Inputs, from content.js except the last two (the panel's own state):
   //   texts      the rows that may sit beside this chapter, each with
@@ -171,12 +184,15 @@
   //              unless it is 'panel'
   //   mode       the stored panelMode
   //   click      this visit's mode click, or null
+  //   dismissed  the reader pressed × on the no-translation line (a synced
+  //              setting, noTranslationLineDismissed)
   // A click is saved on any chapter. Stored Citations shows Citations. Stored
   // Translation walks the texts in pick order (churchText.pickOrder, the walk
   // the chapter check makes): the first one offered shows; one not yet checked
   // before it means the loading state (so Citations never paints first, then
   // switches); with nothing offered, the setup card when no Church language is
-  // on or the reader clicked Translation on this visit, else Citations.
+  // on or the reader clicked Translation on this visit, else Citations with
+  // the no-translation line (note) unless it was dismissed.
   // Later answers (the page's language, the notes) join this object.
   function arrangement(input) {
     const o = input || {};
@@ -184,7 +200,9 @@
     const stored = o.mode === 'translation' ? 'translation' : 'citations';
     const mode = click || stored;
     const saves = click && click !== stored ? click : null;
-    const show = (m, body, text) => ({ mode: m, body, text: text || null, saves });
+    const show = (m, body, text, note, noteLang) => ({
+      mode: m, body, text: text || null, saves, note: note || null, noteLang: noteLang || null,
+    });
     if (mode !== 'translation') return show('citations', 'citations');
     if (!Array.isArray(o.texts)) return show('translation', 'loading');
     for (const row of CT().pickOrder(o.texts, o.picks)) {
@@ -195,7 +213,21 @@
     }
     const anyLanguage = Array.isArray(o.languages) && o.languages.length > 0;
     if (!anyLanguage || click === 'translation') return show('translation', 'setup');
-    return show('citations', 'citations');
+    if (o.dismissed === true) return show('citations', 'citations');
+    return show('citations', 'citations', null, 'no-translation', noteLanguage(o.picks, o.languages));
+  }
+
+  // The language the no-translation line names: the enabled Church language
+  // nearest the front of the pick memory (so it speaks about the text the
+  // reader expected), else the first enabled one. Pick ids are `church:{code}`.
+  function noteLanguage(picks, languages) {
+    const prefix = CT().ID_PREFIX;
+    for (const id of Array.isArray(picks) ? picks : []) {
+      if (typeof id !== 'string' || !id.startsWith(prefix)) continue;
+      const code = id.slice(prefix.length);
+      if (languages.includes(code)) return code;
+    }
+    return languages[0];
   }
 
   // The arrangement of the panel's state: its stored mode and this visit's
@@ -246,7 +278,7 @@
   }
 
   function factsOf(c) {
-    return { texts: c.texts, picks: c.picks, languages: c.languages, layout: c.layout };
+    return { texts: c.texts, picks: c.picks, languages: c.languages, layout: c.layout, dismissed: c.dismissed === true };
   }
 
   // Whether showing `chapter` leaves every cached view valid: the same chapter
@@ -300,6 +332,26 @@
         : { text: 'More Bible translations, such as NIV and NKJV, need a free api.bible key.', button: 'Set up more translations' },
       { disclosure: C.DISCLOSURE.apiBible }),
       talks: `See the talks that cite ${chapter}`,
+    };
+  }
+
+  // The one quiet line above the body (the arrangement's `note`). `note` is
+  // { kind, language, chapter }: the kind the arrangement answered, with the
+  // language and chapter named as a sentence names them ("Kiribati",
+  // "Doctrine and Covenants 76"). -> { view, text, actions: [{ id, label,
+  // title? }] } or null. `view` is the named view the line sits above: it is
+  // shown only while that view is mounted. The actions' ids are the shell's
+  // verbs: 'add' opens the setup card for this visit, 'dismiss' is the ×.
+  function noteCopy(note) {
+    if (!note || note.kind !== 'no-translation') return null;
+    const named = note.language && note.chapter;
+    return {
+      view: 'citations',
+      text: named ? `No ${note.language} translation for ${note.chapter}.` : 'No translation for this chapter.',
+      actions: [
+        { id: 'add', label: 'Add a language' },
+        { id: 'dismiss', label: '×', title: 'Dismiss for good' },
+      ],
     };
   }
 
@@ -731,7 +783,7 @@
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = {
       createState, arrangement, arrangementOf, effectiveMode, selectMode, selectCitationView, setChapter, sameChapter,
-      stepFontScale, setupCopy, besideCopy, errorCopy, retryWait, LAYOUTS, RETRY_MAX_WAIT_MS, RETRY_MAX,
+      stepFontScale, setupCopy, noteCopy, besideCopy, errorCopy, retryWait, LAYOUTS, RETRY_MAX_WAIT_MS, RETRY_MAX,
       createViews, saveViewScroll, selectView, keepView, settleView, dropViews, SAME_CHAPTER_VIEWS,
       viewRestoresScroll, wantsScrollSync,
       scrollStep, easeRamp, floorStep, carryScroll, realignmentDone, isForeignScroll,
@@ -1371,6 +1423,66 @@
     ui.body.textContent = '';
     ui.body.appendChild(entry.node);
     setCard(null); // a card belongs to the view that drew it
+    placeNote();
+  }
+
+  // ---- The note slot ----------------------------------------------------------
+  // One quiet line at the top of the body, above the mounted view (never inside
+  // it: a view re-renders and re-mounts from its cache, a line must not). The
+  // orchestrator names the arrangement's note (setNote); the line shows while
+  // the view it belongs to (noteCopy's `view`) is the one mounted, and goes
+  // with any other. Its buttons are the panel's own verbs: Add a language is a
+  // Translation click on this visit, × asks the orchestrator to dismiss.
+  let note = null; // { key, copy, node }: what the orchestrator last named
+  let shownNote = null; // the line's node while it is on the body
+
+  function buildNote(copy) {
+    const node = el('p', 'btx-note');
+    node.appendChild(el('span', 'btx-note-text', copy.text));
+    for (const a of copy.actions) {
+      node.appendChild(document.createTextNode(' '));
+      const b = button(a.id === 'dismiss' ? 'btx-note-x' : 'btx-link btx-note-link', a.label, () => onNoteAction(a.id));
+      if (a.title) labelled(b, a.title);
+      node.appendChild(b);
+    }
+    return node;
+  }
+
+  function onNoteAction(id) {
+    if (id === 'add') onModeClick('translation');
+    else if (id === 'dismiss' && cbs.onDismissNote) cbs.onDismissNote();
+  }
+
+  // Take the line off the body (focus stays in the panel when the button the
+  // reader pressed goes with it), and put it back above the view now mounted
+  // when that is the view it belongs to.
+  function placeNote() {
+    if (!ui) return;
+    if (shownNote) {
+      if (shownNote.contains(document.activeElement)) ui.body.focus();
+      shownNote.remove();
+      shownNote = null;
+    }
+    if (note && views.active === note.copy.view && viewNode() !== ui.body) {
+      shownNote = note.node;
+      ui.body.insertBefore(note.node, ui.body.firstChild);
+    }
+  }
+
+  // Show `n` ({ kind, language, chapter }) or, with null, no line. The same
+  // line again changes nothing; one coming or going keeps the reader's place.
+  function setNote(n) {
+    ensureRoot();
+    const copy = noteCopy(n);
+    const key = copy ? JSON.stringify(copy) : null;
+    if ((note ? note.key : null) === key) return;
+    const view = views.active && views.entries[views.active];
+    const top = () => (view && view.node ? view.node.getBoundingClientRect().top : 0);
+    const before = top();
+    note = copy ? { key, copy, node: buildNote(copy) } : null;
+    placeNote();
+    const moved = top() - before;
+    if (moved && ui.body.scrollTop > 0) setBodyScroll(ui.body.scrollTop + moved);
   }
 
   // Position a view that has just mounted, twice: once now and once next frame.
@@ -2021,6 +2133,7 @@
       keepView: (keep) => keepView(views, keep),
       scrollIntoView,
       showTranslation,
+      setNote,
       updateBeside,
       populateTranslations,
       getRootEl,
