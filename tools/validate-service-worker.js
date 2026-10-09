@@ -35,7 +35,13 @@
  *     least recently read chapters dropped first, a record with no count
  *     dropped before any counted one, the chapter just written never dropped,
  *     and a re-read still a cache hit (cache.js `versesIn` / `dropKeys`, and
- *     the worker end to end).
+ *     the worker end to end);
+ *   - the monthly count (ratelimit.js, #125): calls counted per calendar
+ *     month (cache hits not, a Connect's lookups too), rolling over on the 1st;
+ *     the pure rateState is near from 4,000 and paused only after api.bible's
+ *     429 at or past 5,000, until the 1st of next month; no call refused on
+ *     the count; the 15-in-30-seconds window unchanged; every api.bible
+ *     chapter answer carries the state as `rate`.
  *
  * Exits non-zero on any failure so it can gate a commit.
  */
@@ -155,7 +161,7 @@ function apiBible(opts) {
       if (/\/bibles\?language=eng$/.test(url)) {
         return o.badKey ? response(403, { message: 'Invalid API key' }) : response(200, LIST);
       }
-      if (/\/chapters\//.test(url)) return response(200, (o.chapterFor && o.chapterFor(url)) || o.chapter || CHAPTER);
+      if (/\/chapters\//.test(url)) return o.chapterStatus ? response(o.chapterStatus, {}) : response(200, (o.chapterFor && o.chapterFor(url)) || o.chapter || CHAPTER);
       if (/\/bibles\/[^/]+$/.test(url)) return response(200, { data: { copyright: 'All rights reserved.' } });
       return response(404, {});
     },
@@ -498,6 +504,151 @@ async function run() {
     eq(await ask(undefined), { isOnToolbar: null }, 'getUserSettings missing (old Chrome): answers unknown');
     eq(await ask({ getUserSettings: async () => { throw new Error('boom'); } }), { isOnToolbar: null }, 'getUserSettings throws: answers unknown');
     eq(await ask({ getUserSettings: async () => ({}) }), { isOnToolbar: null }, 'getUserSettings answers without isOnToolbar: unknown');
+  }
+
+  // ---- the monthly count and its state (#125) ----
+  // api.bible's free plan allows 5,000 calls a month. The worker counts this
+  // browser's api.bible calls per calendar month and turns the count, the
+  // date and api.bible's last answer into a state it attaches to every
+  // api.bible chapter answer. It never refuses a call on that count: only
+  // api.bible's own 429, at or past the free plan's limit, pauses anything.
+  console.log('Monthly count (ratelimit.js):');
+  let R = null;
+  try { R = require(path.join(ROOT, 'src/background/ratelimit.js')); } catch (e) { R = null; }
+  check(R && typeof R.rateState === 'function', 'ratelimit.js exports its pure rule to Node (module.exports)');
+  if (R && typeof R.rateState === 'function') {
+    const oct9 = new Date(2026, 9, 9, 14, 0);
+    const lastMinute = new Date(2026, 9, 31, 23, 59, 59);
+    const nov1 = new Date(2026, 10, 1, 0, 0, 1);
+    const dec31 = new Date(2026, 11, 31, 12, 0);
+    const rec = (count, limited, month) => ({ month: month || '2026-10', count, limited: !!limited });
+
+    eq(R.monthOf(oct9), '2026-10', 'the month is the calendar month');
+    eq(R.monthOf(lastMinute), '2026-10', '...through the last minute of its last day');
+    eq(R.monthOf(nov1), '2026-11', '...and the next one starts on the 1st');
+    eq(R.rateState(rec(4500), lastMinute), { state: 'near', month: '2026-10' }, '4,500 calls on October 31: near');
+    eq(R.rateState(rec(4500), nov1), { state: 'ok', month: '2026-11' }, 'the count rolls over on the 1st: ok again');
+    eq(R.rateState(rec(5200, true), nov1), { state: 'ok', month: '2026-11' }, '...a pause ends with its month');
+    eq(R.rateState(null, oct9), { state: 'ok', month: '2026-10' }, 'nothing counted yet: ok');
+
+    eq(R.rateState(rec(3999), oct9).state, 'ok', 'below about 80% of 5,000: ok');
+    eq(R.rateState(rec(4000), oct9).state, 'near', 'from 4,000 (80% of 5,000): near');
+    eq(R.rateState(rec(5000), oct9).state, 'near', 'at the limit with api.bible still answering: near, not paused');
+    eq(R.rateState(rec(50000), oct9).state, 'near', '...at 50,000 too (a paid plan is never cut short)');
+
+    eq(R.rateState(rec(5000, true), oct9), { state: 'paused', month: '2026-10', until: '2026-11-01' },
+      'a 429 at the limit: paused until the 1st of next month');
+    eq(R.rateState(rec(6000, true, '2026-12'), dec31).until, '2027-01-01', '...December pauses until January 1 of the next year');
+    eq(R.rateState(rec(4999, true), oct9).state, 'near', 'a 429 below the limit is not a pause (burst handling)');
+    eq(R.rateState(rec(10, true), oct9).state, 'ok', '...nor far below it');
+  }
+
+  // The worker's side: the count on disk, the state on the answer.
+  {
+    const now = new Date();
+    const month = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    const next = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+    const firstOfNext = `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, '0')}-01`;
+    const KEY = C.RATE_MONTH_KEY;
+    check(typeof KEY === 'string' && KEY.length > 0, 'the monthly count has its storage key in C');
+    const seeded = (count, limited) => {
+      const disk = freshDisk();
+      if (count != null) disk.local[KEY] = { month, count, limited: !!limited };
+      return disk;
+    };
+    const chapterOf = (n) => Object.assign({}, GET_JOHN_3, { chapterId: `JHN.${n}`, chapter: n });
+
+    // A fresh profile: the first call starts the month's count.
+    {
+      const disk = seeded(null);
+      const net = apiBible();
+      const w = boot(disk, net);
+      const first = await w.send(GET_JOHN_3);
+      eq(disk.local[KEY] && disk.local[KEY].count, 1, 'a chapter fetched from api.bible counts one call this month');
+      eq(disk.local[KEY] && disk.local[KEY].month, month, '...under this month');
+      eq(first && first.rate, { state: 'ok', month }, 'the chapter answer carries the state: ok');
+      const again = await w.send(GET_JOHN_3);
+      eq(disk.local[KEY].count, 1, 'a cache hit does not count');
+      eq(again && again.rate, { state: 'ok', month }, '...and carries the state too');
+      check(!Object.keys(disk.local).some((k) => /^btxRateDaily::/.test(k)), 'no daily counter is written');
+      await w.send(CONNECT);
+      eq(disk.local[KEY].count, 3, 'a Connect counts its calls too (the list, then one lookup per version)');
+    }
+
+    // Last month's count does not carry over.
+    {
+      const disk = freshDisk();
+      disk.local[KEY] = { month: '1999-12', count: 4999, limited: true };
+      const w = boot(disk, apiBible());
+      const res = await w.send(GET_JOHN_3);
+      eq(disk.local[KEY], { month, count: 1, limited: false }, 'a new month starts the count again');
+      eq(res && res.rate && res.rate.state, 'ok', '...and its state is ok');
+    }
+
+    // No call is refused on the count alone.
+    for (const count of [4000, 5000, 50000]) {
+      const disk = seeded(count);
+      const net = apiBible();
+      const w = boot(disk, net);
+      const res = await w.send(GET_JOHN_3);
+      eq(net.chapters().length, 1, `at ${count} calls this month the chapter is still fetched`);
+      check(res && Array.isArray(res.blocks), '...and shown');
+      eq(res && res.rate, { state: 'near', month }, '...with the state near');
+      eq(disk.local[KEY].count, count + 1, '...counted');
+    }
+
+    // api.bible refuses at the limit: paused, until the 1st of next month.
+    {
+      const disk = seeded(4999);
+      const w = boot(disk, apiBible({ chapterStatus: 429 }));
+      const res = await w.send(GET_JOHN_3);
+      eq(res && res.error && [res.error.code, res.error.remote], [C.ERR.RATE_LIMITED, true], 'a 429 at the limit is api.bible refusing');
+      eq(res && res.rate, { state: 'paused', month, until: firstOfNext }, '...and the state is paused until the 1st of next month');
+      // Still asked again: only api.bible's answer decides.
+      const net2 = apiBible();
+      const w2 = boot(disk, net2);
+      const after = await w2.send(chapterOf(4));
+      eq(net2.chapters().length, 1, 'while paused, the next chapter still asks api.bible');
+      eq(after && after.rate && after.rate.state, 'near', '...and an answer from api.bible ends the pause');
+      check(after && Array.isArray(after.blocks), '...showing the chapter');
+    }
+    {
+      const disk = seeded(5000);
+      await boot(disk, apiBible()).send(GET_JOHN_3); // fetched and cached
+      const w2 = boot(disk, apiBible({ chapterStatus: 429 }));
+      const refused = await w2.send(chapterOf(5));
+      eq(refused && refused.rate && refused.rate.state, 'paused', 'api.bible refusing past the limit pauses');
+      const cached = await w2.send(GET_JOHN_3);
+      check(cached && Array.isArray(cached.blocks), 'while paused, a chapter already read still opens');
+      eq(cached && cached.rate && cached.rate.state, 'paused', '...its answer carries the pause');
+    }
+
+    // A 429 below the limit stays burst handling.
+    {
+      const disk = seeded(100);
+      const w = boot(disk, apiBible({ chapterStatus: 429 }));
+      const res = await w.send(GET_JOHN_3);
+      eq(res && res.error && res.error.code, C.ERR.RATE_LIMITED, 'a 429 below the limit is still RATE_LIMITED');
+      eq(res && res.rate && res.rate.state, 'ok', '...but not a pause');
+    }
+
+    // The burst window is unchanged: 15 calls in 30 seconds, then a short wait.
+    {
+      const disk = seeded(0);
+      const net = apiBible();
+      const w = boot(disk, net);
+      for (let n = 1; n <= C.RATE_WINDOW_MAX; n++) await w.send(chapterOf(n));
+      eq(net.chapters().length, 15, '15 chapters in a row are fetched');
+      const sixteenth = await w.send(chapterOf(16));
+      eq(net.chapters().length, 15, 'the 16th within 30 seconds is not');
+      eq(sixteenth && sixteenth.error && sixteenth.error.code, C.ERR.RATE_LIMITED, '...it is rate-limited');
+      check(sixteenth && sixteenth.error && !sixteenth.error.remote && sixteenth.error.retryAfterMs > 0
+        && sixteenth.error.retryAfterMs <= C.RATE_WINDOW_MS + 50, '...by the local window, with a wait of at most 30 seconds');
+      eq(sixteenth && sixteenth.rate && sixteenth.rate.state, 'ok', '...carrying the state');
+      eq(disk.local[KEY].count, 15, 'a call the window held back is not counted');
+      eq([C.RATE_WINDOW_MS, C.RATE_WINDOW_MAX], [30000, 15], 'the window stays 15 calls in 30 seconds');
+      check(!('RATE_DAILY_MAX' in C) && !('RATE_DAILY_PREFIX' in C), 'the daily cap is gone');
+    }
   }
 
   // ---- the page gets no script; the manifest lets the worker reach FUMS ----

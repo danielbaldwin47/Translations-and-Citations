@@ -2,7 +2,7 @@
  * Network layer. All fetches happen here, in the service worker, where
  * host_permissions let us call the APIs without content-script CORS problems.
  *
- *   listBibles(key)                      -> { bibles: [{ id, name, abbr, description, copyright, provider }], partial? } | { error }
+ *   listBibles(key)                      -> { bibles: [{ id, name, abbr, description, copyright, provider }], partial?, calls } | { error, calls }
  *   fetchApiBibleChapter(key, id, chap)  -> { payload: { blocks, copyright, reference }, fumsToken } | { error }
  *   fetchBundledChapter(id, chapterId)   -> { payload: { blocks, copyright, reference } } | { error }
  *                                           the World English Bible, read from the packaged
@@ -11,6 +11,8 @@
  * `partial: true` means a per-version copyright lookup failed, so some rows
  * carry no copyright and nobody can tell which versions the reader added to
  * the key: the worker doesn't cache such a list, and the options page says so.
+ * `calls` is how many requests reached api.bible (the list, then one lookup
+ * per version), which the worker adds to the month's count (ratelimit.js).
  *
  * Errors are { error: { code, message, remote?, retryAfterMs? } } with a code
  * from C.ERR. api.bible answers both a wrong key and a version the key isn't
@@ -49,16 +51,16 @@
 
   // ---- api.bible: list available English bibles for a key ----
   async function listBibles(key) {
-    if (!key) return err(ERR.NO_KEY);
+    if (!key) return Object.assign(err(ERR.NO_KEY), { calls: 0 });
     let res;
     try {
       res = await fetch(`${C.API_BIBLE_BASE}/bibles?language=eng`, {
         headers: { 'api-key': key },
       });
     } catch (e) {
-      return err(ERR.NETWORK, String(e));
+      return Object.assign(err(ERR.NETWORK, String(e)), { calls: 0 });
     }
-    if (!res.ok) return errorFor(res);
+    if (!res.ok) return Object.assign(await errorFor(res), { calls: 1 });
     const json = await res.json();
     const bibles = (json.data || []).map((b) => ({
       id: b.id,
@@ -73,18 +75,21 @@
     // The list endpoint usually omits copyright, which the options page needs to
     // tell free (public-domain/CC) versions from the copyrighted ones the user
     // added. Backfill it from the per-version endpoint (parallel, capped).
-    const failed = await fillCopyrights(key, bibles.filter((b) => !b.copyright));
-    return failed ? { bibles, partial: true } : { bibles };
+    const looked = await fillCopyrights(key, bibles.filter((b) => !b.copyright));
+    const calls = 1 + looked.calls;
+    return looked.failed ? { bibles, partial: true, calls } : { bibles, calls };
   }
 
   // Fill in each bible's copyright from GET /bibles/{id}, with limited
   // concurrency. Best-effort: a failed lookup leaves copyright empty (the
-  // version still shows). Resolves with how many lookups failed.
+  // version still shows). Resolves with how many lookups failed, and how
+  // many reached api.bible.
   async function fillCopyrights(key, list) {
-    if (!list.length) return 0;
+    if (!list.length) return { failed: 0, calls: 0 };
     const CONCURRENCY = 6;
     let i = 0;
     let failed = 0;
+    let calls = 0;
     async function worker() {
       while (i < list.length) {
         const b = list[i++];
@@ -92,6 +97,7 @@
           const r = await fetch(`${C.API_BIBLE_BASE}/bibles/${encodeURIComponent(b.id)}`, {
             headers: { 'api-key': key },
           });
+          calls++;
           if (!r.ok) { failed++; continue; }
           const j = await r.json();
           const d = j.data || {};
@@ -102,7 +108,7 @@
     const workers = [];
     for (let k = 0; k < Math.min(CONCURRENCY, list.length); k++) workers.push(worker());
     await Promise.all(workers);
-    return failed;
+    return { failed, calls };
   }
 
   // ---- Map a failed response -> error ----
