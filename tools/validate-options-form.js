@@ -267,13 +267,21 @@ eq(F.connectedText([NIV]), 'Connected — 1 translation: NIV', 'one translation 
 eq(F.connectedText([NIV, NKJV, NIRV, OKE, KJV]), 'Connected — 5 translations: NIV, NKJV, NIrV, OKE, KJV', 'up to five are named');
 eq(F.connectedText([NIV, NKJV, NIRV, OKE, KJV, WEBU1]), 'Connected — 6 translations', 'more than five are counted, so the line stays a line');
 eq(F.connectedText([]), 'Connected. Choose the translations to show in the panel.', 'connected with nothing on says what to do');
-eq(F.yoursNote({ partial: true, yours: 3 }), 'Couldn’t check which translations are yours. Try Connect again later.',
+// api.bible's own pages, as verified on 2026-10-09 (spec #101): the free
+// account, and the dashboard that holds the key and the Bibles on it.
+eq(C.API_BIBLE_PAGES, { signUp: 'https://api.bible/sign-up', dashboard: 'https://api.bible/team' },
+  'api.bible\'s sign-up and dashboard addresses, with no redirect');
+// yoursNote is linked text: strings, and { text, href } for a link.
+eq(F.yoursNote({ partial: true, yours: 3 }), ['Couldn’t check which translations are yours. Try Connect again later.'],
   'a partial list owns up to its guess, whatever it guessed');
 eq(F.yoursNote({ partial: true, yours: 0 }), F.yoursNote({ partial: true, yours: 3 }),
   'a partial list never claims the key has no copyrighted translations');
-check(/^This key has no NIV, NKJV or other copyrighted translations yet\. .*Check for new translations/.test(F.yoursNote({ partial: false, yours: 0 })),
-  'an empty "yours" says how to fill it, through the button that refetches (Connect rests on a connected key)');
-eq(F.yoursNote({ partial: false, yours: 2 }), '', 'a full list with versions in "yours" needs no note');
+eq(F.yoursNote({ partial: false, yours: 0 }), [
+  'This key has no NIV, NKJV or other copyrighted translations yet. Add them in your ',
+  { text: 'api.bible dashboard', href: 'https://api.bible/team' },
+  ' (Plan, then Edit Plan, then Edit Bible Licenses), then choose Check for new translations — or turn on a free one below.',
+], 'an empty "yours" links the dashboard, names the path there, and refills through the button that refetches (Connect rests on a connected key)');
+eq(F.yoursNote({ partial: false, yours: 2 }), [], 'a full list with versions in "yours" needs no note');
 const bad = 'api.bible didn’t accept that key. Check that you copied all of it.';
 eq(F.keyErrorText({ code: C.ERR.INVALID_KEY }), bad, 'a wrong key says so in plain words');
 eq(F.keyErrorText({ code: C.ERR.FORBIDDEN }), bad, 'a 403 on the list is a key problem too');
@@ -705,6 +713,39 @@ check(/languagePicker\(copy, langs\)\);\s*block\.appendChild\(el\('p', '[^']+', 
   'setup card: the Church-language sentence renders right under the picker with Add');
 check(/copy\.bible\.button[^\n]*\n\s*block\.appendChild\(el\('p', '[^']+', copy\.bible\.disclosure\)\)/.test(renderSetupSrc),
   'setup card: the api.bible sentence renders right under its button');
+
+// ---- api.bible setup (spec #101, #123): no account to NIV showing ----
+console.log('api.bible setup:');
+{
+  const card = cardOf('bible');
+  const setup = (card.match(/<div class="hint setup" id="bibleSetup">([\s\S]*?)<\/div>/) || [])[1] || '';
+  const words = (h) => h.replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim();
+  const steps = [...((setup.match(/<ol[^>]*>([\s\S]*?)<\/ol>/) || [])[1] || '').matchAll(/<li>([\s\S]*?)<\/li>/g)].map((m) => m[1]);
+  check(card.indexOf('id="bibleSetup"') >= 0 && card.indexOf('id="bibleSetup"') < card.indexOf('id="apiKey"'),
+    'the setup steps sit above the key field they end in');
+  eq(steps.map(words), [
+    'Create a free account at api.bible. Sign-up asks about your app, such as what it’s for and how many people use it, and your organisation.',
+    'Pick up to 3 Bibles, such as NIV, on the free plan.',
+    'Copy the key from the top right of your api.bible dashboard, and paste it below.',
+  ], 'three numbered steps, in order');
+  check(/<a href="https:\/\/api\.bible\/sign-up"[^>]*>Create a free account<\/a>/.test(steps[0] || ''), 'step 1 links api.bible\'s sign-up page');
+  check(/<a href="https:\/\/api\.bible\/team"[^>]*>api\.bible dashboard<\/a>/.test(steps[2] || ''), 'step 3 links the dashboard');
+  check(/Plan, then Edit Plan, then Edit Bible Licenses/.test(words(setup.replace(/<ol[\s\S]*<\/ol>/, '')))
+    && /<a href="https:\/\/api\.bible\/team"/.test(setup.replace(/<ol[\s\S]*<\/ol>/, '')),
+    'the add-later path names the dashboard\'s menus and links the dashboard');
+  const links = setup.match(/<a\b[^>]*>/g) || [];
+  check(links.length >= 3 && links.every((a) => /target="_blank"/.test(a) && /rel="noopener"/.test(a)),
+    'every setup link opens in a new tab with noopener');
+  check(links.every((a) => /href="https:\/\/api\.bible\/(sign-up|team)"/.test(a)), 'every setup link goes straight to api.bible\'s current pages');
+  // Reader-facing copy names the site api.bible; only the API host may say scripture.
+  for (const rel of ['src/options/options.html', 'src/options/options.js', 'src/content/panel.js', 'src/content/content.js']) {
+    const text = fs.readFileSync(path.join(ROOT, rel), 'utf8');
+    check(!/(?<!api\.)scripture\.api\.bible/.test(text), `${rel} never names scripture.api.bible to the reader`);
+  }
+  check(/yoursNote\(\{[^)]*\}\);\s*\n\s*linkedText\(els\.yoursNote, note\)/.test(src), 'the note renders through linkedText');
+  check(/n\.textContent = text/.test(bodyOf('el')) && /createTextNode/.test(bodyOf('linkedText')) && !/innerHTML/.test(bodyOf('linkedText')),
+    'linked text is built from text nodes and anchors, never innerHTML');
+}
 
 // The language search must not live inside the churchLanguages FIELDS node, or
 // typing in it would mark the setting dirty.

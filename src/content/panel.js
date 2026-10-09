@@ -757,7 +757,7 @@
       case 'FORBIDDEN':
         return {
           message: `${name} isn’t included with your api.bible key.`,
-          hint: e.alternatives ? 'Add it at scripture.api.bible, or choose another translation above.' : 'Add it at scripture.api.bible.',
+          hint: e.alternatives ? 'Add it in your api.bible dashboard, or choose another translation above.' : 'Add it in your api.bible dashboard.',
           action: 'settings',
         };
       case 'NOT_FOUND':
