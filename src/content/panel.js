@@ -461,29 +461,30 @@
   // `lines`: plain sentences for a broad audience, many reading English as a
   // second language — no idioms, and each control called by the name it
   // shows or announces. A line may carry `when`, facts it needs, all of which
-  // must match (welcomeSteps). `{icon}` in a line marks where the extension's
+  // must match (welcomeSteps), and `tip`: a second way to do what the step
+  // says, drawn smaller under the line that matters. `{icon}` in a line marks where the extension's
   // icon is drawn inline (lineParts), always beside its name in words: the
   // toolbar icon is the browser's, not the panel's. In tour order: what the
   // panel opens on first, and last the way to hide it and get it back. The
   // copy is spec A's model: the panel opens on Citations, and a language you
-  // add reads on the page whatever the panel shows (beside or under each
-  // verse, as the room allows); a Bible version only on the Bible.
+  // add reads on the page whatever the panel shows (verse by verse: beside
+  // or under each, as the room allows); a Bible version only on the Bible.
   const WELCOME_COPY = { title: 'Welcome to Translations & Citations', back: 'Back', next: 'Next', skip: 'Skip', gotIt: 'Got it' };
   const WELCOME_STEPS = [
     { id: 'citations', control: 'citations-tab', title: WELCOME_COPY.title, lines: [
       { text: 'Citations shows the talks and sermons that quote each verse of this chapter. Open one to read it right here.' },
     ] },
     { id: 'translation', control: 'translation-tab', title: 'Translation', lines: [
-      { text: 'Read scripture in another language, or the Bible in another version.' },
-      { text: 'A language you add appears on the page with the English, beside or under each verse.' },
+      { text: 'Read scripture in another language, like Spanish or Japanese, or the Bible in another version.' },
+      { text: 'A language you add appears on the page with the English, verse by verse.' },
     ] },
     { id: 'settings', control: 'settings', title: 'Settings', lines: [
-      { text: 'Add languages and Bible versions, and change the text size or panel width.' },
+      { text: 'Add languages and Bible versions, and change the text size.' },
     ] },
     { id: 'hide', control: 'collapse', title: 'Hide the panel', lines: [
       { text: 'The Collapse button hides the panel and leaves a small tab at the window’s edge. Click the tab to bring it back.' },
-      { text: 'The Translations & Citations icon {icon} in your browser’s toolbar shows and hides it too.' },
-      { text: 'Don’t see the icon? Click the puzzle piece in the toolbar, then the pin next to Translations & Citations.', when: { pinned: false } },
+      { text: 'You can also click the Translations & Citations icon {icon} at the top right of Chrome.', tip: true },
+      { text: 'Don’t see it? Click the puzzle-piece icon there, then the pin next to Translations & Citations.', tip: true, when: { pinned: false } },
     ] },
   ];
 
@@ -1482,7 +1483,7 @@
     w.title.textContent = v.step.title;
     w.position.textContent = v.position;
     w.lines.replaceChildren(...v.step.lines.map((line) => {
-      const p = el('p', 'btx-welcome-line');
+      const p = el('p', line.tip ? 'btx-welcome-line btx-welcome-tip' : 'btx-welcome-line');
       for (const part of lineParts(line)) p.appendChild(typeof part === 'string' ? document.createTextNode(part) : extensionIcon());
       return p;
     }));

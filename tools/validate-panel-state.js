@@ -968,10 +968,11 @@ check(/Collapse/.test(said('hide')), 'the last step names the Collapse button: t
 // and a language you add reads on the page whatever the panel shows.
 check(/talks/.test(said('citations')) && /each verse/.test(said('citations')), 'Citations: the talks that quote each verse');
 check(/language/.test(said('translation')) && /Bible/.test(said('translation')), 'Translation: another language or Bible version');
-check(/on the page/.test(said('translation')) && /beside or under each verse/.test(said('translation')), 'a language you add reads on the page, beside or under each verse (as the room allows)');
+check(/on the page/.test(said('translation')) && /verse by verse/.test(said('translation')), 'a language you add reads on the page, verse by verse (beside or under each, as the room allows)');
 check(/the Bible in another version/.test(said('translation')), 'a Bible version only on the Bible');
 check(/tab/.test(said('hide')) && /bring it back/.test(said('hide')), 'the last step: the tab at the window\'s edge brings the panel back');
-check(/Translations & Citations icon \{icon\}/.test(said('hide')) && /toolbar/.test(said('hide')), '...and so does the toolbar icon, named in words beside its picture');
+check(/Translations & Citations icon \{icon\}/.test(said('hide')) && /top right of Chrome/.test(said('hide')), '...and so does the toolbar icon, named in words beside its picture, where to look');
+check(stepById('hide').lines.slice(1).every((l) => l.tip === true) && !stepById('hide').lines[0].tip, '...as a smaller tip under the edge tab, the way back every reader has');
 // A line draws the extension's icon inline, where its text marks it.
 eq(P.lineParts({ text: 'The {icon} button hides it.' }), ['The ', { icon: true }, ' button hides it.'], 'lineParts: the marker becomes the icon, in place');
 eq(P.lineParts({ text: 'Plain text.' }), ['Plain text.'], 'lineParts: a line with no marker is one text part');
@@ -985,7 +986,7 @@ check(typeof P.WELCOME_COPY.title === 'string' && P.WELCOME_COPY.title && P.WELC
 // into "not pinned" (a pin suggested twice costs less than a needed one hidden).
 const pinLine = stepById('hide').lines.find((l) => l.when);
 check(pinLine && JSON.stringify(pinLine.when) === '{"pinned":false}', 'the pinning line needs { pinned: false }');
-check(pinLine && /puzzle piece/.test(pinLine.text) && /the pin next to Translations & Citations/.test(pinLine.text), 'the pinning line says how to pin to the toolbar, click by click');
+check(pinLine && /puzzle-piece icon/.test(pinLine.text) && /the pin next to Translations & Citations/.test(pinLine.text), 'the pinning line says how to pin to the toolbar, click by click');
 const hideLines = (reply) => P.welcomeSteps(P.welcomeFactsFrom(reply)).find((s) => s.id === 'hide').lines.length;
 eq(P.welcomeSteps(P.welcomeFactsFrom({ isOnToolbar: true })).map((s) => s.id), P.WELCOME_STEPS.map((s) => s.id), 'every step shows whatever the facts');
 eq(hideLines({ isOnToolbar: false }), 3, 'icon not on the toolbar: the last step carries the pinning line');

@@ -658,6 +658,13 @@
 #btx-root .btx-welcome-lines { min-height: 4.5em; }
 #btx-root .btx-welcome-line { margin: 0 0 6px; }
 #btx-root .btx-welcome-line:last-child { margin-bottom: 0; }
+/* A second way to do what the step says: smaller, under the line that
+   matters. */
+#btx-root .btx-welcome-tip {
+  color: color-mix(in srgb, var(--btx-fg) 80%, transparent);
+  font-size: 13px;
+  line-height: 1.45;
+}
 #btx-root .btx-welcome-icon {
   display: inline-block;
   width: 16px;

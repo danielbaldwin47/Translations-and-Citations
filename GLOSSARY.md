@@ -220,9 +220,10 @@ dialog, one **step** at a time (`WELCOME_STEPS` and `welcomeStepView` in the
 panel's pure core): Citations, Translation, Settings, then how to hide the
 panel and bring it back. Each step is a card under the header control it
 names (`CONTROL_NAMES`), its caret aimed at it, and that control ringed
-(`calloutPlacement`) while the others dim. The last step names the toolbar
-icon in words with its picture drawn inline, and adds how to pin it only
-while it isn't pinned. It shows on any panel shown while the synced
+(`calloutPlacement`) while the others dim. The last step leads with the tab
+collapsing leaves on the window's edge; as smaller tips it names the toolbar
+icon in words with its picture drawn inline, and how to pin it only while it
+isn't pinned. It shows on any panel shown while the synced
 `welcomeSeen` setting is false (`welcomeDue`), so it greets on every chapter
 until **Got it** (the last step) or **Skip**, which write the setting true.
 Collapsing hides it without counting as seen; an expand resumes at the same
