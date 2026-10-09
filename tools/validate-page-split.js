@@ -131,6 +131,37 @@ eq(P.moved(null, fitted), true, 'never fitted: fit');
 eq(P.moved(fitted, null), true, 'the column is gone: fit (it finds nothing and stays interlinear)');
 eq(P.moved(null, null), false, 'no column before or now');
 
+// ---- readingEdges ----
+// Where the visible reading area starts and ends, from what lies under a probe
+// just inside each edge. It must read the site's state only, never the layout
+// the module applied last: the reading column carries the site's floating
+// annotation toolbar just left of its text, so columns pushed it against the
+// screen edge, the probe took it for a docked drawer, the room shrank, the
+// split fell back to interlinear, the toolbar moved away, and round it went
+// several times a second (#97).
+console.log('readingEdges:');
+// Stacks are what elementsFromPoint returns, topmost first.
+const holder = (left, right) => ({ left, right, holdsColumn: true });
+const SITE = [holder(0, 805), holder(0, 805), holder(0, 1185)];
+const toolbar = { left: 4, right: 44, inColumn: true };
+// The live site at 1200px, panel open (reserve 380, scrollbar 15).
+const area = { width: 1185, reserve: 380 };
+const asColumns = P.readingEdges({ ...area, leftStack: [toolbar, { ...toolbar }, ...SITE], rightStack: SITE });
+const asInterlinear = P.readingEdges({ ...area, leftStack: SITE, rightStack: SITE });
+eq(asColumns, asInterlinear, "the same site state reads the same edges whether the module's columns rule is on or off");
+eq(asInterlinear, { left: 0, right: 805 }, 'nothing docked: the area runs from the page edge to the panel reserve');
+const drawer = { left: 0, right: 320 };
+eq(P.readingEdges({ ...area, leftStack: [drawer, ...SITE], rightStack: SITE }).left, 320, 'the navigation drawer docked on the left narrows the area');
+eq(P.readingEdges({ ...area, leftStack: [toolbar, drawer, ...SITE], rightStack: SITE }).left, 320, '...even with the reading column\'s toolbar drawn over it');
+eq(P.readingEdges({ ...area, leftStack: [...SITE, drawer], rightStack: SITE }).left, 0, 'nothing beneath what holds the reading column counts');
+eq(P.readingEdges({ ...area, leftStack: [{ left: 0, right: 700 }, ...SITE], rightStack: SITE }).left, 0, 'a box reaching past the middle is not docked');
+const footnotes = { left: 560, right: 805 };
+eq(P.readingEdges({ ...area, leftStack: SITE, rightStack: [footnotes, ...SITE] }).right, 560, "the site's footnote panel ends the area where it starts");
+eq(P.readingEdges({ ...area, leftStack: SITE, rightStack: [{ left: 560, right: 805, ours: true }, footnotes, ...SITE] }).right, 805,
+  'the probe stops at our own panel');
+eq(P.readingEdges({ width: 1385, reserve: 0, leftStack: SITE, rightStack: SITE }).right, 1385 - P.FLOAT_GUTTER_PX,
+  'panel collapsed: the area ends short of the floating buttons (readingRight)');
+
 // ---- Wiring (greps: the DOM half can't run here) ----
 console.log('Wiring (ADR-0007):');
 const src = fs.readFileSync(path.join(ROOT, 'src/content/page-split.js'), 'utf8').replace(/\r\n/g, '\n');
@@ -143,6 +174,9 @@ check(!/partner\.(style|setAttribute|classList|appendChild|remove)|row\.partner\
   "the site's elements are read (getComputedStyle, rects), never written");
 check(/getAttribute\('data-uri'\) === s\.uri/.test(shell), 'it mounts only once the site shows the chapter it loaded');
 check(/readingRight\(\{ width, reserve \}\)/.test(shell), 'the reading area ends where the pure rule says');
+check(/readingEdges\(\{ width, reserve, leftStack: stack\(4\), rightStack: stack\(edge - 4\) \}\)/.test(shell)
+  && /inColumn: n !== section && section\.contains\(n\)/.test(shell),
+  "the shell probes both edges through readingEdges, marking what sits inside the reading column (#97)");
 check(/effective !== s\.effective \|\| roomier !== s\.collapseFits\)[\s\S]{0,300}s\.onLayout\(\{ effective, collapseFits: roomier \}\)/.test(shell),
   'the layout callback fires where what fits changes, and only there');
 const css = fs.readFileSync(path.join(ROOT, 'src/content/page-split.css'), 'utf8');

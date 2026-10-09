@@ -44,7 +44,10 @@
  *                MIN_COLUMN_PX of text. The visible reading area ends at the
  *                panel's page reserve, or FLOAT_GUTTER_PX short of the window
  *                edge with the panel collapsed (readingRight), or where the
- *                site's footnote panel starts, when it is open.
+ *                site's footnote panel starts, when it is open; it starts
+ *                right of the site's navigation drawer, when docked. Both
+ *                edges read the site's state only, never the layout the
+ *                module applied last (readingEdges, #97).
  *   interlinear  the column is untouched; each translation sits under its
  *                English element, which gets room as extra margin-bottom.
  *
@@ -90,6 +93,33 @@
   // buttons.
   function readingRight({ width, reserve }) {
     return reserve > 0 ? width - reserve : width - FLOAT_GUTTER_PX;
+  }
+
+  // Where the visible reading area starts and ends in a `width`-wide page with
+  // the panel's page `reserve`: right of what is docked at the left edge (the
+  // site's navigation drawer), left of what is docked at the right one (its
+  // footnote panel), and never past readingRight. Each stack is what lies
+  // under a probe just inside that edge, topmost first (elementsFromPoint),
+  // as { left, right, inColumn, holdsColumn, ours }. The probe stops at what
+  // holds the reading column or is the panel (`ours`), and skips what sits
+  // inside the reading column: that moves with the layout the module applies
+  // (the site's annotation toolbar hangs left of the text), and counting it
+  // made the decision feed back on itself (#97). Docked means touching the
+  // edge and not reaching the middle of the area.
+  //   -> { left, right }
+  function readingEdges({ width, reserve, leftStack, rightStack }) {
+    const edge = readingRight({ width, reserve });
+    let left = 0;
+    let right = edge;
+    const probe = (stack, test) => {
+      for (const n of stack) {
+        if (n.holdsColumn || n.ours) break;
+        if (!n.inColumn) test(n);
+      }
+    };
+    probe(leftStack, (r) => { if (r.left <= 4 && r.right < edge / 2) left = Math.max(left, r.right); });
+    probe(rightStack, (r) => { if (r.right >= edge - 4 && r.left > edge / 2) right = Math.min(right, r.left); });
+    return { left, right };
   }
 
   // Would the panel's collapse make room for columns? Collapsing hands its page
@@ -176,7 +206,7 @@
 
   const CORE = {
     GAP_PX, MIN_COLUMN_PX, MAX_SECTION_PX, FLOAT_GUTTER_PX, TAIL_GAP_PX: 8,
-    wantsSplit, readingRight, collapseFits, fitWidth, effectiveLayout, groupRows, soloIds, rowRules, cssId, moved,
+    wantsSplit, readingRight, readingEdges, collapseFits, fitWidth, effectiveLayout, groupRows, soloIds, rowRules, cssId, moved,
   };
 
   if (typeof module !== 'undefined' && module.exports) module.exports = CORE;
@@ -318,27 +348,26 @@
     s.geo = geometry(); // after our own writes, so the watch sees only the site's moves
   }
 
-  // Where the site's reading area is visible: right of its left-hand
-  // navigation (when open), left of its right-hand footnote panel (when open)
-  // and of the panel's page reserve. Each side is found by probing just
-  // inside that edge, halfway down, for something docked there that doesn't
-  // hold the reading column.
+  // Where the site's reading area is visible (readingEdges), probed just
+  // inside each edge, halfway down. fit() and the watch's geometry() both read
+  // it, so they agree on what moved.
   //   -> { left, right, width (the page's), reserve (the panel's) }
   function readingArea(section) {
     const html = document.documentElement;
     const width = html.clientWidth;
     const reserve = parseFloat(getComputedStyle(html).marginRight) || 0;
-    let right = readingRight({ width, reserve });
-    const edge = right;
-    let left = 0;
-    const docked = (x, test) => {
-      for (let n = document.elementFromPoint(x, innerHeight / 2); n && n !== document.body; n = n.parentElement) {
-        if (n.contains(section) || n.closest('#btx-root')) break;
-        test(n.getBoundingClientRect());
-      }
-    };
-    docked(4, (r) => { if (r.left <= 4 && r.right < edge / 2) left = Math.max(left, r.right); });
-    docked(edge - 4, (r) => { if (r.right >= edge - 4 && r.left > edge / 2) right = Math.min(right, r.left); });
+    const stack = (x) => document.elementsFromPoint(x, innerHeight / 2).map((n) => {
+      const r = n.getBoundingClientRect();
+      return {
+        left: r.left,
+        right: r.right,
+        inColumn: n !== section && section.contains(n),
+        holdsColumn: n.contains(section),
+        ours: !!n.closest('#btx-root'),
+      };
+    });
+    const edge = readingRight({ width, reserve });
+    const { left, right } = readingEdges({ width, reserve, leftStack: stack(4), rightStack: stack(edge - 4) });
     return { left, right, width, reserve };
   }
 
