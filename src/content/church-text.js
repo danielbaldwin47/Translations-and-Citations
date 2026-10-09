@@ -10,6 +10,12 @@
  *       C.CHURCH_LANGUAGES), minus the language the page is already in.
  *       A Church row is { id:'church:spa', provider:'church', lang, abbr, name }
  *       so it rides the same dropdown and view key as an api.bible version.
+ *       A page read in another language (`pageLang` given and not 'eng')
+ *       also offers English, last and once, ticked or not: the options
+ *       checklist can't tick English. From there it is an ordinary Church
+ *       row (the chapter check, pick memory, pageLanguage): on Spanish
+ *       Alma 5 with no other language picked, English holds the page, and
+ *       the split pairs it by element id with the Spanish article.
  *     pickText(list, preferredIds) -> id | null
  *       the first preferred id the list offers, else the list's first row.
  *       The caller's preference is never rewritten by a fallback, which is
@@ -125,6 +131,7 @@
   const PROVIDER = 'church';
   const ID_PREFIX = 'church:';
   const API_PATH = '/study/api/v3/language-pages/type/content';
+  const ENGLISH = 'eng'; // detect's language for a page with no `lang`
 
   const LANG_BY_CODE = {};
   for (const l of C.CHURCH_LANGUAGES) LANG_BY_CODE[l.code] = l;
@@ -147,7 +154,10 @@
   function textsFor(opts) {
     const o = opts || {};
     const bible = o.isBible !== false && Array.isArray(o.bibleRows) ? o.bibleRows : [];
-    const church = (Array.isArray(o.languages) ? o.languages : [])
+    const ticked = Array.isArray(o.languages) ? o.languages : [];
+    // English on a page read in another language (header).
+    const english = o.pageLang && o.pageLang !== ENGLISH && ticked.indexOf(ENGLISH) < 0 ? [ENGLISH] : [];
+    const church = ticked.concat(english)
       .filter((code) => code !== o.pageLang)
       .map(rowFor)
       .filter((row) => row && publishes(row.lang, o.collection));
