@@ -340,7 +340,7 @@
     }
     await loadSelection();
     activeId = churchText.pickText(list, mru.concat(e.defaultId));
-    panel.populateTranslations(churchText.menuFor(list), activeId);
+    panel.populateTranslations(churchText.menuFor(list, { isBible: current.isBible !== false }), activeId);
     syncSplit({ anchor: splitAnchor() }); // another version may bring the split or take it away
     // Same chapter and same version -> the panel re-mounts what it has, and
     // loadChapter never runs.
