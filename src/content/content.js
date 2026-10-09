@@ -20,7 +20,9 @@
  *    language and the chapter) and writes the no-translation line's dismissal
  *    (noTranslationLineDismissed) through __BTX.settings
  *  - runs the chapter check (runCheck over churchText.chapterOffer) while the
- *    arrangement answers `loading`, then arranges again. A rate-limited
+ *    arrangement answers `loading`, then arranges again; once the
+ *    Translation tab settles, checks the languages left (checkRest) so the
+ *    dropdown drops rows lacking the chapter. A rate-limited
  *    load waits and retries only as panel.retryWait allows, counting its
  *    automatic retries per chapter and version
  *  - writes the cards' picks through __BTX.settings (a Church language added
@@ -86,11 +88,11 @@
   let selectionRead = null; // the stored list, merged in once (loadSelection)
   let texts = []; // the rows the current chapter may show: textsFor, minus those the chapter check found lacking it
   let activeId = null; // the row showing now (chapterOffer's pick)
-  // The chapter check: checks that failed (not "not available") for the
-  // chapter showing, `${lang}|${uri}` -> 'error', so a pass doesn't re-ask
+  // The chapter check: the churchText.checkKeys whose check failed (network,
+  // not "not available") for the chapter showing, so a pass doesn't re-ask
   // them; cleared with each new chapter. "Found" and "not available" live in
   // churchText for the tab.
-  let checkErrors = new Map();
+  let failedChecks = new Set();
   let transToken = 0; // numbers each renderTranslation, so a stale one stops
   let splitToken = 0; // guards the page split against stale chapter loads
   let current = null; // parsed location
@@ -197,11 +199,7 @@
   // pickText would and stops where its question is answered.
   function offerFor(parsed, rows) {
     const langs = rows.filter((r) => r.provider === churchText.PROVIDER).map((r) => r.lang);
-    const results = churchText.checked(parsed, langs);
-    const uri = churchText.chapterUri(parsed);
-    for (const lang of langs) {
-      if (!results[lang] && checkErrors.has(`${lang}|${uri}`)) results[lang] = 'error';
-    }
+    const results = churchText.checkResults(parsed, langs, failedChecks);
     return churchText.chapterOffer({ texts: rows, results, preferredIds: preferredIds() });
   }
 
@@ -220,25 +218,25 @@
     };
   }
 
-  // The arrangement's note, named for the panel's note slot. The
-  // no-translation line names the language in English and the chapter
-  // ("Kiribati", "Doctrine and Covenants 76"); the beside-the-page line names
-  // the language as the dropdown leads its row ("Español") and carries the
-  // split layout its Change control presses. The panel renders the line above
-  // the view it belongs to and shows it only while that view is mounted, so
-  // this runs after every mode render and wherever the arrangement moves (a
-  // render with no note clears the slot).
+  // A fact about the chapter showing moved (a pick, the layout, the
+  // dismissal, a check): the panel arranges it again from what this tab knows,
+  // fetching nothing.
+  function rearrange() {
+    return panel.arrange(factsFor(enabled, offerFor(current, textsForChapter(current, enabled))));
+  }
+
+  // The arrangement's note, handed to the panel's note slot with the
+  // language's row and the chapter as the reader names it (the panel's
+  // noteCopy words it), and the split layout the beside-the-page line's
+  // Change control presses. The panel renders the line above the view it
+  // belongs to and shows it only while that view is mounted, so this runs
+  // after every mode render and wherever the arrangement moves (a render with
+  // no note clears the slot).
   function applyNote() {
     const a = panel.arrangement();
     const row = a.note && current ? churchText.rowFor(a.noteLang) : null;
     if (!row) { panel.setNote(null); return; }
-    const own = a.note === 'beside-page';
-    panel.setNote({
-      kind: a.note,
-      language: own ? (row.abbr || row.name) : row.name,
-      chapter: chapterLabel(current),
-      layout: placement(),
-    });
+    panel.setNote({ kind: a.note, row, chapter: chapterLabel(current), layout: placement() });
   }
 
   // The line's ×: dismissed for good, on every computer (a synced setting).
@@ -246,27 +244,43 @@
     if (enabled) enabled = Object.assign({}, enabled, { noTranslationLineDismissed: true });
     SETTINGS.patch({ noTranslationLineDismissed: true });
     if (!current || !enabled) return;
-    // The arrangement again with the dismissal; the chapter check's results
-    // are the tab's, so nothing is fetched.
-    const parsed = current;
-    panel.arrange(factsFor(enabled, offerFor(parsed, textsForChapter(parsed, enabled))));
+    rearrange();
     applyNote();
   }
 
-  // Fetch the next language chapterOffer names until `answered(offer)`.
-  // `stale()` true -> the reader moved on: resolves null. Each fetch is
-  // churchText.load's, so the panel's text shares it, and a language found
-  // lacking the chapter is never fetched for it again in this tab.
-  async function runCheck(parsed, rows, answered, stale) {
+  // Fetch the language `question(offer)` names until it names none, then
+  // resolve the offer. `stale()` true -> the reader moved on: resolves null.
+  // Each fetch is churchText.load's, so the panel's text shares it, and a
+  // language found lacking the chapter is never fetched for it again in this
+  // tab.
+  async function runCheck(parsed, rows, question, stale) {
     for (;;) {
       const offer = offerFor(parsed, rows);
-      if (answered(offer)) return offer;
-      const res = await churchText.load(parsed, offer.next);
+      const lang = question(offer);
+      if (!lang) return offer;
+      const res = await churchText.load(parsed, lang);
       if (stale()) return null;
-      if (!res || (res.error && res.error.code !== C.ERR.NOT_FOUND)) {
-        checkErrors.set(`${offer.next}|${churchText.chapterUri(parsed)}`, 'error');
-      }
+      if (!res || (res.error && res.error.code !== C.ERR.NOT_FOUND)) failedChecks.add(churchText.checkKey(parsed, lang));
     }
+  }
+
+  // The dropdown lists the languages the check hasn't reached. Once the
+  // Translation tab has settled, ask the rest (chapterOffer's `unchecked`) so
+  // a row lacking the chapter drops out of it. Each fetch is churchText.load's:
+  // a pick of a row still being asked waits on the same request, and what is
+  // learned is the tab's. A failed fetch leaves its row in, unchecked: a pick
+  // asks again. `stale()`: renderTranslation's, true once another render
+  // overtook the one that asked.
+  async function checkRest(parsed, e, stale) {
+    const rows = textsForChapter(parsed, e);
+    const pending = offerFor(parsed, rows).unchecked;
+    if (!pending.length) return;
+    await Promise.all(pending.map((lang) => churchText.load(parsed, lang)));
+    if (stale()) return; // another Translation render asks again, sharing these loads
+    const offer = offerFor(parsed, rows);
+    if (panel.arrange(factsFor(e, offer)).body === 'setup') return;
+    texts = offer.texts.filter((t) => t.offered !== false);
+    panel.populateTranslations(churchText.menuFor(texts, { isBible: parsed.isBible !== false }), activeId);
   }
 
   // The panel's brief loading state, while the check fetches.
@@ -316,7 +330,7 @@
     if (key !== shownChapter) {
       // A talk stays open across a settings change, not across chapters.
       openEntry = null;
-      checkErrors = new Map();
+      failedChecks = new Set();
       // The split's per-id rules would land on the incoming chapter's
       // elements before its text arrives. (The same chapter again keeps it:
       // syncSplit replaces it only if the settings changed what it shows.)
@@ -406,9 +420,10 @@
     if (a.pageNext) {
       const stale = () => token !== splitToken || !current || chapterKey(current) !== chapterKey(parsed);
       const rows = textsForChapter(parsed, e);
-      const offer = await runCheck(parsed, rows, (o) => !panel.arrange(factsFor(e, o)).pageNext, stale);
+      // Asked of the pure arrangement: nothing is stored until the check settles.
+      const offer = await runCheck(parsed, rows, (o) => panel.arrangement(factsFor(e, o)).pageNext, stale);
       if (!offer) return;
-      a = panel.arrangement();
+      a = panel.arrange(factsFor(e, offer));
       applyNote(); // the page's language is known now: the line beside a Bible version names it
     }
     const row = a.page ? churchText.rowFor(a.page.slice(churchText.ID_PREFIX.length)) : null;
@@ -461,7 +476,7 @@
       ++reqToken;
       clearTimeout(retryTimer);
       showChecking();
-      offer = await runCheck(parsed, rows, (o) => !o.next, stale);
+      offer = await runCheck(parsed, rows, (o) => o.next, stale);
       if (!offer) return;
       shown = panel.arrange(factsFor(e, offer));
     }
@@ -498,6 +513,7 @@
     activeId = shown.text;
     panel.populateTranslations(churchText.menuFor(list, { isBible: current.isBible !== false }), activeId);
     syncSplit({ anchor: splitAnchor() }); // another version may bring the split or take it away
+    checkRest(parsed, e, stale);
     // Same chapter and same version -> the panel re-mounts what it has, and
     // loadChapter never runs.
     return panel.showView({ name: 'translation', key: transKey(), render: () => loadChapter() });
@@ -717,7 +733,10 @@
       return;
     }
     const layout = placement();
-    if (panel.arrangement().body === 'beside') {
+    // A Try again that worked where the chapter check failed: the language
+    // offers the chapter now, and may hold the page.
+    const arranged = failedChecks.has(churchText.checkKey(parsed, tr.lang)) ? rearrange() : panel.arrangement();
+    if (arranged.body === 'beside') {
       // The split's own load may have failed where this one (a Try again)
       // worked: ask for it again, or the card would say the text is on the
       // page when it isn't. A no-op while it is showing.
@@ -793,8 +812,8 @@
     if (pick) remember(pick);
     if (before !== 'panel' && after !== 'panel') {
       // The layout is one of the arrangement's facts (the page's language
-      // needs an in-page one); the chapter check's results are the tab's.
-      panel.arrange(factsFor(enabled, offerFor(current, textsForChapter(current, enabled))));
+      // needs an in-page one).
+      rearrange();
       panel.updateBeside({ layout: after });
       applyNote();
       syncSplit({ anchor: splitAnchor() });
