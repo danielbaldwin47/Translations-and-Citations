@@ -217,8 +217,10 @@ card via `OPEN_OPTIONS {section}`), or go to the talks that cite the chapter.
 **Beside card**:
 Translation mode's body while the text the tab is about is the page split's
 language: where the text is (by the
-layout that actually fits), the split-layout control, and "Collapse panel for
-wider columns" when collapsing would make room (`pageSplit.collapseFits`).
+layout that actually fits), the split-layout control (its pressed segment is
+the layout the page shows; the setting stays what the reader chose), and
+"Collapse panel for wider columns" when collapsing would make room
+(`pageSplit.collapseFits`).
 Its one-line form is the **beside-the-page line**, above a Bible version shown
 in the panel while a Church language holds the page: "Español is beside the
 page text · **Change**" (the language named as the dropdown leads its row).

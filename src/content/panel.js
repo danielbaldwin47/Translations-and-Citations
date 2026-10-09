@@ -87,9 +87,17 @@
  *                                  depend on it; `dir` 'rtl' for Arabic, …;
  *                                  `besideLink` puts the same layout control
  *                                  above the text, the way back into the page)
- *   updateBeside({ layout, effective, collapseFits })  restate a mounted beside card in place
- *                                  (no-op otherwise): the reader picked another
- *                                  in-page layout, or the split fit another
+ *   updateBeside({ layout, effective, collapseFits })  restate the layout
+ *                                  control in place: the reader picked another
+ *                                  in-page layout, or the split fit another.
+ *                                  Reaches the mounted beside card and the open
+ *                                  Change control of the beside-the-page line.
+ *                                  The pressed segment is the layout the page
+ *                                  shows (pressedLayout), not the setting: with
+ *                                  columns wanted and no room it is Under each
+ *                                  verse, the setting stays columns, and a click
+ *                                  on Side by side (layoutClick: 'explain')
+ *                                  says what would make room (roomHint).
  *   populateTranslations(menu, selectedId)  the dropdown, from
  *                                  __BTX.churchText.menuFor; hidden when empty
  *   retryWait(error, attempts)     pure: whether a rate-limited load retries by
@@ -410,24 +418,63 @@
   // the reader's setting ('columns' | 'interlinear'); `effective` is what the
   // page split could actually lay out (null until it has mounted), and
   // `collapseFits` whether collapsing the panel would give columns room.
+  // `pressed` is the segment the layout control shows pressed: the layout the
+  // page shows, so control, status and page agree (pressedLayout).
   // `collapse` is the label of the card's collapse button, null when it isn't
   // offered. Beside the page, collapsing is offered only where it delivers
   // columns: it widens columns already there, or makes room for them. In the
   // narrow window's bottom sheet (`sheet`) nothing can make room for columns,
-  // so there is no room note, and the sheet covering the page is what
-  // collapsing fixes: it is always offered, as "Hide panel".
+  // so there is no room note until the reader clicks Side by side (`nudged`),
+  // and the sheet covering the page is what collapsing fixes: it is always
+  // offered, as "Hide panel".
   function besideCopy(o) {
     const c = o || {};
     const name = c.name || 'The translation';
     const layout = c.layout === 'interlinear' ? 'interlinear' : 'columns';
     const shown = c.effective === 'columns' || c.effective === 'interlinear' ? c.effective : layout;
     const status = shown === 'columns' ? `${name} is shown side by side.` : `${name} is shown under each verse.`;
-    if (c.sheet === true) return { status, note: '', collapse: 'Hide panel' };
+    const pressed = pressedLayout(layout, c.effective);
+    if (c.sheet === true) {
+      return { status, note: c.nudged === true ? roomHint({ layout, effective: shown, collapseFits: false }) : '', collapse: 'Hide panel', pressed };
+    }
     return {
       status,
-      note: layout === 'columns' && shown === 'interlinear' ? 'Not enough room for side by side.' : '',
+      note: roomHint({ layout, effective: shown, collapseFits: c.collapseFits }),
       collapse: layout === 'columns' && (shown === 'columns' || c.collapseFits === true) ? 'Collapse panel for wider columns' : null,
+      pressed,
     };
+  }
+
+  // The layout the control shows pressed: the one the page is laid out in.
+  // Columns wanted but not fitting is shown as Under each verse while the
+  // setting stays columns, so side by side returns by itself when room does.
+  // `effective` is null until the split has measured; "In the panel" has no
+  // split to fit.
+  function pressedLayout(layout, effective) {
+    if (layout !== 'columns' && layout !== 'interlinear') return layout;
+    return effective === 'columns' || effective === 'interlinear' ? effective : layout;
+  }
+
+  // What a click on layout `value` does, given the reader's setting `layout`
+  // and the split's `effective` layout: 'write' the setting, 'explain' (the
+  // setting already is `value` but the page can't show it: say what would
+  // make room, change nothing), or 'none'. Compared with the setting, never
+  // with the pressed segment: Under each verse is pressed while columns are
+  // wanted, and picking it is still a change of preference.
+  function layoutClick(o) {
+    const c = o || {};
+    if (c.value !== c.layout) return 'write';
+    return pressedLayout(c.layout, c.effective) !== c.value ? 'explain' : 'none';
+  }
+
+  // Why Side by side isn't shown, in a line: collapsing the panel would give
+  // columns room (the owner's wording), or there is no room to be had. Empty
+  // where columns fit or weren't asked for. `sheet` is the bottom sheet:
+  // collapsing can't help there.
+  function roomHint(o) {
+    const c = o || {};
+    if (c.layout !== 'columns' || c.effective !== 'interlinear') return '';
+    return c.collapseFits === true && c.sheet !== true ? 'Collapse the panel for side by side.' : 'Not enough room for side by side.';
   }
 
   // A rate-limited chapter load: wait and retry by itself, or stop? Only a
@@ -830,7 +877,7 @@
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = {
       createState, arrangement, layoutChoice, arrangementOf, effectiveMode, selectMode, selectCitationView, setChapter, sameChapter,
-      stepFontScale, setupCopy, noteCopy, besideCopy, errorCopy, retryWait, LAYOUTS, RETRY_MAX_WAIT_MS, RETRY_MAX,
+      stepFontScale, setupCopy, noteCopy, besideCopy, pressedLayout, layoutClick, roomHint, errorCopy, retryWait, LAYOUTS, RETRY_MAX_WAIT_MS, RETRY_MAX,
       createViews, saveViewScroll, selectView, keepView, settleView, dropViews, SAME_CHAPTER_VIEWS,
       viewRestoresScroll, wantsScrollSync,
       scrollStep, easeRamp, floorStep, carryScroll, realignmentDone, isForeignScroll,
@@ -1511,16 +1558,42 @@
   // scroll it).
   function openNoteLayouts() {
     if (!note || note.control) return;
-    const control = layoutControl(() => note.layout, `Where to show ${note.language}`);
+    const control = layoutControl(() => note.layout, `Where to show ${note.language}`, {
+      effective: () => splitFit.effective,
+      explain: () => { note.nudged = true; pressNote(); },
+    });
     const node = el('div', 'btx-note btx-note-tools');
     node.appendChild(control.group);
+    const hint = el('span', 'btx-note-hint');
+    hint.setAttribute('role', 'status');
+    node.appendChild(hint);
     const was = note.node;
-    Object.assign(note, { node, control });
+    Object.assign(note, { node, control, hint });
+    pressNote();
     if (shownNote === was) {
       was.replaceWith(node);
       shownNote = node;
       focusPressedLayout(control, { preventScroll: true });
     }
+  }
+
+  // Restate the open Change control in place (never rebuilt: a keyboard user's
+  // focus is on it): it presses the layout the page shows, and after a click on
+  // Side by side that has no room it says why in its own line.
+  function pressNote() {
+    if (!note || !note.control) return;
+    if (note.layout !== note.nudgedFor) Object.assign(note, { nudged: false, nudgedFor: note.layout });
+    const hint = note.nudged ? roomHint(Object.assign({ layout: note.layout, sheet: inSheet() }, splitFit)) : '';
+    if (hint !== note.hint.textContent) {
+      const view = views.active && views.entries[views.active];
+      const top = () => (view && view.node ? view.node.getBoundingClientRect().top : 0);
+      const before = top();
+      note.hint.textContent = hint;
+      note.hint.hidden = !hint;
+      const moved = top() - before;
+      if (moved && ui && ui.body.scrollTop > 0) setBodyScroll(ui.body.scrollTop + moved);
+    }
+    note.control.press();
   }
 
   // Take the line off the body (focus stays in the panel when the button the
@@ -1550,7 +1623,7 @@
     if ((note ? note.key : null) === key) {
       if (note) note.layout = n.layout;
       if (note && note.control) {
-        note.control.press();
+        pressNote();
         refocusLayout = false; // restated in place: focus never left
       }
       return;
@@ -1710,6 +1783,11 @@
     return b;
   }
 
+  // The split's fit as the page split last reported it (updateBeside), kept
+  // whether or not a beside card is on screen: the line's Change control
+  // presses by it too. `effective` null until measured.
+  const splitFit = { effective: null, collapseFits: null };
+
   // The beside card on screen: { node, name, layout, effective, parts }, so the
   // layout control and the page split can restate it in place (updateBeside)
   // without rebuilding it under a keyboard user's focus.
@@ -1730,15 +1808,27 @@
 
   // Where a Church language shows (LAYOUTS), as one segmented control: on the
   // beside card, above the text when it is read in the panel, and in the
-  // beside-the-page line's place (its Change). `current()` is the layout
-  // showing; picking it again does nothing.
-  function layoutControl(current, label) {
+  // beside-the-page line's place (its Change). `current()` is the reader's
+  // setting; the segment pressed is the layout the page shows
+  // (`host.effective()`, the split's fit; pressedLayout), which differs while
+  // side by side has no room. A click is judged by layoutClick: it writes the
+  // setting, does nothing, or (`host.explain()`) answers that the setting
+  // already is this one and says what would make room.
+  function layoutControl(current, label, host) {
+    const effective = () => (host && host.effective ? host.effective() : null);
     const choices = LAYOUTS.map(([value, text]) => {
-      const b = button('btx-seg-btn', text, () => { if (value !== current()) pickLayout(value); });
+      const b = button('btx-seg-btn', text, () => {
+        const what = layoutClick({ layout: current(), effective: effective(), value });
+        if (what === 'write') pickLayout(value);
+        else if (what === 'explain' && host && host.explain) host.explain();
+      });
       b.dataset.btxLayout = value;
       return b;
     });
-    const press = () => { for (const b of choices) setPressed(b, b.dataset.btxLayout === current()); };
+    const press = () => {
+      const shown = pressedLayout(current(), effective());
+      for (const b of choices) setPressed(b, b.dataset.btxLayout === shown);
+    };
     press();
     return { group: segmented('btx-seg', label || 'Where to show it', choices), choices, press };
   }
@@ -1755,9 +1845,19 @@
     parts.status = el('p', 'btx-card-title');
     parts.status.setAttribute('role', 'status');
     card.node.appendChild(parts.status);
-    parts.layouts = layoutControl(() => card.layout);
+    parts.layouts = layoutControl(() => card.layout, undefined, {
+      effective: () => card.effective,
+      explain: () => {
+        // The note is already on screen; clearing it for a frame makes the
+        // status region announce it again to a reader who can't see it.
+        card.nudged = true;
+        card.parts.note.textContent = '';
+        requestAnimationFrame(() => fillBeside(card));
+      },
+    });
     card.node.appendChild(parts.layouts.group);
     parts.note = el('p', 'btx-card-hint');
+    parts.note.setAttribute('role', 'status');
     card.node.appendChild(parts.note);
     parts.collapse = button('btx-btn-outline btx-widen', '', () => setCollapsed(true));
     card.node.appendChild(parts.collapse);
@@ -1781,16 +1881,27 @@
   // into or out of the bottom sheet (no change given). A no-op while no beside
   // card is on screen.
   function updateBeside(change) {
-    if (!ui || !beside || !ui.body.contains(beside.node)) return;
+    if (!ui) return;
     const c = change || {};
+    const was = beside && ui.body.contains(beside.node) ? beside : null;
     if (c.layout === 'columns' || c.layout === 'interlinear') {
-      if (c.layout !== beside.layout) Object.assign(beside, { effective: null, collapseFits: null }); // the split lays out afresh
-      beside.layout = c.layout;
+      if (c.layout !== (was ? was.layout : note && note.layout)) Object.assign(splitFit, { effective: null, collapseFits: null }); // the split lays out afresh
+      if (was) Object.assign(was, { layout: c.layout, nudged: false });
     }
-    if (c.effective !== undefined) beside.effective = c.effective;
-    if (c.collapseFits !== undefined) beside.collapseFits = c.collapseFits;
+    const before = [splitFit.effective, splitFit.collapseFits];
+    if (c.effective !== undefined) splitFit.effective = c.effective;
+    if (c.collapseFits !== undefined) splitFit.collapseFits = c.collapseFits;
+    const moved = before[0] !== splitFit.effective || before[1] !== splitFit.collapseFits;
     refocusLayout = false; // restated in place: focus never left
-    fillBeside(beside);
+    if (was) {
+      Object.assign(was, splitFit);
+      if (moved) was.nudged = false;
+      fillBeside(was);
+    }
+    if (note && note.control) {
+      if (moved) note.nudged = false;
+      pressNote();
+    }
   }
 
   // The setup card's language picker: a native <select> plus Add. Choosing in
@@ -1948,6 +2059,7 @@
           effective: st.effective || null,
           collapseFits: st.collapseFits === undefined ? null : st.collapseFits,
         };
+        Object.assign(splitFit, { effective: beside.effective, collapseFits: beside.collapseFits });
         buildBeside(beside);
         fillBeside(beside);
         host.appendChild(beside.node);

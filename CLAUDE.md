@@ -341,8 +341,12 @@ validators — go there before changing behaviour.
   how the reader takes the language off the page. A Bible version in the
   panel meanwhile carries the beside-the-page line (GLOSSARY: Beside card),
   whose Change opens the same control in its place; what each pick there
-  writes is the pure `layoutChoice`. Collapsing the panel does not hide the
-  split — it widens it.
+  writes is the pure `layoutChoice`. Both hosts press the layout the page
+  *shows* (`pressedLayout`; columns wanted without room presses Under each
+  verse) while the setting stays what the reader chose, so side by side
+  returns by itself; a click is judged against the setting (`layoutClick`),
+  and Side by side with no room is answered with `roomHint`, never ignored.
+  Collapsing the panel does not hide the split — it widens it.
 - **Reading column fit** (#89) belongs to `__BTX.pageSplit` too, split or
   not: `content.js` calls `start()` once, and the pure `fitColumn` places
   `section#content` inside the visible reading area while the panel is open
