@@ -41,11 +41,19 @@ One settings object holding:
 - highlights you make in the talk reader: for each one, the talk, where it
   sits in the talk, and the highlighted text; plus a flag that you have made
   one (so the one-line hint stops showing);
-- cached api.bible chapters you have displayed, for up to 30 days and at most
-  500 chapters, each with the usage-report token api.bible returned for it;
+- cached api.bible chapters you have displayed, each with the usage-report
+  token api.bible returned for it: fewer than 500 verses of api.bible text in
+  all (the least recently read chapter is dropped first), each kept for up to
+  30 days;
 - the cached list of translations your api.bible key unlocks, for up to seven
   days, filed under a hash of the key (not the key itself);
-- counters of recent api.bible requests, for the extension's own rate limit;
+- the times of your last few api.bible requests, so the extension never sends
+  more than 15 in 30 seconds;
+- this month's count of this browser's api.bible requests, and whether
+  api.bible's last answer said the month's limit was reached. It is a count,
+  never a limit: the extension uses it only to tell you when you near the
+  free plan's monthly limit, or have reached it;
+- the month you last saw that warning, so it shows once a month;
 - an api.bible usage-report device id: a random identifier created the first
   time an api.bible key connects successfully, used only in reports to
   api.bible (below);

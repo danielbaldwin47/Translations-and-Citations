@@ -187,6 +187,7 @@ map of every module; the table below is the tour.
 | `src/shared/constants.js` | message types, storage keys, API bases, limits, the bundled Bible, disclosures, About-card text and URLs, the Church-language table |
 | `src/shared/settings.js` | the one owner of synced settings: schema, defaults, normalizers, get/patch/replace, change subscriptions |
 | `src/shared/books.js` | slug maps: 66 Bible (→ USFM/name) + Book of Mormon / D&C / PGP |
+| `src/shared/rate-copy.js` | the api.bible monthly-limit lines, shared by the panel and the settings page |
 | `src/background/service-worker.js` | message router, toolbar icon, first-install page |
 | `src/background/api.js` | api.bible fetch + normalization; the packaged World English Bible |
 | `src/background/cache.js`, `ratelimit.js`, `fums.js` | chapter/version cache, api.bible rate limiting, api.bible usage report |

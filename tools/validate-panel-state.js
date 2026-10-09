@@ -1209,7 +1209,7 @@ console.log('errorCopy:');
     'a local rate limit with no wait left: busy, try again');
   check(!/today/i.test(JSON.stringify(e('RATE_LIMITED', { retryAfterMs: 5 * 3600 * 1000 }))), '...never "today’s allowance": there is no daily cap');
   eq(e('RATE_LIMITED', { remote: true }),
-    { message: 'Your api.bible key has used its allowance for now.', hint: 'Chapters you’ve already read still open. Try again later.', action: 'retry' },
+    { message: 'Your api.bible key has used its allowance for now.', hint: 'Chapters you read recently still open. Try again later.', action: 'retry' },
     'api.bible refusing the key (a 429 with no short Retry-After): its allowance, and a Try again');
   eq(e('RATE_LIMITED', { remote: true, retryAfterMs: 30000 }).action, 'retry',
     '...also once its short waits have run out');
@@ -1226,10 +1226,22 @@ console.log('errorCopy:');
   eq(P.pausedLine('2026-12-01'), 'api.bible’s free monthly limit is reached. Back on December 1.', '...December');
   eq(P.pausedLine(''), 'api.bible’s free monthly limit is reached.', 'no date known: the line without one');
   eq(P.pausedLine('soon'), 'api.bible’s free monthly limit is reached.', '...nor an unreadable one');
-  eq(e('RATE_LIMITED', { remote: true, rate: paused, alternatives: true }),
-    { message: 'api.bible’s free monthly limit is reached. Back on November 1.', hint: 'Chapters you’ve already read still open. Choose another translation above.', action: null },
-    'api.bible refusing in a paused month: the paused line, the other texts above, no Try again');
-  eq(e('RATE_LIMITED', { remote: true, rate: paused }).hint, 'Chapters you’ve already read still open.', '...the dropdown named only when it has something else');
+  // The hint names only what the dropdown offers that doesn't need api.bible
+  // (`others`: the World English Bible, how many Church languages): every
+  // api.bible translation is paused with the month, and the cache holds too
+  // little to promise "chapters you've read".
+  const pausedWith = (others) => e('RATE_LIMITED', { remote: true, rate: paused, alternatives: true, others });
+  eq(pausedWith({ bundled: true, church: 2 }),
+    { message: 'api.bible’s free monthly limit is reached. Back on November 1.', hint: 'The World English Bible and your Church languages still work. Choose one above.', action: null },
+    'api.bible refusing in a paused month: the paused line, what still works above, no Try again');
+  eq(pausedWith({ bundled: true, church: 1 }).hint, 'The World English Bible and your Church language still work. Choose one above.', '...one Church language');
+  eq(pausedWith({ bundled: true, church: 0 }).hint, 'The World English Bible still works. Choose it above.', '...the World English Bible alone');
+  eq(pausedWith({ bundled: false, church: 1 }).hint, 'Your Church language still works. Choose it above.', '...a Church language alone');
+  eq(pausedWith({ bundled: false, church: 3 }).hint, 'Your Church languages still work. Choose one above.', '...Church languages alone');
+  eq(pausedWith({ bundled: false, church: 0 }).hint, '', '...nothing else offered: no hint');
+  eq(e('RATE_LIMITED', { remote: true, rate: paused }).hint, '', '...nor with no `others` known');
+  check(![{ bundled: true, church: 2 }, { bundled: false, church: 0 }].some((o) => /already read|other translations/i.test(pausedWith(o).hint)),
+    '...never promises chapters already read, nor other api.bible translations');
   check(!/\d{3}|NIV/.test(JSON.stringify(e('RATE_LIMITED', { remote: true, rate: paused }))), '...no version name, no call counts');
   eq(e('RATE_LIMITED', { remote: true, rate: { state: 'near', month: '2026-10' } }).message, 'Your api.bible key has used its allowance for now.',
     'a 429 that is not a pause stays the burst copy');
@@ -1250,6 +1262,25 @@ console.log('errorCopy:');
   eq(P.nearLine({ state: 'near' }, ''), '', 'near with no month to remember: no line');
   eq(P.nearLine({ state: 'near', month: 'soon' }, ''), '', '...nor an unreadable month');
   check(!/\d{3}|NIV|call/i.test(P.nearLine(near, '')), '...no version name, no call counts');
+  // One copy for the panel and the options page (src/shared/rate-copy.js).
+  const RC = require(path.join(ROOT, 'src/shared/rate-copy.js'));
+  check(P.pausedLine === RC.pausedLine && P.nearLine === RC.nearLine, 'the panel\'s lines are the shared rate copy\'s, not a second copy');
+  {
+    const fs = require('fs');
+    const panelSrc = fs.readFileSync(path.join(ROOT, 'src/content/panel.js'), 'utf8');
+    const show = (panelSrc.match(/function showNearLine\([^)]*\) \{[\s\S]*?\n {2}\}\n/) || [''])[0];
+    const mounted = show.indexOf('article.parentNode !== host');
+    check(mounted > 0 && show.indexOf('nearSeen = ') > mounted && show.indexOf('storage.local.set') > mounted,
+      'showNearLine marks the month seen only once the line is mounted (after the view check)');
+    check(/\n\s*showNearLine\(host, article, st\.rate\);/.test(panelSrc) && !/st\.rate\.state === 'near'/.test(panelSrc),
+      'renderContent hands the state to showNearLine, whose nearLine decides (no second guard)');
+    const contentSrc = fs.readFileSync(path.join(ROOT, 'src/content/content.js'), 'utf8');
+    check(/others: \{/.test(contentSrc), 'content.js tells the error card what else the dropdown offers (`others`)');
+    const manifest = JSON.parse(fs.readFileSync(path.join(ROOT, 'manifest.json'), 'utf8'));
+    const js = manifest.content_scripts[0].js;
+    check(js.indexOf('src/shared/rate-copy.js') >= 0 && js.indexOf('src/shared/rate-copy.js') < js.indexOf('src/content/panel.js'),
+      'the manifest loads the shared rate copy before panel.js');
+  }
 }
 
 // ---- When a rate-limited load retries by itself ----

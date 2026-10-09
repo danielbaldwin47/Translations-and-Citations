@@ -25,7 +25,9 @@
  *                               (a copyright lookup failed) is passed on but
  *                               never cached. One refresh costs 1 + one call
  *                               per version (~39) against a monthly quota,
- *                               added to the month's count.
+ *                               added to the month's count. The answer carries
+ *                               `rate` too, so a Connect refused in a paused
+ *                               month can say so.
  *                               A list for a named `key` is the options page's
  *                               Connect: once it succeeds, the FUMS device id
  *                               exists (the click was the consent).
@@ -44,7 +46,9 @@
  * the options page instead on a tab without our content script, and on a
  * Gospel Library page showing no chapter (the reply says `shown: false`); a
  * fresh install (reason `install`, never an update) opens Alma 5 in a new tab;
- * an update (reason `update`) marks the welcome seen (`welcomeSeen`).
+ * an update (reason `update`) marks the welcome seen (`welcomeSeen`) and
+ * removes the daily api.bible counters from before the monthly count
+ * (ratelimit.js forgetDaily).
  *
  * Classic (non-module) worker so a single IIFE authoring style works everywhere;
  * dependencies are pulled in with importScripts in dependency order.
@@ -95,12 +99,12 @@ async function handleListBibles(msg) {
     result = { bibles: cached };
   } else {
     result = await API.listBibles(key);
-    if (result.calls) await RATE.counted(result.calls, answerOf(result));
+    if (result.calls) await RATE.addCalls(result.calls, RATE.answerOf(result));
     if (!result.error && result.bibles && !result.partial) await CACHE.setBibles(result.bibles, key);
   }
   // A Connect that succeeded (the options page named its key), cached or not.
   if (!result.error && msg.key) await FUMS.connected();
-  return result;
+  return withRate(result);
 }
 
 async function handleGetChapter(msg) {
@@ -126,7 +130,7 @@ async function handleGetChapter(msg) {
     return withRate({ error: { code: C.ERR.RATE_LIMITED, message: gate.reason, retryAfterMs: gate.retryAfterMs } });
   }
   const result = await API.fetchApiBibleChapter(s.apiKey, bibleId, chapterId);
-  await RATE.consume(answerOf(result));
+  await RATE.consume(RATE.answerOf(result));
   // The stored key stopped working: its cached version list would still tell
   // the options page "Connected", so the page fetches afresh and says why.
   if (result.error && result.error.code === C.ERR.INVALID_KEY) await CACHE.dropBibles();
@@ -135,15 +139,6 @@ async function handleGetChapter(msg) {
   const entry = result.fumsToken ? Object.assign({}, result.payload, { fumsToken: result.fumsToken }) : result.payload;
   await CACHE.setChapter(provider, bibleId, chapterId, entry);
   return withRate(await displayed(entry));
-}
-
-// What api.bible said, for the month's record: a 429 is 'limited', no answer
-// at all (offline) is null, anything else it answered is 'answered'.
-function answerOf(result) {
-  const e = result && result.error;
-  if (!e) return 'answered';
-  if (e.code === C.ERR.RATE_LIMITED && e.remote) return 'limited';
-  return e.code === C.ERR.NETWORK ? null : 'answered';
 }
 
 async function withRate(reply) {
@@ -249,5 +244,8 @@ chrome.runtime.onInstalled.addListener((details) => {
   const reason = details && details.reason;
   const logged = (what) => (e) => console.warn(`[BTX] ${what}:`, e);
   if (reason === 'install') openWelcome().catch(logged('could not open the welcome tab'));
-  else if (reason === 'update') SETTINGS.patch({ welcomeSeen: true }).catch(logged('could not mark the welcome seen'));
+  else if (reason === 'update') {
+    SETTINGS.patch({ welcomeSeen: true }).catch(logged('could not mark the welcome seen'));
+    RATE.forgetDaily().catch(logged('could not remove the old daily counters'));
+  }
 });

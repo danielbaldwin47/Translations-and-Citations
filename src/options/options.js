@@ -65,6 +65,9 @@
   // The citation view-model, for the pack vintage's wording (vintageLine).
   const VM = (root.__BTX && root.__BTX.citVM)
     || (typeof require === 'function' ? require('../citations/cit-view-model.js') : null);
+  // The monthly-limit line, in the panel's words (pausedLine).
+  const RATE_COPY = (root.__BTX && root.__BTX.rateCopy)
+    || (typeof require === 'function' ? require('../shared/rate-copy.js') : null);
 
   // ---- Pure form core (Node-testable) ------------------------------------
 
@@ -314,7 +317,7 @@
       return [
         'This key has no NIV, NKJV or other copyrighted translations yet. Add them in your ',
         { text: 'api.bible dashboard', href: C.API_BIBLE_PAGES.dashboard },
-        ' (Plan, then Edit Plan, then Edit Bible Licenses), then choose Check for new translations — or turn on a free one below.',
+        ` (${C.API_BIBLE_ADD_BIBLES}), then choose Check for new translations — or turn on a free one below.`,
       ];
     }
     return [];
@@ -323,9 +326,11 @@
   // A failed connect, as linked text, in words that say what to do. api.bible
   // answers a wrong key with 403, which the worker reports as INVALID_KEY; a
   // rejected key names both fixes — a miscopy, or no account yet — and links
-  // each to its api.bible page.
+  // each to its api.bible page. `rate` is the month's state the worker
+  // attaches to the reply: a 429 in a paused month is the monthly limit, said
+  // in the panel's words with the day it comes back (rate-copy pausedLine).
   const keyRejected = (error) => !!error && (error.code === C.ERR.INVALID_KEY || error.code === C.ERR.FORBIDDEN);
-  function keyErrorText(error) {
+  function keyErrorText(error, rate) {
     const code = error && error.code;
     if (keyRejected(error)) {
       return [
@@ -337,6 +342,7 @@
       ];
     }
     if (code === C.ERR.NETWORK) return ['Couldn’t reach api.bible. Check your connection and try again.'];
+    if (code === C.ERR.RATE_LIMITED && rate && rate.state === 'paused') return [RATE_COPY.pausedLine(rate.until)];
     if (code === C.ERR.RATE_LIMITED) return ['api.bible is busy. Try again in a minute.'];
     const detail = (error && error.message && error.message !== code ? error.message : code) || 'no answer';
     return [`Couldn’t check the key (${detail}). Try again.`];
@@ -542,6 +548,7 @@
     aboutData: $('aboutData'),
     aboutDataHead: $('aboutDataHead'),
     aboutLinks: $('aboutLinks'),
+    addBiblesPath: $('addBiblesPath'),
     welcomeAgain: $('welcomeAgain'),
     welcomeAgainStatus: $('welcomeAgainStatus'),
   };
@@ -582,7 +589,8 @@
   }
 
   // Fills `node` with linked text from the pure core: a string is a text
-  // node, a { text, href } part a link that opens in a new tab.
+  // node, a { text, href } part a link that opens in a new tab. The page's
+  // one link builder.
   function linkedText(node, parts) {
     node.replaceChildren(...parts.map((part) => {
       if (typeof part === 'string') return document.createTextNode(part);
@@ -592,6 +600,7 @@
       a.rel = 'noopener';
       return a;
     }));
+    return node;
   }
 
   // ---- Autosave ----
@@ -876,7 +885,7 @@
     if (seq !== connectSeq) return;
     if (res.error) {
       keyState = 'error';
-      setKeyStatus(keyErrorText(res.error), 'error');
+      setKeyStatus(keyErrorText(res.error, res.rate), 'error');
       updateConnect();
       return;
     }
@@ -926,7 +935,7 @@
         shown = null;
         renderTranslations([], '');
       }
-      setKeyStatus(keyErrorText(res.error), 'error', { announce });
+      setKeyStatus(keyErrorText(res.error, res.rate), 'error', { announce });
       updateConnect();
       settleKeyFocus(from);
       return;
@@ -1210,13 +1219,6 @@
     let pack = null;
     try { pack = (await root.__BTX.citData.loadPack()).descriptor; } catch (e) { /* no pack: no vintage line */ }
     const copy = aboutCopy({ version: chrome.runtime.getManifest().version, pack });
-    const link = (href, text) => {
-      const a = el('a', null, text);
-      a.href = href;
-      a.target = '_blank';
-      a.rel = 'noopener';
-      return a;
-    };
     els.aboutVersion.textContent = copy.version;
     els.aboutVintage.textContent = copy.vintage || '';
     els.aboutVintage.hidden = !copy.vintage;
@@ -1232,11 +1234,9 @@
       }
       parts.push(el('h4', 'about-data-head', l.head), ul);
     }
-    const policy = el('p', 'about-policy', `${data.policy.label} `);
-    policy.appendChild(link(data.policy.href, data.policy.text));
-    parts.push(policy);
+    parts.push(linkedText(el('p', 'about-policy'), [`${data.policy.label} `, { text: data.policy.text, href: data.policy.href }]));
     els.aboutData.replaceChildren(...parts);
-    els.aboutLinks.replaceChildren(...copy.links.map((l) => link(l.href, l.label)));
+    linkedText(els.aboutLinks, copy.links.map((l) => ({ text: l.label, href: l.href })));
   }
 
   // "Show the welcome again": the flag first, so the tab the worker opens finds
@@ -1324,6 +1324,7 @@
     els.fontScale.min = String(SETTINGS.FONT_SCALE_MIN);
     els.fontScale.max = String(SETTINGS.FONT_SCALE_MAX);
     els.fontScale.step = String(SETTINGS.FONT_SCALE_STEP);
+    els.addBiblesPath.textContent = C.API_BIBLE_ADD_BIBLES;
     buildLanguageList();
     showStoredList(cached);
     fillForm();

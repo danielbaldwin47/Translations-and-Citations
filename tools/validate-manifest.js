@@ -27,6 +27,10 @@
  *     or ads;
  *   - every host the manifest reaches is also named, by the same literal
  *     match, in settings' "Your data" sites list (C.ABOUT.yourData.sites);
+ *   - the policy's device-storage list matches the code (#101): the chapter
+ *     cache as fewer than C.CACHE_MAX_VERSES verses of api.bible text, least
+ *     recently read first; the monthly count, a count never a limit; the
+ *     month the near-limit line was last shown;
  *   - the listing's description and the policy say the one analytics
  *     sentence (NO_ANALYTICS) word for word, and mention analytics nowhere
  *     else.
@@ -155,6 +159,15 @@ for (const word of [/\bsync\b/i, /\bdevice\b/i, /\buninstall/i]) {
 }
 check(/no analytics/i.test(policy) && /\bsell|\bsold|\bsale\b/i.test(policy) && /\bads?\b/i.test(policy),
   'the policy states no analytics, no sale, no ads');
+// What the device keeps matches the code (#101): the cache's verse cap, the
+// monthly count (a count, never a limit), the near line's month.
+check(oneLine(policy).includes(`fewer than ${C.CACHE_MAX_VERSES} verses of api.bible text`) && !/500 chapters/.test(oneLine(policy)),
+  `the policy states the cache's cap as fewer than ${C.CACHE_MAX_VERSES} verses of api.bible text, not a chapter count`);
+check(/least recently read/i.test(oneLine(policy)), '...dropping the least recently read first');
+check(/this month's count of this browser's api\.bible requests/i.test(oneLine(policy)) && /a count, never a limit/i.test(oneLine(policy)),
+  'the policy names the monthly count, and says it is a count, never a limit');
+check(/the month you last saw that warning/i.test(oneLine(policy)), 'the policy names the month the near-limit line was last shown');
+check(!/counters of recent api\.bible requests|daily/i.test(oneLine(policy)), 'the policy no longer describes daily counters');
 
 if (failures) {
   console.error(`\n${failures} check(s) failed.`);

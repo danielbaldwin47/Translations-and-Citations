@@ -37,11 +37,15 @@
  *     and a re-read still a cache hit (cache.js `versesIn` / `dropKeys`, and
  *     the worker end to end);
  *   - the monthly count (ratelimit.js, #125): calls counted per calendar
- *     month (cache hits not, a Connect's lookups too), rolling over on the 1st;
- *     the pure rateState is near from 4,000 and paused only after api.bible's
- *     429 at or past 5,000, until the 1st of next month; no call refused on
- *     the count; the 15-in-30-seconds window unchanged; every api.bible
- *     chapter answer carries the state as `rate`.
+ *     month (cache hits not, a Connect's lookups too), rolling over on the 1st,
+ *     with no call lost to concurrent writes; the pure rateState is near from
+ *     4,000 to just under 5,000 (past it with api.bible answering: a higher
+ *     plan, ok) and paused only after api.bible's 429 at or past 5,000, until
+ *     the 1st of next month; answerOf reads a 429 naming a wait under an hour
+ *     as a burst, never a pause; no call refused on the count; the
+ *     15-in-30-seconds window unchanged; every api.bible chapter and
+ *     version-list answer carries the state as `rate`; an update removes the
+ *     old daily counters (legacyKeys).
  *
  * Exits non-zero on any failure so it can gate a commit.
  */
@@ -83,8 +87,9 @@ function storageArea(store) {
   };
 }
 
-function response(status, body) {
-  return { status, ok: status >= 200 && status < 300, headers: { get: () => null }, json: async () => body };
+function response(status, body, headers) {
+  const h = headers || {};
+  return { status, ok: status >= 200 && status < 300, headers: { get: (name) => h[String(name).toLowerCase()] || null }, json: async () => body };
 }
 
 const CHAPTER = {
@@ -158,10 +163,12 @@ function apiBible(opts) {
     calls,
     answer(url) {
       if (url.startsWith('https://fums.api.bible/')) return response(200, {});
+      const refusal = o.retryAfter ? { 'retry-after': o.retryAfter } : null;
       if (/\/bibles\?language=eng$/.test(url)) {
+        if (o.listStatus) return response(o.listStatus, {}, refusal);
         return o.badKey ? response(403, { message: 'Invalid API key' }) : response(200, LIST);
       }
-      if (/\/chapters\//.test(url)) return o.chapterStatus ? response(o.chapterStatus, {}) : response(200, (o.chapterFor && o.chapterFor(url)) || o.chapter || CHAPTER);
+      if (/\/chapters\//.test(url)) return o.chapterStatus ? response(o.chapterStatus, {}, refusal) : response(200, (o.chapterFor && o.chapterFor(url)) || o.chapter || CHAPTER);
       if (/\/bibles\/[^/]+$/.test(url)) return response(200, { data: { copyright: 'All rights reserved.' } });
       return response(404, {});
     },
@@ -533,14 +540,44 @@ async function run() {
 
     eq(R.rateState(rec(3999), oct9).state, 'ok', 'below about 80% of 5,000: ok');
     eq(R.rateState(rec(4000), oct9).state, 'near', 'from 4,000 (80% of 5,000): near');
-    eq(R.rateState(rec(5000), oct9).state, 'near', 'at the limit with api.bible still answering: near, not paused');
-    eq(R.rateState(rec(50000), oct9).state, 'near', '...at 50,000 too (a paid plan is never cut short)');
+    eq(R.rateState(rec(4999), oct9).state, 'near', 'one call short of the free plan\'s limit: near');
+    eq(R.rateState(rec(5000), oct9).state, 'ok', 'at the limit with api.bible still answering: a higher plan, so ok (not "about 80%")');
+    eq(R.rateState(rec(50000), oct9).state, 'ok', '...at 50,000 too (a paid plan is never warned or cut short)');
 
     eq(R.rateState(rec(5000, true), oct9), { state: 'paused', month: '2026-10', until: '2026-11-01' },
       'a 429 at the limit: paused until the 1st of next month');
     eq(R.rateState(rec(6000, true, '2026-12'), dec31).until, '2027-01-01', '...December pauses until January 1 of the next year');
     eq(R.rateState(rec(4999, true), oct9).state, 'near', 'a 429 below the limit is not a pause (burst handling)');
     eq(R.rateState(rec(10, true), oct9).state, 'ok', '...nor far below it');
+
+    // What api.bible's answer means for the month (answerOf). A 429 is the
+    // month used up unless it names a short, burst-sized wait (under an
+    // hour): that is api.bible pacing a burst, which says nothing about the
+    // month, so a paid plan's quick 429 never pauses it.
+    check(typeof R.answerOf === 'function', 'ratelimit.js exports answerOf');
+    if (typeof R.answerOf === 'function') {
+      const e429 = (o) => ({ error: Object.assign({ code: C.ERR.RATE_LIMITED, remote: true }, o) });
+      eq(R.answerOf({ payload: {} }), 'answered', 'answerOf: a chapter is api.bible answering');
+      eq(R.answerOf({ bibles: [] }), 'answered', '...so is a version list');
+      eq(R.answerOf(e429()), 'limited', 'a 429 with no Retry-After: limited');
+      eq(R.answerOf(e429({ retryAfterMs: 2 * 3600 * 1000 })), 'limited', '...with a wait of hours: limited');
+      eq(R.answerOf(e429({ retryAfterMs: 3600 * 1000 })), 'limited', '...a wait of an hour exactly: limited');
+      eq(R.answerOf(e429({ retryAfterMs: 30000 })), 'answered', 'a 429 naming a 30-second wait: burst handling, not the month');
+      eq(R.answerOf(e429({ retryAfterMs: 0 })), 'answered', '...a wait already over too');
+      eq(R.answerOf({ error: { code: C.ERR.RATE_LIMITED } }), 'answered', 'the local window\'s refusal is not api.bible limiting');
+      eq(R.answerOf({ error: { code: C.ERR.NETWORK } }), null, 'no answer at all (offline): null, the last answer stands');
+      eq(R.answerOf({ error: { code: C.ERR.FORBIDDEN } }), 'answered', 'any other error is api.bible answering');
+      eq(R.answerOf(undefined), 'answered', 'nothing to read: answered');
+    }
+    check(typeof R.addCalls === 'function' && !('counted' in R), 'the write that adds calls is named addCalls');
+
+    // The daily counters (before #125) are dropped once, on an update.
+    check(typeof R.legacyKeys === 'function', 'ratelimit.js exports legacyKeys');
+    if (typeof R.legacyKeys === 'function') {
+      eq(R.legacyKeys(['btxRateDaily::2026-10-01', 'btxRateMonth', 'chapter::x', 'btxRateDaily::2026-10-02']),
+        ['btxRateDaily::2026-10-01', 'btxRateDaily::2026-10-02'], 'legacyKeys: the old daily counters, nothing else');
+      eq(R.legacyKeys([]), [], '...none stored: none');
+    }
   }
 
   // The worker's side: the count on disk, the state on the answer.
@@ -593,7 +630,8 @@ async function run() {
       const res = await w.send(GET_JOHN_3);
       eq(net.chapters().length, 1, `at ${count} calls this month the chapter is still fetched`);
       check(res && Array.isArray(res.blocks), '...and shown');
-      eq(res && res.rate, { state: 'near', month }, '...with the state near');
+      eq(res && res.rate, { state: count < C.RATE_MONTH_FREE ? 'near' : 'ok', month },
+        count < C.RATE_MONTH_FREE ? '...with the state near' : '...with the state ok (api.bible still answering: a higher plan)');
       eq(disk.local[KEY].count, count + 1, '...counted');
     }
 
@@ -609,7 +647,7 @@ async function run() {
       const w2 = boot(disk, net2);
       const after = await w2.send(chapterOf(4));
       eq(net2.chapters().length, 1, 'while paused, the next chapter still asks api.bible');
-      eq(after && after.rate && after.rate.state, 'near', '...and an answer from api.bible ends the pause');
+      eq(after && after.rate && after.rate.state, 'ok', '...and an answer from api.bible ends the pause (past the free limit: a higher plan, no warning)');
       check(after && Array.isArray(after.blocks), '...showing the chapter');
     }
     {
@@ -621,6 +659,52 @@ async function run() {
       const cached = await w2.send(GET_JOHN_3);
       check(cached && Array.isArray(cached.blocks), 'while paused, a chapter already read still opens');
       eq(cached && cached.rate && cached.rate.state, 'paused', '...its answer carries the pause');
+    }
+
+    // Two tabs at once, or a list refresh beside a chapter: no call is lost.
+    {
+      const disk = seeded(0);
+      const w = boot(disk, apiBible());
+      await Promise.all([1, 2, 3, 4, 5].map((n) => w.send(chapterOf(n))));
+      eq(disk.local[KEY].count, 5, 'five chapters fetched at once count five calls');
+      await Promise.all([w.send(CONNECT), w.send(chapterOf(6))]);
+      eq(disk.local[KEY].count, 8, '...a Connect beside a chapter counts both (2 + 1)');
+    }
+
+    // A paid plan: past 5,000 with api.bible still answering, nothing warns;
+    // a 429 naming a short wait is a burst, not the month.
+    {
+      const disk = seeded(5200);
+      const w = boot(disk, apiBible({ chapterStatus: 429, retryAfter: '20' }));
+      const res = await w.send(GET_JOHN_3);
+      eq(res && res.error && res.error.code, C.ERR.RATE_LIMITED, 'past the limit, a 429 naming a 20-second wait is RATE_LIMITED');
+      eq(res && res.rate && res.rate.state, 'ok', '...but not a pause: a higher plan pacing a burst');
+      const w2 = boot(disk, apiBible({ chapterStatus: 429 }));
+      const long = await w2.send(chapterOf(7));
+      eq(long && long.rate && long.rate.state, 'paused', '...while a 429 with no wait named pauses');
+    }
+
+    // A Connect or a list refresh refused in a paused month says so too.
+    {
+      const disk = seeded(5000, true);
+      const w = boot(disk, apiBible({ listStatus: 429 }));
+      const res = await w.send(CONNECT);
+      eq(res && res.error && res.error.code, C.ERR.RATE_LIMITED, 'a Connect refused at the limit is RATE_LIMITED');
+      eq(res && res.rate, { state: 'paused', month, until: firstOfNext }, '...and its answer carries the paused state');
+      const ok = await boot(seeded(10), apiBible()).send(CONNECT);
+      eq(ok && ok.rate && ok.rate.state, 'ok', 'a Connect that succeeds carries the state too');
+    }
+
+    // The daily counters from before #125 go on the first update.
+    {
+      const disk = seeded(3);
+      disk.local['btxRateDaily::2026-10-01'] = 12;
+      disk.local['btxRateDaily::2026-10-02'] = 4;
+      const w = boot(disk, apiBible());
+      w.install('update');
+      await flush(); await flush(); await flush();
+      check(!Object.keys(disk.local).some((k) => /^btxRateDaily::/.test(k)), 'an update removes the old daily counters');
+      eq(disk.local[KEY], { month, count: 3, limited: false }, '...and keeps the month\'s count');
     }
 
     // A 429 below the limit stays burst handling.

@@ -306,6 +306,9 @@ eq(F.connectedText([]), 'Connected. Choose the translations to show in the panel
 // account, and the dashboard that holds the key and the Bibles on it.
 eq(C.API_BIBLE_PAGES, { signUp: 'https://api.bible/sign-up', dashboard: 'https://api.bible/team' },
   'api.bible\'s sign-up and dashboard addresses, with no redirect');
+// The dashboard's menus to a key's Bibles, written once: the setup card and
+// the "Your translations" note both read C.API_BIBLE_ADD_BIBLES.
+eq(C.API_BIBLE_ADD_BIBLES, 'Plan, then Edit Plan, then Edit Bible Licenses', 'the dashboard path to a key\'s Bibles, in api.bible\'s menu names');
 // yoursNote is linked text: strings, and { text, href } for a link.
 eq(F.yoursNote({ partial: true, yours: 3 }), ['Couldn’t check which translations are yours. Try Connect again later.'],
   'a partial list owns up to its guess, whatever it guessed');
@@ -335,6 +338,20 @@ eq(F.plainText([]), '', 'no parts is no text');
 eq(F.keyErrorText({ code: C.ERR.NETWORK, message: 'Failed to fetch' }), ['Couldn’t reach api.bible. Check your connection and try again.'],
   'offline says to check the connection');
 eq(F.keyErrorText({ code: C.ERR.RATE_LIMITED }), ['api.bible is busy. Try again in a minute.'], 'rate-limited says to wait');
+// Refused in a paused month (#101): the monthly-limit line with its date, the
+// panel's own words (one copy, src/shared/rate-copy.js), not "busy".
+{
+  const RC = require(path.join(ROOT, 'src/shared/rate-copy.js'));
+  const paused = { state: 'paused', month: '2026-10', until: '2026-11-01' };
+  eq(F.keyErrorText({ code: C.ERR.RATE_LIMITED, remote: true }, paused), ['api.bible’s free monthly limit is reached. Back on November 1.'],
+    'a Connect refused in a paused month says the monthly limit is reached, and when it is back');
+  eq(F.plainText(F.keyErrorText({ code: C.ERR.RATE_LIMITED, remote: true }, paused)), RC.pausedLine('2026-11-01'),
+    '...in the same words the panel uses');
+  eq(F.keyErrorText({ code: C.ERR.RATE_LIMITED, remote: true }, { state: 'near', month: '2026-10' }), ['api.bible is busy. Try again in a minute.'],
+    'a 429 that is not a pause is still busy');
+  eq(F.keyErrorText({ code: C.ERR.NETWORK }, paused), ['Couldn’t reach api.bible. Check your connection and try again.'],
+    'a paused month changes only the rate-limited line');
+}
 eq(F.keyErrorText({ code: C.ERR.UNKNOWN, message: 'HTTP 500' }), ['Couldn’t check the key (HTTP 500). Try again.'],
   'anything else names what happened, never a bare error code');
 eq(F.keyErrorText(undefined), ['Couldn’t check the key (no answer). Try again.'], 'no response at all is still a sentence');
@@ -502,7 +519,9 @@ eq(yours.lists, [C.ABOUT.yourData.local, C.ABOUT.yourData.synced, C.ABOUT.yourDa
 const [localList, syncedList, sitesList] = yours.lists;
 const listText = (l) => l.items.map((i) => i.text).join(' | ');
 for (const [what, re] of [['highlights', /highlight/i], ['cached chapters', /chapters/i], ['the cached version list', /list of translations/i],
-  ['the usage report\'s device id', /\bid\b[\s\S]*usage report/i], ['the monthly count', /this month/i], ['the pick memory', /picked/i]]) {
+  ['the usage report\'s device id', /\bid\b[\s\S]*usage report/i], ['the monthly count', /this month/i], ['the pick memory', /picked/i],
+  ['the near line\'s month', /month you last saw the api\.bible limit notice/i], ['the burst window\'s times', /times of the last few/i],
+  ['the highlight hint\'s flag', /whether you’ve made one/i]]) {
   check(re.test(listText(localList)), `"On this computer" names ${what}`);
 }
 check(/settings/i.test(listText(syncedList)) && /api\.bible key/.test(listText(syncedList)) && /languages/i.test(listText(syncedList)),
@@ -598,10 +617,10 @@ check((bodyOf('connect').match(/settleKeyFocus\(from\)/g) || []).length === 2 &&
 check(/const since = Date\.now\(\);\s*const res = await send\(/.test(bodyOf('connect'))
   && /await sleep\(checkingWait\(\{ explicit, since, now: Date\.now\(\) \}\)\);\s*if \(seq !== connectSeq\) return;/.test(bodyOf('connect')),
   'an explicit Connect holds "Checking…" for checkingWait, and a newer try still wins');
-check(/setKeyStatus\(keyErrorText\(res\.error\), 'error', \{ announce \}\)/.test(bodyOf('connect'))
+check(/setKeyStatus\(keyErrorText\(res\.error, res\.rate\), 'error', \{ announce \}\)/.test(bodyOf('connect'))
   && /showKeyState\(\{ announce \}\)/.test(bodyOf('connect')),
   'a Connect\'s answer, error or success, is announced even when it repeats the last one');
-check(/setKeyStatus\(keyErrorText\(res\.error\), 'error'\)/.test(bodyOf('refreshList')), 'a stored key rejected on open shows the same linked line');
+check(/setKeyStatus\(keyErrorText\(res\.error, res\.rate\), 'error'\)/.test(bodyOf('refreshList')), 'a stored key rejected on open shows the same linked line');
 check(/statusChange\(\{ shown: statusShown, text: plainText\(parts\), announce/.test(bodyOf('setKeyStatus'))
   && /setTimeout\([\s\S]*?REANNOUNCE_MS\)/.test(bodyOf('setKeyStatus')),
   'the key status writes through statusChange, re-announcing a repeat after its clear has rendered');
@@ -772,6 +791,8 @@ check(!/queueCommit|write\(|dirty|SETTINGS/.test(renderAboutBody), 'rendering th
 check(/<div id="aboutData"[^>]*>\s*<h3 id="aboutDataHead"/.test(aboutCard), 'the About card holds the "Your data" section, under its heading');
 check(/copy\.yourData/.test(renderAboutBody) && /els\.aboutData/.test(renderAboutBody), 'renderAbout draws "Your data" from aboutCopy');
 check(!/innerHTML/.test(renderAboutBody), 'the About card is drawn as text (no innerHTML)');
+check(/linkedText\(/.test(renderAboutBody) && !/el\('a'/.test(renderAboutBody), 'the About card\'s links are built by linkedText, the page\'s one link builder');
+check((shell.match(/el\('a'/g) || []).length === 1, '...which is the only place the page builds a link');
 check(/renderAbout\(\)/.test(bodyOf('init')), 'init renders the About card');
 check(/cit-data\.js"><\/script>\s*<script src="\.\.\/citations\/cit-view-model\.js"><\/script>[\s\S]*<script src="options\.js">/.test(html),
   'the options page loads the pack loader and the view-model (vintageLine) before its own script');
@@ -829,9 +850,14 @@ console.log('api.bible setup:');
   ], 'three numbered steps, in order');
   check(/<a href="https:\/\/api\.bible\/sign-up"[^>]*>Create a free account<\/a>/.test(steps[0] || ''), 'step 1 links api.bible\'s sign-up page');
   check(/<a href="https:\/\/api\.bible\/team"[^>]*>api\.bible dashboard<\/a>/.test(steps[2] || ''), 'step 3 links the dashboard');
-  check(/Plan, then Edit Plan, then Edit Bible Licenses/.test(words(setup.replace(/<ol[\s\S]*<\/ol>/, '')))
-    && /<a href="https:\/\/api\.bible\/team"/.test(setup.replace(/<ol[\s\S]*<\/ol>/, '')),
-    'the add-later path names the dashboard\'s menus and links the dashboard');
+  const later = setup.replace(/<ol[\s\S]*<\/ol>/, '');
+  check(/choose <span id="addBiblesPath"><\/span>, then choose Check for new translations below/.test(words(later).replace(/\s+/g, ' ')) || /choose <span id="addBiblesPath"><\/span>, then/.test(later),
+    'the add-later line holds the dashboard path\'s slot');
+  check(!/Edit Plan/.test(html), '...and not a second copy of the path (it comes from C.API_BIBLE_ADD_BIBLES)');
+  check(/els\.addBiblesPath\.textContent = C\.API_BIBLE_ADD_BIBLES/.test(src) && /addBiblesPath: \$\('addBiblesPath'\)/.test(src),
+    'the page fills the path from C.API_BIBLE_ADD_BIBLES');
+  check(/<a href="https:\/\/api\.bible\/team"/.test(later), 'the add-later line links the dashboard');
+  check(/C\.API_BIBLE_ADD_BIBLES/.test(F.yoursNote.toString()), 'the "Your translations" note reads the same field');
   const links = setup.match(/<a\b[^>]*>/g) || [];
   check(links.length >= 3 && links.every((a) => /target="_blank"/.test(a) && /rel="noopener"/.test(a)),
     'every setup link opens in a new tab with noopener');
@@ -842,6 +868,9 @@ console.log('api.bible setup:');
     check(!/(?<!api\.)scripture\.api\.bible/.test(text), `${rel} never names scripture.api.bible to the reader`);
   }
   check(/yoursNote\(\{[^)]*\}\);\s*\n\s*linkedText\(els\.yoursNote, note\)/.test(src), 'the note renders through linkedText');
+  check((src.match(/keyErrorText\(res\.error, res\.rate\)/g) || []).length === 2 && !/keyErrorText\(res\.error\)/.test(src),
+    'Connect and the list refresh hand keyErrorText the reply\'s month state');
+  check(/<script src="\.\.\/shared\/rate-copy\.js"><\/script>[\s\S]*<script src="options\.js">/.test(html), 'the options page loads the shared rate copy before its own script');
   check(/n\.textContent = text/.test(bodyOf('el')) && /createTextNode/.test(bodyOf('linkedText')) && !/innerHTML/.test(bodyOf('linkedText')),
     'linked text is built from text nodes and anchors, never innerHTML');
 }

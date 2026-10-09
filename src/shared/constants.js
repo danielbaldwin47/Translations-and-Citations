@@ -23,10 +23,12 @@
 
     // --- api.bible's own pages, linked from settings (verified 2026-10-09) ---
     // `signUp` makes the free account; `dashboard` shows the key (top right)
-    // and the Bibles on it (Plan, then Edit Plan, then Edit Bible Licenses).
-    // options.html's setup steps carry the same addresses
+    // and the Bibles on it, through the menus API_BIBLE_ADD_BIBLES names.
+    // options.html's setup steps carry the same addresses, and the page fills
+    // its add-later line from API_BIBLE_ADD_BIBLES
     // (tools/validate-options-form.js).
     API_BIBLE_PAGES: { signUp: 'https://api.bible/sign-up', dashboard: 'https://api.bible/team' },
+    API_BIBLE_ADD_BIBLES: 'Plan, then Edit Plan, then Edit Bible Licenses',
 
     // --- The bundled Bible: the World English Bible (ebible.org `engwebp`) ---
     // Its `enabledTranslations` row ({ id, abbr, name, provider }, guaranteed by
@@ -110,11 +112,12 @@
         local: {
           head: 'On this computer',
           items: [
-            'Your highlights',
+            'Your highlights, and whether you’ve made one yet',
             'api.bible chapters you’ve read, so they open faster',
             'The list of translations your api.bible key unlocks',
             'A random id that api.bible’s usage report uses',
-            'This month’s count of api.bible requests',
+            'This month’s count of api.bible requests, and the times of the last few',
+            'The month you last saw the api.bible limit notice',
             'The translation or language you picked last',
           ],
         },
@@ -183,6 +186,9 @@
     // 429 at or past RATE_MONTH_FREE), so a paid plan is never cut short.
     RATE_MONTH_FREE: 5000,
     RATE_MONTH_NEAR: 4000, // about 80% of the free plan
+    // A 429 whose Retry-After is shorter than this is api.bible pacing a
+    // burst, not the month used up (ratelimit.js answerOf).
+    RATE_BURST_WAIT_MS: 60 * 60 * 1000,
 
     // --- Which translation becomes the default, in order of preference ---
     // The options page picks the first of these the reader has turned on, and

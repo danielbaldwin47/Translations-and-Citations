@@ -80,7 +80,7 @@
  *                                      a select plus Add), set up api.bible
  *                                      (`bible` 'nokey' | 'noversions' | null),
  *                                      or see the talks
- *                                    { kind:'error', code, name, chapter, church, alternatives, remote, retryAfterMs, rate }
+ *                                    { kind:'error', code, name, chapter, church, alternatives, others, remote, retryAfterMs, rate }
  *                                    { kind:'content', blocks, copyright, lang, dir, besideLink, rate }
  *                                    { kind:'beside', name, layout, effective, collapseFits }  the text
  *                                      is split into the page (__BTX.pageSplit);
@@ -96,7 +96,10 @@
  *                                  `rate` is the month's api.bible state on an
  *                                  api.bible chapter, see isPaused: paused
  *                                  turns a RATE_LIMITED card into the paused
- *                                  line, pausedLine; near puts the near line
+ *                                  line, pausedLine, its hint naming what
+ *                                  still works (pausedHint over `others`:
+ *                                  { bundled, church } the dropdown offers
+ *                                  without api.bible); near puts the near line
  *                                  above a chapter's text once a month,
  *                                  nearLine)
  *   updateBeside({ layout, effective, collapseFits })  restate the layout
@@ -197,6 +200,9 @@
   // __BTX.churchText, whose walks the arrangement shares (loaded before this
   // file in the manifest; required in Node).
   const churchText = () => (root.__BTX && root.__BTX.churchText) || require('./church-text.js');
+  // The monthly-limit lines, shared with the options page (loaded before this
+  // file in the manifest; required in Node).
+  const RATE_COPY = (root.__BTX && root.__BTX.rateCopy) || require('../shared/rate-copy.js');
 
   // ---- Pure state core (Node-testable) -----------------------------------
   // The panel's state machine, free of DOM: which mode is effective and what
@@ -754,37 +760,34 @@
     return !!rate && rate.state === 'paused';
   }
 
-  const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June', 'July',
-    'August', 'September', 'October', 'November', 'December'];
+  // The paused line (spec #101's copy, "Back on {Month D}") and the near line
+  // (once per calendar month above an api.bible chapter; `seenMonth` is the
+  // 'YYYY-MM' it was last shown, kept in chrome.storage.local under
+  // C.NEAR_LINE_KEY). One copy, shared with the options page:
+  // src/shared/rate-copy.js.
+  const pausedLine = RATE_COPY.pausedLine;
+  const nearLine = RATE_COPY.nearLine;
 
-  // `until` 'YYYY-MM-DD' -> 'November 1'; '' when it isn't a date.
-  function monthDay(until) {
-    const m = /^\d{4}-(\d{2})-(\d{2})$/.exec(String(until || ''));
-    const month = m && MONTH_NAMES[Number(m[1]) - 1];
-    return month && Number(m[2]) >= 1 ? `${month} ${Number(m[2])}` : '';
-  }
-
-  // The paused line (spec #101's copy): no version name, no call counts.
-  function pausedLine(until) {
-    const day = monthDay(until);
-    return day ? `api.bible’s free monthly limit is reached. Back on ${day}.` : 'api.bible’s free monthly limit is reached.';
-  }
-
-  // The near line (spec #101): one short line above an api.bible chapter, once
-  // per calendar month. Worded about the plan's limit, never a count (the
-  // count is this browser's alone). `rate` is the state attached to the
-  // chapter; `seenMonth` the 'YYYY-MM' the line was last shown (kept in
-  // chrome.storage.local under C.NEAR_LINE_KEY), '' when never.
-  //   -> the line, or '' when it isn't due
-  function nearLine(rate, seenMonth) {
-    if (!rate || rate.state !== 'near' || !/^\d{4}-\d{2}$/.test(String(rate.month || ''))) return '';
-    if (rate.month === seenMonth) return '';
-    return 'You’re at about 80% of api.bible’s free monthly limit.';
+  // A paused month's hint: only what the dropdown offers that doesn't need
+  // api.bible (`others`: { bundled, church } — the World English Bible is
+  // offered, how many Church languages are). Every api.bible translation is
+  // paused with the month, and the cache is too small to promise chapters
+  // already read.
+  function pausedHint(others) {
+    const o = others || {};
+    const church = Number(o.church) > 0 ? Number(o.church) : 0;
+    const langs = church === 1 ? 'your Church language' : 'your Church languages';
+    if (o.bundled && church) return `The World English Bible and ${langs} still work. Choose one above.`;
+    if (o.bundled) return 'The World English Bible still works. Choose it above.';
+    if (church === 1) return 'Your Church language still works. Choose it above.';
+    if (church) return 'Your Church languages still work. Choose one above.';
+    return '';
   }
 
   // A chapter that failed to load. `code` is a C.ERR code; `church` says it
   // came from the Church's site rather than api.bible; `alternatives` that the
-  // dropdown offers something else to pick; `rate` the month's rate state. A
+  // dropdown offers something else to pick; `others` what it offers that
+  // doesn't need api.bible (pausedHint); `rate` the month's rate state. A
   // RATE_LIMITED error that reaches the card (retryWait said stop) is
   // api.bible refusing: the month used up (`rate` paused: the paused line,
   // in the api.bible text's place) or the key's allowance for now (`remote`);
@@ -816,14 +819,14 @@
         if (isPaused(e.rate)) {
           return {
             message: pausedLine(e.rate.until),
-            hint: e.alternatives ? 'Chapters you’ve already read still open. Choose another translation above.' : 'Chapters you’ve already read still open.',
+            hint: pausedHint(e.others),
             action: null,
           };
         }
         if (e.remote) {
           return {
             message: 'Your api.bible key has used its allowance for now.',
-            hint: 'Chapters you’ve already read still open. Try again later.',
+            hint: 'Chapters you read recently still open. Try again later.',
             action: 'retry',
           };
         }
@@ -2587,24 +2590,27 @@
     // translation's language.
     if (st.copyright) host.appendChild(el('p', 'btx-copyright', st.copyright));
     // Last, and not waited for: the chapter is already on screen.
-    if (st.rate && st.rate.state === 'near') showNearLine(host, article, st.rate);
+    showNearLine(host, article, st.rate);
   }
 
   // The near line (nearLine) above the text, once a month. The month last
   // shown is read from chrome.storage.local after the text is up; if the read
-  // fails the line simply doesn't show. `nearSeen` closes the gap between two
-  // chapters rendering before the first write lands. A quiet note, like the
-  // no-translation line, with an × to put it away.
+  // fails the line simply doesn't show. The month is marked seen only once
+  // the line is mounted: a chapter the reader already left never spends it.
+  // `nearSeen` closes the gap between two chapters rendering before the first
+  // write lands. A quiet note, like the no-translation line, with an × to put
+  // it away.
   let nearSeen = '';
 
   function showNearLine(host, article, rate) {
+    if (!nearLine(rate, nearSeen)) return; // not due: no storage read
     const key = C.NEAR_LINE_KEY;
     const settle = (value) => {
       const text = nearLine(rate, nearSeen === rate.month ? nearSeen : String(value || ''));
       if (!text) return;
+      if (article.parentNode !== host) return; // the view moved on: the line waits for the next chapter
       nearSeen = rate.month;
       try { chrome.storage.local.set({ [key]: rate.month }); } catch (e) { /* shown, not remembered */ }
-      if (article.parentNode !== host) return; // the view moved on: this chapter's line is spent
       const node = el('p', 'btx-note');
       node.setAttribute('role', 'status');
       node.appendChild(el('span', 'btx-note-text', text));

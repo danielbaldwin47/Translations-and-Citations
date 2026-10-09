@@ -770,6 +770,11 @@
       chapter: current ? chapterLabel(current) : '',
       church: tr.provider === churchText.PROVIDER,
       alternatives: texts.length > 1,
+      // What still works in a paused month (panel pausedHint): no api.bible.
+      others: {
+        bundled: texts.some((t) => t.provider === C.PROVIDER_BUNDLED),
+        church: texts.filter((t) => t.provider === churchText.PROVIDER).length,
+      },
       remote: error.remote === true,
       retryAfterMs: error.retryAfterMs,
       rate,
