@@ -318,6 +318,55 @@ eq(F.groupCount(groups[0], 2), '2 languages', 'a search that leaves the whole gr
 eq(F.groupCount(groups[0], null), '2 languages', 'no search: the plain count');
 check(F.languageGroups(offered).every((x) => !/&/.test(x.label)), 'group labels name books in full ("Doctrine and Covenants", never "D&C")');
 
+// The list the reader sees: "Your languages" on top, then the coverage groups
+// without them, each row carrying its match against the search.
+const list = (enabled, q) => F.languageList(offered, enabled, q);
+const codesOf = (section) => section.rows.map((r) => r.lang.code);
+const noneEnabled = list([], '');
+eq(noneEnabled.map((x) => x.label), F.languageGroups(offered).map((x) => x.label),
+  'with none enabled there is no "Your languages" section, only the coverage groups');
+check(noneEnabled.every((x) => !x.yours), 'and no section is the reader\'s own');
+eq(noneEnabled.map(codesOf), F.languageGroups(offered).map((x) => x.langs.map((l) => l.code)),
+  'the coverage groups are today\'s, unchanged');
+const tableOrder = offered.map((l) => l.code);
+const picked = ['jpn', 'spa', 'tgl'].filter((c) => tableOrder.indexOf(c) >= 0);
+const withYours = list(['tgl', 'spa', 'jpn'], '');
+eq(withYours[0].label, 'Your languages', '"Your languages" comes first');
+check(withYours[0].yours === true && withYours.slice(1).every((x) => !x.yours), 'and only it is the reader\'s own');
+eq(codesOf(withYours[0]), tableOrder.filter((c) => picked.indexOf(c) >= 0),
+  '"Your languages" holds exactly the enabled languages, in table order (not the order they were ticked)');
+check(withYours.slice(1).every((x) => codesOf(x).every((c) => picked.indexOf(c) < 0)),
+  'enabled languages leave their coverage groups');
+eq(withYours.slice(1).reduce((n, x) => n + x.rows.length, 0), offered.length - picked.length,
+  'every other language is still in exactly one coverage group');
+eq(withYours.slice(1).map((x) => x.label), F.languageGroups(offered.filter((l) => picked.indexOf(l.code) < 0)).map((x) => x.label),
+  'a coverage group left empty by the move is gone, the others keep their order');
+eq(list(['xx-not-a-language'], '').map((x) => x.label), noneEnabled.map((x) => x.label), 'a code the table lacks enables nothing');
+eq(list(undefined, undefined).map((x) => x.label), noneEnabled.map((x) => x.label), 'no enabled list, no search: the plain groups');
+eq(F.languageList(undefined, ['spa'], ''), [], 'no table, no list');
+// Unticking: the language is back in its own coverage group.
+const spaGroup = noneEnabled.find((x) => codesOf(x).indexOf('spa') >= 0).label;
+const afterTick = list(['spa'], '');
+eq(codesOf(afterTick[0]), ['spa'], 'ticking Español puts it under "Your languages"');
+check(!afterTick.slice(1).some((x) => codesOf(x).indexOf('spa') >= 0), 'and out of its coverage group');
+const afterUntick = list([], '');
+check(codesOf(afterUntick.find((x) => x.label === spaGroup)).indexOf('spa') >= 0, 'unticking it sends it back to its coverage group');
+// The search runs over both parts.
+const found = list(['spa', 'jpn'], 'espanol');
+eq(found[0].rows.map((r) => [r.lang.code, r.hit]), [['jpn', false], ['spa', true]].sort((a, b) => tableOrder.indexOf(a[0]) - tableOrder.indexOf(b[0])),
+  'a search matches rows under "Your languages"');
+check(found.slice(1).every((x) => x.rows.every((r) => !r.hit)), 'and a language outside it is a miss');
+const foundBoth = list(['spa'], 'portu');
+check(foundBoth[0].rows.every((r) => !r.hit) && foundBoth.slice(1).some((x) => x.rows.some((r) => r.lang.code === 'por' && r.hit)),
+  'a search matches rows in the coverage groups too, at once');
+eq(foundBoth[0].shown, 0, 'a section counts the rows its search leaves in view');
+eq(foundBoth.reduce((n, x) => n + x.shown, 0), foundBoth.reduce((n, x) => n + x.rows.filter((r) => r.hit).length, 0), 'shown is the count of hits');
+check(list(['spa'], '').every((x) => x.shown === x.rows.length && x.rows.every((r) => r.hit)), 'no search: every row is a hit');
+eq(F.groupCount(withYours[0], withYours[0].shown), plural1(withYours[0].rows.length), 'the section\'s count reads like a group\'s');
+check(!list(['spa'], '').some((x) => /common|popular|featured|suggested/i.test(x.label)),
+  'no featured group exists: no language is set above another');
+function plural1(n) { return n === 1 ? '1 language' : `${n} languages`; }
+
 const lang = (code) => C.CHURCH_LANGUAGES.find((l) => l.code === code);
 check(F.matchesLanguage(lang('spa'), 'espanol'), 'the search ignores accents (espanol finds Español)');
 check(F.matchesLanguage(lang('spa'), 'SPAN'), 'and case, and matches the English name');
@@ -360,7 +409,7 @@ check(!Object.keys(about).some((k) => settingKeys.indexOf(k) >= 0), 'nothing the
 console.log('Shell:');
 eq(Object.keys(F).sort(), [
   'aboutCopy', 'commitPatch', 'connectedText', 'dedupeVersions', 'failedWrites', 'fillPlan', 'groupCount', 'initialChecks', 'isAdded',
-  'keyControls', 'keyErrorText', 'languageGroups', 'listGuesses', 'matchesLanguage', 'mergeVersions', 'moreLabel', 'offeredLanguages',
+  'keyControls', 'keyErrorText', 'languageGroups', 'languageList', 'listGuesses', 'matchesLanguage', 'mergeVersions', 'moreLabel', 'offeredLanguages',
   'patchLanded', 'pickDefaultId', 'stableGroups', 'translationPatch', 'versionGroups', 'versionLabel', 'withStored',
   'yoursNote',
 ].sort(), 'requiring the page in Node exposes the pure core and nothing else');
@@ -535,6 +584,8 @@ check(/id="saveStatus"[^>]*role="status"/.test(html), 'the autosave status is an
 // Card ids are the deep-link sections, in order.
 const cardIds = [...html.matchAll(/<section class="card" id="([^"]+)"/g)].map((m) => m[1]);
 eq(cardIds, C.OPTIONS_SECTIONS, 'the cards are the deep-link sections, in order');
+eq(cardIds, ['languages', 'bible', 'reading', 'about'],
+  'the cards run Church languages, Bible translations, Reading, About (the setup that needs no key comes first)');
 check(/id="reading"[\s\S]*id="scrollSync"/.test(html) && /id="reading"[\s\S]*id="fontScale"/.test(html),
   'scroll sync and text size sit in the Reading card');
 check(/id="languages"[\s\S]*id="churchLanguages"[\s\S]*id="reading"/.test(html),
@@ -542,7 +593,7 @@ check(/id="languages"[\s\S]*id="churchLanguages"[\s\S]*id="reading"/.test(html),
 
 // The About card (spec #69): the fourth section, text and links only, so it
 // adds nothing the autosave could write.
-eq(C.OPTIONS_SECTIONS, ['bible', 'languages', 'reading', 'about'], 'About is the fourth section');
+eq(C.OPTIONS_SECTIONS, ['languages', 'bible', 'reading', 'about'], 'About is the fourth section; the ids are the same four');
 const aboutCard = (html.match(/<section class="card" id="about"[\s\S]*?<\/section>/) || [''])[0];
 check(aboutCard, 'the About card is on the page');
 check(!/<(input|select|textarea|button)\b|contenteditable/i.test(aboutCard), 'the About card has no form control');
@@ -621,20 +672,22 @@ check(!/[A-Za-z]'[A-Za-z]/.test(htmlText), 'the page\'s copy uses curly apostrop
 const jsStrings = [...shell.replace(/^\s*\/\/.*$/gm, '').matchAll(/(['"`])((?:(?!\1)[^\\\n]|\\.)*)\1/g)].map((m) => m[2]);
 check(!jsStrings.some((t) => /[A-Za-z]'[A-Za-z]|n't\b/.test(t)), 'the script\'s copy uses curly apostrophes too');
 check(/id="langFilter"/.test(html), 'the language list has a search box');
-check(/for \(const group of |languageGroups\(offeredLanguages\(C\.CHURCH_LANGUAGES\)\)/.test(bodyOf('buildLanguageList')),
-  'the checklist is built from the extension\'s own language table, minus English');
+check(/languageList\(offeredLanguages\(C\.CHURCH_LANGUAGES\), checkedLanguages\(\), q\)/.test(bodyOf('renderLanguageList')),
+  'the checklist is laid out by the pure languageList from the extension\'s own language table (minus English), the ticked languages and the search');
+check(/renderLanguageList\(\)/.test(fieldsTable + bodyOf('init')) && /renderLanguageList/.test(bodyOf('checkLanguages')),
+  'a tick, an adopted setting and the search each lay the list out again');
 check(/buildLanguageList\(\);[\s\S]{0,80}fillForm\(\);/.test(bodyOf('init')),
   'init builds the Church-language checklist before the first fillForm, key or no key');
 for (const name of ['connect', 'renderTranslations', 'refreshList']) {
   const body = bodyOf(name);
   check(body && !/buildLanguageList|churchLanguages/.test(body), `${name} never builds or touches the Church-language list`);
 }
-check(/groupCount\(g\.group, filtering \? n : null\)/.test(bodyOf('applyLanguageFilter')),
-  'a search updates each group\'s count to the languages it leaves in view');
-check(/aria-labelledby', summary\.id/.test(bodyOf('buildLanguageList')) && /aria-labelledby="moreSummary"/.test(html),
+check(/groupCount\(section, filtering \? section\.shown : null\)/.test(bodyOf('renderLanguageList')),
+  'a search updates each section\'s count to the languages it leaves in view');
+check(/aria-labelledby', summary\.id/.test(bodyOf('renderLanguageList')) && /aria-labelledby="moreSummary"/.test(html),
   'every <details> group is named by its summary');
 check(/\.summary-count \{ white-space: nowrap; \}/.test(css), 'a wrapping group label keeps "· 69 languages" on one line');
-check(/el\('span', 'summary-text', `\$\{group\.label\}\\u00a0`\)/.test(bodyOf('buildLanguageList')),
+check(/el\('span', 'summary-text', `\$\{section\.label\}\\u00a0`\)/.test(bodyOf('renderLanguageList')),
   'the label\'s last word joins its count with a no-break space, so a wrapped line never starts with the dot');
 check(/span\.lang = lang\.tag/.test(bodyOf('nativeName')) && /span\.dir = 'auto'/.test(bodyOf('nativeName')),
   'native language names are tagged with their language and direction');
