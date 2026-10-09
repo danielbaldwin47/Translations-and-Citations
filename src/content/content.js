@@ -8,7 +8,9 @@
  *    (loading, rate-limit wait, error, setup card, beside card, text); the
  *    dropdown's rows, labels and the pick among them are __BTX.churchText's
  *    pure textsFor / menuFor / pickText, the pick walking a most-recently-used
- *    list (btxSelectedTranslation in chrome.storage.local). A rate-limited
+ *    list (C.SELECTION_KEY in chrome.storage.local). The options page writes
+ *    it too (a Church language ticked there leads) and this tab adopts that
+ *    write through storage.onChanged. A rate-limited
  *    load waits and retries only as panel.retryWait allows, counting its
  *    automatic retries per chapter and version
  *  - writes the cards' picks through __BTX.settings (a Church language added
@@ -53,8 +55,6 @@
   const churchText = root.__BTX.churchText;
   const pageSplit = root.__BTX.pageSplit;
 
-  const SELECTION_KEY = 'btxSelectedTranslation';
-
   // Settings the panel reacts to by itself (owning some, e.g. panelMode, and
   // applying others, e.g. sidebarWidth). A change touching only these never
   // needs the orchestrator's full re-render — the panel adopts it and fires
@@ -63,7 +63,7 @@
   const PANEL_KEYS = panel.HANDLED_KEYS;
 
   let enabled = null; // { translations, churchLanguages, churchLanguageLayout, defaultId, provider, hasKey, actOnNonEngOnly }
-  // What the reader last picked, newest first (persisted under SELECTION_KEY).
+  // What the reader last picked, newest first (persisted under C.SELECTION_KEY).
   // A preference, not what is showing: a chapter that doesn't offer the newest
   // pick shows the newest one it does, or a fallback, and rewrites nothing —
   // see pickText.
@@ -171,7 +171,7 @@
   // Merge the stored list in behind any pick made before it was read, once.
   function loadSelection() {
     if (!selectionRead) {
-      selectionRead = getStored(SELECTION_KEY).then((stored) => {
+      selectionRead = getStored(C.SELECTION_KEY).then((stored) => {
         mru = churchText.mruFrom(mru.concat(churchText.mruFrom(stored)));
       });
     }
@@ -184,7 +184,7 @@
   function remember(id) {
     mru = churchText.rememberPick(mru, id);
     loadSelection().then(() => {
-      try { chrome.storage.local.set({ [SELECTION_KEY]: mru }); } catch (e) { /* ignore */ }
+      try { chrome.storage.local.set({ [C.SELECTION_KEY]: mru }); } catch (e) { /* ignore */ }
     });
   }
 
@@ -684,6 +684,13 @@
       enabled = null;
       currentKey = null; // force a re-render with the new settings
       if (current) render();
+    });
+
+    // The options page put a ticked language first. It writes the pick memory
+    // before the setting, so this lands before the re-render above.
+    chrome.storage.onChanged.addListener((changes, area) => {
+      const c = area === 'local' && changes[C.SELECTION_KEY];
+      if (c) mru = churchText.mruFrom(c.newValue);
     });
 
     // The toolbar icon. Answered at once, so the worker can tell a tab with a

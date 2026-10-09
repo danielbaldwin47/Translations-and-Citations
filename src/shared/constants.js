@@ -60,6 +60,14 @@
     // --- chrome.storage.sync keys (settings) ---
     SETTINGS_KEY: 'btxSettings',
 
+    // --- Pick memory (chrome.storage.local, per computer; not a setting) ---
+    // The reader's picks among the panel's texts, newest first (church-text.js
+    // mruFrom / rememberPick). Two contexts write it: content.js (a pick in the
+    // panel, a language added from the setup card) and the options page (a
+    // Church language ticked); both through church text's rules, and each
+    // adopts the other's writes through chrome.storage.onChanged.
+    SELECTION_KEY: 'btxSelectedTranslation',
+
     // --- In-product disclosures (Chrome Web Store user-data policy) ---
     // Shown beside the action they describe, whose click is the consent:
     // `apiBible` beside Connect on the options page and on the panel setup

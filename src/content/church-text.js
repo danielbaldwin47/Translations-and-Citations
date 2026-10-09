@@ -17,6 +17,12 @@
  *     mruFrom(stored) / rememberPick(mru, id) -> [id]
  *       the preference itself: the reader's picks, newest first (MRU_MAX),
  *       migrated from the single id older versions stored.
+ *     rememberTicked(mru, before, after) -> [id]
+ *       the same list after the enabled Church languages change from `before`
+ *       to `after` (codes): each newly ticked language goes to the front
+ *       through rememberPick (the last ticked leads), an untick changes
+ *       nothing. The options page's write; content.js's setup card calls
+ *       rememberPick for the one language it adds.
  *
  *   how does each read, and what else could be added?
  *     labelFor(row, list) -> "NIV — New International Version" | "Español — Spanish"
@@ -139,6 +145,18 @@
   function rememberPick(mru, id) {
     const rest = mruFrom(mru).filter((x) => x !== id);
     return (typeof id === 'string' && id !== '' ? [id] : []).concat(rest).slice(0, MRU_MAX);
+  }
+
+  // The pick memory after the enabled Church languages change from `before`
+  // to `after` (codes): each language newly on goes to the front through
+  // rememberPick, in `after`'s order, so the last one ticked leads. Unticking
+  // changes nothing: the list is a record of picks, not of what is on (the
+  // text lists drop an unticked language by themselves).
+  function rememberTicked(mru, before, after) {
+    const was = Array.isArray(before) ? before : [];
+    return (Array.isArray(after) ? after : [])
+      .filter((code) => was.indexOf(code) < 0 && rowFor(code))
+      .reduce((list, code) => rememberPick(list, ID_PREFIX + code), mruFrom(mru));
   }
 
   // ---- How a row reads -------------------------------------------------------
@@ -370,7 +388,7 @@
   }
 
   const CORE = {
-    PROVIDER, ID_PREFIX, MRU_MAX, rowFor, textsFor, pickText, mruFrom, rememberPick, labelFor, menuFor, languagesToAdd,
+    PROVIDER, ID_PREFIX, MRU_MAX, rowFor, textsFor, pickText, mruFrom, rememberPick, rememberTicked, labelFor, menuFor, languagesToAdd,
     chapterUri, apiUrl, chapterFrom, blockElements, servesChapter, dirOf,
   };
 
