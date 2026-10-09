@@ -156,6 +156,9 @@
     // This browser's api.bible calls this calendar month, and whether
     // api.bible's last answer was a 429 (background/ratelimit.js).
     RATE_MONTH_KEY: 'btxRateMonth',
+    // The month ('YYYY-MM') the panel last showed the near-limit line, so it
+    // shows once a month (content/panel.js nearLine).
+    NEAR_LINE_KEY: 'btxNearLineMonth',
     // The FUMS device id: created on the first successful Connect, this
     // device only (background/fums.js).
     FUMS_DEVICE_KEY: 'btxFumsDeviceId',

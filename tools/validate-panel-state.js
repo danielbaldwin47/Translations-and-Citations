@@ -1233,6 +1233,23 @@ console.log('errorCopy:');
   check(!/\d{3}|NIV/.test(JSON.stringify(e('RATE_LIMITED', { remote: true, rate: paused }))), '...no version name, no call counts');
   eq(e('RATE_LIMITED', { remote: true, rate: { state: 'near', month: '2026-10' } }).message, 'Your api.bible key has used its allowance for now.',
     'a 429 that is not a pause stays the burst copy');
+
+  // The near line (#126): once a calendar month, on an api.bible chapter whose
+  // attached state is `near`. nearLine(rate, seenMonth) -> the text to show, or
+  // '' for none; `seenMonth` is the 'YYYY-MM' the line was last shown (stored
+  // on this computer), '' / undefined when never.
+  const near = { state: 'near', month: '2026-10' };
+  eq(P.nearLine(near, ''), 'You’re at about 80% of api.bible’s free monthly limit.', 'the near line, exactly (curly apostrophes)');
+  eq(P.nearLine(near, undefined), 'You’re at about 80% of api.bible’s free monthly limit.', '...shown when nothing is stored');
+  eq(P.nearLine(near, '2026-10'), '', 'not shown again the same month');
+  eq(P.nearLine(near, '2026-09'), 'You’re at about 80% of api.bible’s free monthly limit.', 'shown again the next month');
+  eq(P.nearLine({ state: 'near', month: '2027-01' }, '2026-12'), 'You’re at about 80% of api.bible’s free monthly limit.', '...across the new year');
+  eq(P.nearLine({ state: 'ok', month: '2026-10' }, ''), '', 'ok: no line');
+  eq(P.nearLine({ state: 'paused', month: '2026-10', until: '2026-11-01' }, ''), '', 'paused: the paused line speaks, not this one');
+  eq(P.nearLine(undefined, ''), '', 'no state (the bundled Bible, a Church language): no line');
+  eq(P.nearLine({ state: 'near' }, ''), '', 'near with no month to remember: no line');
+  eq(P.nearLine({ state: 'near', month: 'soon' }, ''), '', '...nor an unreadable month');
+  check(!/\d{3}|NIV|call/i.test(P.nearLine(near, '')), '...no version name, no call counts');
 }
 
 // ---- When a rate-limited load retries by itself ----
