@@ -1709,8 +1709,8 @@
     }
   }
 
-  // The translation dropdown, from __BTX.churchText.menuFor: headed groups when
-  // both kinds are on offer. Empty, it hides — the setup card is showing.
+  // The translation dropdown, from __BTX.churchText.menuFor: its groups, headed
+  // or not as menuFor says. Empty, it hides — the setup card is showing.
   function populateTranslations(menu, selectedId) {
     ensureRoot();
     ui.select.textContent = '';
