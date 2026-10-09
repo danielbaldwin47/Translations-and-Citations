@@ -68,6 +68,23 @@
     return n;
   }
 
+  // Hover text that is not mouse-only: `title` on the element, plus the same
+  // words as a hidden node, returned for the caller to mount beside the element
+  // (so the element's own text stays its label), which the owner (the element,
+  // or the control it sits in, whose children a screen reader doesn't visit)
+  // names in aria-describedby, after any description it already has. Existing
+  // aria-labels stay. Null (nothing to mount) when there is no text.
+  function titled(node, text, owner) {
+    if (!text) return null;
+    owner = owner || node;
+    node.title = text;
+    const desc = el('span', 'btx-cit-desc', text);
+    desc.id = `btx-cit-desc-${++describedIds}`;
+    const had = owner.getAttribute('aria-describedby');
+    owner.setAttribute('aria-describedby', had ? `${had} ${desc.id}` : desc.id);
+    return desc;
+  }
+
   // The list the panel has mounted right now (the body holds one view at a time).
   const mountedList = () => document.querySelector('#btx-root .btx-cit-list');
 
@@ -102,7 +119,12 @@
     node.setAttribute('aria-label', row.a11yLabel);
     const head = el('div', 'btx-cit-head');
     head.appendChild(el('span', 'btx-cit-speaker', row.speaker));
-    if (row.rangeLabel) head.appendChild(el('span', 'btx-cit-range', row.rangeLabel));
+    if (row.rangeLabel) {
+      const range = el('span', 'btx-cit-range', row.rangeLabel);
+      head.appendChild(range);
+      const desc = titled(range, row.rangeTitle, node);
+      if (desc) node.appendChild(desc);
+    }
     node.appendChild(head);
     if (row.sub) node.appendChild(el('div', 'btx-cit-sub', row.sub));
     if (row.snippet && row.snippet.text) {
@@ -121,7 +143,8 @@
 
   function describe(node, snippet) {
     snippet.id = `btx-cit-snippet-${++describedIds}`;
-    node.setAttribute('aria-describedby', snippet.id);
+    const had = node.getAttribute('aria-describedby');
+    node.setAttribute('aria-describedby', had ? `${had} ${snippet.id}` : snippet.id);
   }
 
   // --- fetched excerpts ------------------------------------------------------
@@ -503,7 +526,12 @@
       if (noRes) wrap.appendChild(noRes);
       keepClosedHeaderInView(wrap);
     }
-    if (viewModel.footer) wrap.appendChild(el('p', 'btx-cit-footer', viewModel.footer));
+    if (viewModel.footer) {
+      const footer = el('p', 'btx-cit-footer', viewModel.footer);
+      wrap.appendChild(footer);
+      const desc = titled(footer, viewModel.footerTitle);
+      if (desc) wrap.appendChild(desc);
+    }
 
     host.textContent = '';
     host.appendChild(wrap);

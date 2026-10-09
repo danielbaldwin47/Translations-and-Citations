@@ -24,6 +24,39 @@
       <div id="saveStatus" class="save-status" role="status" aria-live="polite"></div>
     </header>
 
+    <section class="card" id="languages" aria-labelledby="languagesHead">
+      <h2 id="languagesHead">Church languages</h2>
+      <p class="hint">Read the chapter in another language the Church publishes. No key needed.</p>
+      <!-- In-product disclosure: checking a language is the consent. Same words as C.DISCLOSURE.churchLanguage. -->
+      <p class="hint disclosure" id="languagesDisclosure">Fetches that language’s chapter from churchofjesuschrist.org.</p>
+      <p id="languageSummary" class="summary"></p>
+
+      <input type="search" id="langFilter" class="search" placeholder="Find a language"
+             aria-label="Find a language" aria-controls="churchLanguages" autocomplete="off" spellcheck="false" />
+      <!-- The FIELDS node for churchLanguages: only its checkboxes live inside, so
+           every change event that bubbles here is a language being turned on or off. -->
+      <div id="churchLanguages" class="lang-groups"></div>
+      <p id="langNoMatch" class="hint no-match" hidden></p>
+
+      <fieldset id="churchLanguageLayout" class="radio-group">
+        <legend class="field-label">Show them</legend>
+        <!-- A hint sits inside its label (so it is part of the target) but is
+             aria-hidden there: it is the input's description, not its name. -->
+        <label class="check radio">
+          <input type="radio" name="churchLanguageLayout" value="columns" aria-describedby="columnsHint" />
+          <span>Side by side<span class="hint" id="columnsHint" aria-hidden="true">When there’s room; otherwise under each verse.</span></span>
+        </label>
+        <label class="check radio">
+          <input type="radio" name="churchLanguageLayout" value="interlinear" />
+          <span>Under each verse</span>
+        </label>
+        <label class="check radio">
+          <input type="radio" name="churchLanguageLayout" value="panel" />
+          <span>In the panel</span>
+        </label>
+      </fieldset>
+    </section>
+
     <section class="card" id="bible" aria-labelledby="bibleHead">
       <h2 id="bibleHead">Bible translations</h2>
       <p class="hint">
@@ -67,39 +100,6 @@
       </div>
     </section>
 
-    <section class="card" id="languages" aria-labelledby="languagesHead">
-      <h2 id="languagesHead">Church languages</h2>
-      <p class="hint">Read the chapter in another language the Church publishes. No key needed.</p>
-      <!-- In-product disclosure: checking a language is the consent. Same words as C.DISCLOSURE.churchLanguage. -->
-      <p class="hint disclosure" id="languagesDisclosure">Fetches that language’s chapter from churchofjesuschrist.org.</p>
-      <p id="languageSummary" class="summary"></p>
-
-      <input type="search" id="langFilter" class="search" placeholder="Find a language"
-             aria-label="Find a language" aria-controls="churchLanguages" autocomplete="off" spellcheck="false" />
-      <!-- The FIELDS node for churchLanguages: only its checkboxes live inside, so
-           every change event that bubbles here is a language being turned on or off. -->
-      <div id="churchLanguages" class="lang-groups"></div>
-      <p id="langNoMatch" class="hint no-match" hidden></p>
-
-      <fieldset id="churchLanguageLayout" class="radio-group">
-        <legend class="field-label">Show them</legend>
-        <!-- A hint sits inside its label (so it is part of the target) but is
-             aria-hidden there: it is the input's description, not its name. -->
-        <label class="check radio">
-          <input type="radio" name="churchLanguageLayout" value="columns" aria-describedby="columnsHint" />
-          <span>Side by side<span class="hint" id="columnsHint" aria-hidden="true">When there’s room; otherwise under each verse.</span></span>
-        </label>
-        <label class="check radio">
-          <input type="radio" name="churchLanguageLayout" value="interlinear" />
-          <span>Under each verse</span>
-        </label>
-        <label class="check radio">
-          <input type="radio" name="churchLanguageLayout" value="panel" />
-          <span>In the panel</span>
-        </label>
-      </fieldset>
-    </section>
-
     <section class="card" id="reading" aria-labelledby="readingHead">
       <h2 id="readingHead">Reading</h2>
 
@@ -126,10 +126,6 @@
       <label class="check">
         <input type="checkbox" id="scrollSync" aria-describedby="scrollSyncHint" />
         <span>Scroll the translation with the page<span class="hint" id="scrollSyncHint" aria-hidden="true">Turn off to scroll the panel on its own.</span></span>
-      </label>
-      <label class="check">
-        <input type="checkbox" id="showOnOtherLanguages" />
-        <span>Also show on pages in other languages</span>
       </label>
     </section>
 

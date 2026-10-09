@@ -71,6 +71,10 @@
   user-select: none;
 }
 
+/* The spoken twin of a hover title (cit-panel's titled): out of the layout,
+   still named by aria-describedby. */
+#btx-root .btx-cit-desc { display: none; }
+
 /* The last line of the list: how current the pack is ("Citations through
    April 2026", the pack vintage). Fixed chrome, like the summary. */
 #btx-root .btx-cit-footer {

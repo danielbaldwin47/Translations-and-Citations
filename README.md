@@ -116,7 +116,7 @@ Every setting saves as you change it; there is no Save button.
 |------|--------------|
 | **Bible translations** | api.bible key and Connect, which translations the panel offers, the default |
 | **Church languages** | which languages to offer (searchable, grouped by what each publishes), and where they show |
-| **Reading** | text size, panel width, scrolling the translation with the page, showing on pages in other languages |
+| **Reading** | text size, panel width, scrolling the translation with the page |
 | **About** | version, pack vintage, data sources, privacy policy and support links |
 
 ## Citation data

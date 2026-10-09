@@ -148,7 +148,8 @@ on it.
 **Translatable** (of a chapter):
 Some enabled text offers *this chapter*: on a Bible chapter always (the
 bundled World English Bible is always enabled), elsewhere an enabled Church
-language the **chapter check** found the chapter in. Publishing the volume is
+language (or English, on a page read in another language) the **chapter
+check** found the chapter in. Publishing the volume is
 not enough (a language can lack a chapter of a volume it publishes). The
 **arrangement** reads it from each text's `offered` mark (`null` while the
 check has not asked that language).
@@ -275,8 +276,10 @@ World English Bible.
 
 **Page split**:
 A Church-language chapter set into the site's own reading column, each block
-paired with the English element of the same id (`__BTX.pageSplit`,
-ADR-0007). It is independent of the mode: it shows, in Translation and
+paired with the page's element of the same id (`__BTX.pageSplit`,
+ADR-0007). A page read in another language (`?lang=spa`) offers English as a
+Church language, unticked (`churchText.textsFor`), so the same rules can set
+English into the Spanish page. It is independent of the mode: it shows, in Translation and
 Citations alike, while the **split layout** is columns or interlinear and the
 **arrangement** names a page's language (`churchText.pageLanguage`): the
 first Church language in the pick memory that offers the chapter; with none,

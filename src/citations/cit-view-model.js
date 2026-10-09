@@ -26,11 +26,12 @@
  * can map element <-> descriptor and the toolbar can key its state off them):
  *
  *   viewModel { layout, empty, emptyText, summary, talks, showTools, groups,
- *               focusUid, footer }   footer: "Citations through April 2026", or null
+ *               focusUid, footer, footerTitle }   footer: "Citations through April 2026", or null;
+ *               footerTitle: its hover text, "Includes talks through the April 2026 general conference", or null
  *   group { uid, kind:'verse'|'sourceType', key, verse, label, a11yLabel,
  *           count, countClass, open, focus, children:[group], rows:[row] }
- *   row   { uid, citId, talkId, speaker, rangeLabel, sub, snippet, a11yLabel,
- *           search, entry }
+ *   row   { uid, citId, talkId, speaker, rangeLabel, rangeTitle, sub, snippet, a11yLabel,
+ *           search, entry }   rangeTitle: the badge's hover text ("Cites verses 1 to 5"), null with no badge
  *
  * By verse fills group.children (verse -> source-type group -> rows); by
  * source hangs rows straight off one group per source type. Only groups are
@@ -74,6 +75,13 @@
     const m = /^(\d{4})-(\d{2})$/.exec(String((pack && pack.vintage) || ''));
     const month = m && MONTHS[Number(m[2]) - 1];
     return month ? `Citations through ${month} ${m[1]}` : null;
+  }
+
+  // What hovering the footer says, in plain words: "Includes talks through the
+  // April 2026 general conference". Null with no vintage, like vintageLine.
+  function vintageTitle(pack) {
+    const line = vintageLine(pack);
+    return line ? line.replace(/^Citations through /, 'Includes talks through the ') + ' general conference' : null;
   }
 
   // Below this many talks the filter box and Collapse all are noise.
@@ -121,6 +129,10 @@
     return (verses.length > 1 ? 'verses ' : 'verse ') + formatVerses(verses).replace(/–/g, ' to ')
       + (note ? ', and the note' : '');
   }
+
+  // What hovering a row's range badge says: "Cites verse 5", "Cites verses 1 to 5",
+  // "Cites the note" (spokenVerses' words, so the screen reader and the hover agree).
+  const citesTitle = (vs) => 'Cites ' + spokenVerses(vs);
 
   // A by-verse group's name.
   const groupLabel = (v) => (isNote(v) ? 'Note' : `Verse ${v}`);
@@ -412,6 +424,7 @@
       talkId: talkIdOf(entry),
       speaker,
       rangeLabel: rangeVerses ? verseLabel(rangeVerses) : null,
+      rangeTitle: rangeVerses ? citesTitle(rangeVerses) : null,
       sub: [title, where].filter(Boolean).join(' · ') || null,
       snippet: excerptSource(entry, fetched),
       a11yLabel: [speaker, title, where, rangeVerses && spokenVerses(rangeVerses)].filter(Boolean).join(', '),
@@ -524,6 +537,7 @@
     // that schema's default ('source') rather than inventing a second one.
     const layout = opts.view === 'verse' ? 'verse' : 'source';
     const footer = data ? vintageLine(data.pack) : null;
+    const footerTitle = data ? vintageTitle(data.pack) : null;
     const types = sourceTypesOf(data && data.pack);
     if (data) data = restrictTo(data, types);
 
@@ -531,7 +545,7 @@
       return {
         layout, empty: true,
         emptyText: emptyText(data, opts),
-        summary: null, talks: 0, showTools: false, groups: [], focusUid: null, footer,
+        summary: null, talks: 0, showTools: false, groups: [], focusUid: null, footer, footerTitle,
       };
     }
 
@@ -553,7 +567,7 @@
       showTools: talks >= TOOLS_MIN_TALKS,
       groups,
       focusUid: focused ? focused.uid : null,
-      footer,
+      footer, footerTitle,
     };
   }
 
@@ -688,7 +702,7 @@
   }
 
   const VM = {
-    formatVerses, verseLabel, anchorVerses, vintageLine, cleanSnippet, quoteSnippet, excerptText, verseUid,
+    formatVerses, verseLabel, anchorVerses, vintageLine, vintageTitle, cleanSnippet, quoteSnippet, excerptText, verseUid,
     buildView, talkHeading,
     initialState, filterPlan, applyPlan, collapseAllPlan, collapseLabel, allRows,
   };
