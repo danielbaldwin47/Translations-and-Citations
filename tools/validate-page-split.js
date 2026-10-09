@@ -173,6 +173,38 @@ eq(P.readingEdges({ ...area, leftStack: SITE, rightStack: [{ left: 560, right: 8
   'the probe stops at our own panel');
 eq(P.readingEdges({ width: 1385, reserve: 0, leftStack: SITE, rightStack: SITE }).right, 1385 - P.FLOAT_GUTTER_PX,
   'panel collapsed: the area ends short of the floating buttons (readingRight)');
+// The fit rule (#89) moves section#content, and its toolbar and text with it:
+// the reading area must not move with them, or the fit would feed its own
+// input as the split's columns once did (#97). Each pair is the same site
+// state probed with the fit's rule off (the site's own column) and on (the
+// fitted box), each stack as elementsFromPoint returns it there.
+{
+  // 1024px window, drawer closed, panel 640: the site holds the column 0-640
+  // under the panel; fitted it is 0-369 with 34px padding, which brings the
+  // column's toolbar (8px left of the text) under the left probe.
+  const sized = { width: 1009, reserve: 640 };
+  const page = holder(0, 1009);
+  const off = P.readingEdges({ ...sized,
+    leftStack: [holder(0, 640), page],
+    rightStack: [{ left: 64, right: 576, inColumn: true }, holder(0, 640), page] });
+  const on = P.readingEdges({ ...sized,
+    leftStack: [{ left: -14, right: 26, inColumn: true }, holder(0, 369), page],
+    rightStack: [holder(0, 369), page] });
+  eq(on, off, "1024px, panel 640: the same reading area with the fit's rule on or off");
+  eq(off, { left: 0, right: 369 }, '...the page edge to the panel');
+  // 1440px window, drawer docked, panel 640: the site's column 232.5-872.5
+  // runs under the drawer and the panel; fitted it is 320-785.
+  const docked = { width: 1425, reserve: 640 };
+  const dock = [{ left: 1, right: 304 }, drawer];
+  const offDocked = P.readingEdges({ ...docked,
+    leftStack: [...dock, holder(0, 1425)],
+    rightStack: [{ left: 296.5, right: 808.5, inColumn: true }, holder(232.5, 872.5), holder(0, 1425)] });
+  const onDocked = P.readingEdges({ ...docked,
+    leftStack: [...dock, holder(0, 1425)],
+    rightStack: [holder(320, 785), holder(0, 1425)] }); // x 781 is in the fitted column's padding
+  eq(onDocked, offDocked, "1440px, drawer docked, panel 640: the same reading area with the fit's rule on or off");
+  eq(offDocked, { left: 320, right: 785 }, '...from the drawer to the panel');
+}
 
 // ---- fitColumn ----
 // The fit rule (#89): where the site's reading column goes in the visible
