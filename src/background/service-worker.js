@@ -7,7 +7,10 @@
  *                               languages, default, hasKey, …)
  *   GET_CHAPTER              -> one chapter as IR. api.bible: cache first,
  *                               rate-limited; a rejected key also drops the
- *                               cached version list. Every api.bible display,
+ *                               cached version list. Every api.bible answer,
+ *                               a cache hit or an error too, carries `rate`:
+ *                               the month's state (ratelimit.js rateState),
+ *                               counted after this call. Every api.bible display,
  *                               a cache hit too, sends a FUMS usage report
  *                               (fums.js) with the token cached beside the
  *                               chapter; the reply carries neither the token
@@ -21,7 +24,8 @@
  *                               page's explicit Connect). A `partial` list
  *                               (a copyright lookup failed) is passed on but
  *                               never cached. One refresh costs 1 + one call
- *                               per version (~39) against a monthly quota.
+ *                               per version (~39) against a monthly quota,
+ *                               added to the month's count.
  *                               A list for a named `key` is the options page's
  *                               Connect: once it succeeds, the FUMS device id
  *                               exists (the click was the consent).
@@ -91,6 +95,7 @@ async function handleListBibles(msg) {
     result = { bibles: cached };
   } else {
     result = await API.listBibles(key);
+    if (result.calls) await RATE.counted(result.calls, answerOf(result));
     if (!result.error && result.bibles && !result.partial) await CACHE.setBibles(result.bibles, key);
   }
   // A Connect that succeeded (the options page named its key), cached or not.
@@ -112,24 +117,37 @@ async function handleGetChapter(msg) {
   // Cache first (does not count against rate limits). An api.bible chapter
   // is cached with its FUMS token, reported on every display.
   const cached = await CACHE.getChapter(provider, bibleId, chapterId);
-  if (cached) return displayed(cached);
+  if (cached) return withRate(await displayed(cached));
 
   const s = await SETTINGS.get();
-  if (!s.apiKey) return { error: { code: C.ERR.NO_KEY, message: 'No API key set' } };
+  if (!s.apiKey) return withRate({ error: { code: C.ERR.NO_KEY, message: 'No API key set' } });
   const gate = await RATE.check();
   if (!gate.ok) {
-    return { error: { code: C.ERR.RATE_LIMITED, message: gate.reason, retryAfterMs: gate.retryAfterMs } };
+    return withRate({ error: { code: C.ERR.RATE_LIMITED, message: gate.reason, retryAfterMs: gate.retryAfterMs } });
   }
   const result = await API.fetchApiBibleChapter(s.apiKey, bibleId, chapterId);
-  await RATE.consume();
+  await RATE.consume(answerOf(result));
   // The stored key stopped working: its cached version list would still tell
   // the options page "Connected", so the page fetches afresh and says why.
   if (result.error && result.error.code === C.ERR.INVALID_KEY) await CACHE.dropBibles();
 
-  if (result.error) return result;
+  if (result.error) return withRate({ error: result.error });
   const entry = result.fumsToken ? Object.assign({}, result.payload, { fumsToken: result.fumsToken }) : result.payload;
   await CACHE.setChapter(provider, bibleId, chapterId, entry);
-  return displayed(entry);
+  return withRate(await displayed(entry));
+}
+
+// What api.bible said, for the month's record: a 429 is 'limited', no answer
+// at all (offline) is null, anything else it answered is 'answered'.
+function answerOf(result) {
+  const e = result && result.error;
+  if (!e) return 'answered';
+  if (e.code === C.ERR.RATE_LIMITED && e.remote) return 'limited';
+  return e.code === C.ERR.NETWORK ? null : 'answered';
+}
+
+async function withRate(reply) {
+  return Object.assign({}, reply, { rate: await RATE.state() });
 }
 
 // A chapter on its way to the page: report its token, then hand back the
