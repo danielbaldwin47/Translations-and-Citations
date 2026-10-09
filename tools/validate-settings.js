@@ -75,12 +75,12 @@ for (const bad of ['VERSE', 'by-verse', '', 0, null, {}, undefined]) {
 
 // ---- normalize: panelMode (the panel's persisted mode preference) ----
 console.log('normalize (panelMode):');
-eq(S.defaults().panelMode, 'translation', 'panelMode defaults to "translation"');
+eq(S.defaults().panelMode, 'citations', 'panelMode defaults to "citations"');
 eq(S.normalize({ panelMode: 'citations' }).panelMode, 'citations', 'panelMode "citations" survives');
 eq(S.normalize({ panelMode: 'translation' }).panelMode, 'translation', 'panelMode "translation" survives');
 for (const bad of ['CITATIONS', 'both', '', 0, null, {}, undefined]) {
-  eq(S.normalize({ panelMode: bad }).panelMode, 'translation',
-    `panelMode ${JSON.stringify(bad)} falls back to "translation"`);
+  eq(S.normalize({ panelMode: bad }).panelMode, 'citations',
+    `panelMode ${JSON.stringify(bad)} falls back to "citations"`);
 }
 
 // ---- normalize: panelCollapsed (default-false boolean) ----

@@ -226,9 +226,11 @@
     // never scrolls on its own — no tracking, no eased re-alignment; where the
     // user puts it is where it stays.
     scrollSync: { def: true, norm: bool(true) },
-    // The panel's own state: preferred mode on Bible chapters, and whether the
-    // panel is collapsed to its edge tab. Owned and written by __BTX.panel.
-    panelMode: { def: 'translation', norm: oneOf(['translation', 'citations'], 'translation') },
+    // The panel's own state: the reader's chosen mode (Citations until they
+    // choose Translation: a fresh install, or a missing or unreadable stored
+    // value, opens on Citations), and whether the panel is collapsed to its
+    // edge tab. Owned and written by __BTX.panel.
+    panelMode: { def: 'citations', norm: oneOf(['translation', 'citations'], 'citations') },
     panelCollapsed: { def: false, norm: bool(false) },
   };
 
