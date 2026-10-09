@@ -244,6 +244,8 @@ console.log('By-verse layout:');
   // Range badge only on spanning cites.
   eq(v3.children[0].rows[0].rangeLabel, 'vv. 3–5', 'spanning cite carries its range label');
   eq(v4.children[0].rows[0].rangeLabel, null, 'single-verse cite has no range label');
+  eq(v3.children[0].rows[0].rangeTitle, 'Cites verses 3 to 5', 'the range badge explains itself');
+  eq(v4.children[0].rows[0].rangeTitle, null, 'no badge, no badge title');
 
   // Row descriptor content.
   const row = v3.children[0].rows[0];
@@ -283,6 +285,8 @@ console.log('By-verse layout:');
   eq(view.groups[1].a11yLabel, 'Note, 1 talk', 'and names itself that way to a screen reader');
   eq(VM.buildView(data, SRC).groups[0].rows.find((r) => r.citId === 'n').rangeLabel, 'Note',
     'a by-source row that cites the note is badged Note');
+  eq(VM.buildView(data, SRC).groups[0].rows.find((r) => r.citId === 'n').rangeTitle, 'Cites the note',
+    'and the Note badge says what the note is');
   eq(VM.buildView(data, SRC).groups[0].rows.find((r) => r.citId === 'n').a11yLabel,
     'Cowdery, Note, 1990-04, the note', 'and says so to a screen reader');
 }
@@ -384,6 +388,8 @@ console.log('By-source layout:');
   eq(view.groups[0].children.length, 0, 'by-source groups hold rows directly');
   eq(view.groups[0].rows[1].rangeLabel, 'vv. 3–4', 'every by-source row is range-labelled');
   eq(view.groups[0].rows[0].rangeLabel, 'v. 16', 'single-verse row is labelled too');
+  eq(view.groups[0].rows[0].rangeTitle, 'Cites verse 16', 'a single verse: "Cites verse 16"');
+  eq(view.groups[0].rows[1].rangeTitle, 'Cites verses 3 to 4', 'a range: "Cites verses 3 to 4"');
   eq(view.groups[0].count, 13, 'source-type chip counts its talks');
   eq(view.groups[0].a11yLabel, 'General Conference, 13 talks', 'source-type screen-reader label');
   eq(view.groups[0].open, false, 'by-source groups start collapsed');
@@ -550,7 +556,13 @@ console.log('Footer:');
   const oct = Object.assign({}, PUBLIC, { vintage: '2025-10' });
   eq(VM.buildView(makeData([], oct), OPTS).footer, 'Citations through October 2025', 'an empty chapter still shows it');
   eq(VM.buildView(null, OPTS).footer, null, 'no data, no footer');
+  eq(VM.buildView(data, OPTS).footerTitle, 'Includes talks through the April 2026 general conference',
+    'the footer explains its vintage');
+  eq(VM.buildView(makeData([], oct), OPTS).footerTitle, 'Includes talks through the October 2025 general conference',
+    'an empty chapter explains it too');
+  eq(VM.buildView(null, OPTS).footerTitle, null, 'no data, no footer title');
   eq(VM.buildView(makeData([], Object.assign({}, PUBLIC, { vintage: '' })), OPTS).footer, null, 'no vintage, no footer');
+  eq(VM.buildView(makeData([], Object.assign({}, PUBLIC, { vintage: '' })), OPTS).footerTitle, null, 'no vintage, no footer title');
 }
 
 console.log('Empty states:');
