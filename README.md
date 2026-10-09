@@ -25,7 +25,7 @@ stored and what is sent where.
 
 1. Open the listing — `<store-listing-url>` (filled in when the listing is
    published) — and click **Add to Chrome**. Alma 5 opens in a new tab, with
-   the panel's welcome pointing at its controls; **Got it** closes it.
+   a short welcome tour of the panel's controls; **Skip** or **Got it** closes it.
 2. Pin the extension: puzzle-piece menu → pin **Translations & Citations**.
 3. Open any chapter, for example
    [John 3](https://www.churchofjesuschrist.org/study/scriptures/nt/john/3?lang=eng)

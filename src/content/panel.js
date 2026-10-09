@@ -161,7 +161,7 @@
  * Its content is the pure steps table (WELCOME_STEPS: each step's title, its
  * lines and the CONTROL_NAMES control it points at; welcomeSteps drops the
  * lines whose facts don't hold), shown one step at a time (welcomeStepView:
- * the step, "2 of 5", and which of Skip / Back / Next / Got it it carries).
+ * the step, "2 of 4", and which of Skip / Back / Next / Got it it carries).
  * The step's card sits under its control, caret aimed at it, and the
  * control is ringed; a control not showing gets a plain card. Placement is
  * the pure calloutPlacement over rects measured inside the layer, redone on
@@ -456,33 +456,34 @@
   const CONTROL_NAMES = ['translation-tab', 'citations-tab', 'settings', 'collapse', 'translation-select', 'citation-layout', 'text-size'];
 
   // What the welcome says, one step at a time. Each step: `id`, the
-  // `control` it points at (a CONTROL_NAMES name), its `title` (the
-  // control's own name where it has one) and its `lines`: short sentences,
-  // each optionally with `when`, facts it needs, all of which must match
-  // (welcomeSteps). `{icon}` in a line marks where the extension's icon is
-  // drawn inline (lineParts): the toolbar icon is the browser's, not the
-  // panel's, so the last step names it in words. In tour order: what the
-  // panel opens on first. The copy is spec A's model: the panel opens on
-  // Citations, and a language you add reads on the page whatever the panel
-  // shows. The first step carries the welcome's own title above its own.
+  // `control` it points at (a CONTROL_NAMES name; only controls that show in
+  // every mode, so no step ever points at nothing), its `title` and its
+  // `lines`: plain sentences for a broad audience, many reading English as a
+  // second language — no idioms, and each control called by the name it
+  // shows or announces. A line may carry `when`, facts it needs, all of which
+  // must match (welcomeSteps). `{icon}` in a line marks where the extension's
+  // icon is drawn inline (lineParts), always beside its name in words: the
+  // toolbar icon is the browser's, not the panel's. In tour order: what the
+  // panel opens on first, and last the way to hide it and get it back. The
+  // copy is spec A's model: the panel opens on Citations, and a language you
+  // add reads on the page whatever the panel shows (beside or under each
+  // verse, as the room allows); a Bible version only on the Bible.
   const WELCOME_COPY = { title: 'Welcome to Translations & Citations', back: 'Back', next: 'Next', skip: 'Skip', gotIt: 'Got it' };
   const WELCOME_STEPS = [
-    { id: 'citations', control: 'citations-tab', title: 'Citations', lines: [
-      { text: 'Find the talks that quote each verse in this chapter, and read any of them right here.' },
+    { id: 'citations', control: 'citations-tab', title: WELCOME_COPY.title, lines: [
+      { text: 'Citations shows the talks and sermons that quote each verse of this chapter. Open one to read it right here.' },
     ] },
     { id: 'translation', control: 'translation-tab', title: 'Translation', lines: [
-      { text: 'Read this chapter in another language or Bible version.' },
-      { text: 'Languages you add appear on the page itself, right beside the text.' },
+      { text: 'Read scripture in another language, or the Bible in another version.' },
+      { text: 'A language you add appears on the page with the English, beside or under each verse.' },
     ] },
     { id: 'settings', control: 'settings', title: 'Settings', lines: [
-      { text: 'Add languages and Bible versions, and set your reading preferences.' },
+      { text: 'Add languages and Bible versions, and change the text size or panel width.' },
     ] },
-    { id: 'text-size', control: 'text-size', title: 'Text size', lines: [
-      { text: 'Make the panel’s text larger or smaller.' },
-    ] },
-    { id: 'hide', control: 'collapse', title: 'Need more room?', lines: [
-      { text: 'This button tucks the panel away. Click {icon} in your browser’s toolbar to bring it back.' },
-      { text: 'Don’t see {icon}? Open the puzzle-piece menu in the toolbar and pin Translations & Citations.', when: { pinned: false } },
+    { id: 'hide', control: 'collapse', title: 'Hide the panel', lines: [
+      { text: 'The Collapse button hides the panel and leaves a small tab at the window’s edge. Click the tab to bring it back.' },
+      { text: 'The Translations & Citations icon {icon} in your browser’s toolbar shows and hides it too.' },
+      { text: 'Don’t see the icon? Click the puzzle piece in the toolbar, then the pin next to Translations & Citations.', when: { pinned: false } },
     ] },
   ];
 
@@ -496,7 +497,7 @@
   }
 
   // Step `index` of `steps` as the card draws it: the step, where it is in
-  // the tour (`position` "2 of 5"), and which buttons it carries — Back from
+  // the tour (`position` "2 of 4"), and which buttons it carries — Back from
   // the second step, Skip until the last, whose Next is Got it. An index out
   // of range is held to the tour's ends.
   function welcomeStepView(steps, index) {
@@ -507,7 +508,6 @@
       step: steps[i],
       index: i,
       position: `${i + 1} of ${count}`,
-      welcome: i === 0 ? WELCOME_COPY.title : null,
       back: i > 0,
       skip: !last,
       next: last ? WELCOME_COPY.gotIt : WELCOME_COPY.next,
@@ -546,7 +546,7 @@
   // inside the area; the caret stays `caretInset` in from the card's
   // corners; the ring sits `ringPad` out from the control and stops at the
   // panel's edges.
-  const CALLOUT_GEOMETRY = { cardMax: 300, caretInset: 18, ringPad: 3 };
+  const CALLOUT_GEOMETRY = { cardMax: 300, caretInset: 14, ringPad: 4 };
   function calloutPlacement({ control, area, panel }) {
     const g = CALLOUT_GEOMETRY;
     const areaW = Math.round(area.width);
@@ -1412,9 +1412,10 @@
   // The layer covers the whole panel but takes no pointer events: it holds
   // the ring drawn round the step's control (header and toolbar stay usable
   // through it) and the sheet, which covers the body only and holds the
-  // card. The card is built once and filled per step (showStep), so a button
-  // keeps focus while the reader walks the steps; its step text is a polite
-  // live region, so each new step is read out.
+  // card. The card is built once and filled per step (fillStep), so a button
+  // keeps focus while the reader walks the steps. The dialog is named by the
+  // step's title and described by its lines; the step's text is a polite
+  // live region, so each new step is read out once.
   function buildWelcome() {
     const layer = el('div', 'btx-welcome');
     const ring = el('div', 'btx-welcome-ring');
@@ -1425,19 +1426,19 @@
     const track = el('div', 'btx-welcome-track');
     const card = el('div', 'btx-welcome-dialog');
     card.setAttribute('role', 'dialog');
-    card.setAttribute('aria-label', WELCOME_COPY.title);
-    card.setAttribute('aria-describedby', 'btx-welcome-step');
+    card.setAttribute('aria-labelledby', 'btx-welcome-title');
+    card.setAttribute('aria-describedby', 'btx-welcome-lines');
     card.tabIndex = -1;
     const content = el('div', 'btx-welcome-step');
-    content.id = 'btx-welcome-step';
     content.setAttribute('aria-live', 'polite');
-    const eyebrow = el('p', 'btx-welcome-eyebrow');
     const head = el('div', 'btx-welcome-head');
     const title = el('h2', 'btx-welcome-title');
+    title.id = 'btx-welcome-title';
     const position = el('span', 'btx-welcome-position');
     head.append(title, position);
     const lines = el('div', 'btx-welcome-lines');
-    content.append(eyebrow, head, lines);
+    lines.id = 'btx-welcome-lines';
+    content.append(head, lines);
     const foot = el('div', 'btx-welcome-foot');
     const skip = el('button', 'btx-welcome-skip', WELCOME_COPY.skip);
     const back = el('button', 'btx-welcome-back', WELCOME_COPY.back);
@@ -1445,7 +1446,7 @@
     for (const b of [skip, back, next]) b.type = 'button';
     skip.addEventListener('click', onWelcomeDone);
     back.addEventListener('click', () => showStep(welcomeStep - 1));
-    next.addEventListener('click', () => (welcome.view.last ? onWelcomeDone() : showStep(welcomeStep + 1)));
+    next.addEventListener('click', onWelcomeNext);
     foot.append(skip, back, next);
     card.append(content, foot);
     track.appendChild(card);
@@ -1453,21 +1454,31 @@
     layer.appendChild(sheet);
     // Esc is not Got it, and must not reach the talk reader's Back either.
     layer.addEventListener('keydown', (e) => { if (e.key === 'Escape') e.stopPropagation(); });
-    return { layer, sheet, track, card, ring, eyebrow, title, position, lines, skip, back, next, steps: welcomeSteps(welcomeFacts), view: null };
+    return { layer, sheet, track, card, ring, title, position, lines, skip, back, next, steps: welcomeSteps(welcomeFacts), view: null, shownAt: 0 };
   }
 
-  // Fill the card with step `i` (held to the tour's ends), then place it.
-  // Back on the first step is hidden, so focus that sat on it moves to Next
-  // and never drops to the page. A step change glides the ring to its new
-  // control; a resize places it at once.
-  function showStep(i) {
+  // Next, or Got it on the last step. A click that lands just after the
+  // step changed is the second half of a double click (Next turns into Got
+  // it in place, and the card may move under the pointer): it is dropped,
+  // so a double click never ends the tour for good.
+  const WELCOME_CLICK_GUARD_MS = 350;
+  function onWelcomeNext() {
+    if (performance.now() - welcome.shownAt < WELCOME_CLICK_GUARD_MS) return;
+    if (welcome.view.last) onWelcomeDone();
+    else showStep(welcomeStep + 1);
+  }
+
+  // Fill the card with step `i` (held to the tour's ends): its text, its
+  // buttons, and which controls dim (all but the step's own, so the ringed
+  // one stands out). Back on the first step is hidden, so focus that sat on
+  // it moves to Next and never drops to the page.
+  function fillStep(i) {
     const w = welcome;
     const v = welcomeStepView(w.steps, i);
     const backHadFocus = document.activeElement === w.back;
     welcomeStep = v.index;
     w.view = v;
-    w.eyebrow.textContent = v.welcome || '';
-    w.eyebrow.hidden = !v.welcome;
+    w.shownAt = performance.now();
     w.title.textContent = v.step.title;
     w.position.textContent = v.position;
     w.lines.replaceChildren(...v.step.lines.map((line) => {
@@ -1479,7 +1490,15 @@
     w.skip.hidden = !v.skip;
     w.next.textContent = v.next;
     w.card.setAttribute('data-btx-step', v.step.id);
+    dimControls(v.step.control);
     if (backHadFocus && !v.back) w.next.focus({ preventScroll: true });
+  }
+
+  // A step change: fill, then glide the ring to its new control (a resize
+  // places it at once).
+  function showStep(i) {
+    const w = welcome;
+    fillStep(i);
     if (!w.ring.hidden) {
       w.ring.classList.add('btx-glide');
       clearTimeout(w.glide);
@@ -1488,13 +1507,23 @@
     placeWelcome();
   }
 
-  // The extension's own toolbar icon, drawn where a line names it.
+  // Every control the welcome may point at, dimmed but the one `keep`
+  // names (null: none dimmed).
+  function dimControls(keep) {
+    for (const name of CONTROL_NAMES) {
+      for (const node of controlNodes(name)) node.toggleAttribute('data-btx-dim', keep !== null && name !== keep);
+    }
+  }
+
+  // The extension's own toolbar icon, drawn beside its name in words: a
+  // picture of what to look for, so its alt text is empty (the name is
+  // already read out).
   function extensionIcon() {
     const img = el('img', 'btx-welcome-icon');
-    img.alt = 'Translations & Citations';
+    img.alt = '';
     img.width = 16;
     img.height = 16;
-    try { img.src = chrome.runtime.getURL('icons/icon-32.png'); } catch (e) { /* extension reloaded: the alt text stands */ }
+    try { img.src = chrome.runtime.getURL('icons/icon-32.png'); } catch (e) { /* extension reloaded: the name in words stands */ }
     return img;
   }
 
@@ -1531,8 +1560,14 @@
     welcome.frame = requestAnimationFrame(() => { if (welcome) { welcome.frame = 0; placeWelcome(); } });
   }
 
+  // Filled before it is in the page, so the live region doesn't read the
+  // first step out on top of the dialog's own announcement. Focus goes to
+  // Next, not to the dialog: the dialog's name and description are read on
+  // the way in, and the first Tab stop is never Skip, which ends the tour.
   function openWelcome() {
     welcome = Object.assign(buildWelcome(), { observer: null, frame: 0, glide: 0 });
+    fillStep(welcomeStep);
+    ui.rootEl.setAttribute('data-btx-welcome', '');
     ui.panel.appendChild(welcome.layer);
     if (typeof ResizeObserver === 'function') {
       const observer = new ResizeObserver(schedulePlaceWelcome);
@@ -1544,9 +1579,9 @@
     // card never lands on a row or talk control the reader can't see, and
     // Esc never reaches a talk open under it.
     ui.body.inert = true;
-    showStep(welcomeStep);
+    placeWelcome();
     if (welcomeTakesFocus({ hidden: document.hidden, focused: document.hasFocus() })) {
-      welcome.card.focus({ preventScroll: true });
+      welcome.next.focus({ preventScroll: true });
     }
   }
 
@@ -1562,6 +1597,8 @@
     clearTimeout(glide);
     if (state.welcomeSeen) welcomeStep = 0;
     layer.remove();
+    dimControls(null);
+    ui.rootEl.removeAttribute('data-btx-welcome');
     ui.body.inert = false;
     if (hadFocus && visible && !state.collapsed) firstControl().focus({ preventScroll: true });
   }

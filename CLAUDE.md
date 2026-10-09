@@ -231,10 +231,11 @@ validators — go there before changing behaviour.
   those keys, and the panel fires `renderMode` when an external write stales
   its content. The old `chrome.storage.local` `btxPanelMode`/`btxPanelCollapsed`
   keys are migrated once by `panel.init` — nothing else may name them.
-  `welcomeSeen` (GLOSSARY: Welcome) is written true by the panel's Got it and
-  by the worker on an update, and false by "Show the welcome again"; when the
-  welcome shows is the pure `welcomeDue`, what it says the callouts table
-  (`WELCOME_CALLOUTS`), whose controls must be in the panel's `CONTROL_NAMES`.
+  `welcomeSeen` (GLOSSARY: Welcome) is written true by the panel's Got it or
+  Skip and by the worker on an update, and false by "Show the welcome again";
+  when the welcome shows is the pure `welcomeDue`, what it says the steps
+  table (`WELCOME_STEPS`, one step at a time through `welcomeStepView`), whose
+  controls must be in the panel's `CONTROL_NAMES` and show in every mode.
 - **Options page** autosaves: every change is one `SETTINGS.patch` (never
   `replace`, so panel keys absent from the form survive), and it `subscribe`s
   so an open form adopts changes made elsewhere (`fillForm(changed)`, skipping

@@ -215,16 +215,18 @@ one), or once dismissed. The **arrangement** answers it (`note`); the panel's
 note slot renders it, above the mounted view and never inside it.
 
 **Welcome**:
-A new reader's introduction, laid over the panel's body as a labelled dialog:
-a short list of **callouts**, each one line of copy and the panel control it
-points at (`WELCOME_CALLOUTS` and `CONTROL_NAMES` in the panel's pure core).
-A callout with a control is a bubble placed under it, its caret aimed at it,
-and the control is ringed (`calloutPlacement`); one with none (the toolbar
-icon's line, which draws the extension's icon inline, and the pinning line) is
-a plain line. It shows on any
-panel shown while the synced `welcomeSeen` setting is false (`welcomeDue`),
-so it greets on every chapter until **Got it**, which writes the setting true.
-Collapsing hides it without counting as seen. Install leaves the setting false
+A new reader's tour of the panel, laid over the panel's body as a labelled
+dialog, one **step** at a time (`WELCOME_STEPS` and `welcomeStepView` in the
+panel's pure core): Citations, Translation, Settings, then how to hide the
+panel and bring it back. Each step is a card under the header control it
+names (`CONTROL_NAMES`), its caret aimed at it, and that control ringed
+(`calloutPlacement`) while the others dim. The last step names the toolbar
+icon in words with its picture drawn inline, and adds how to pin it only
+while it isn't pinned. It shows on any panel shown while the synced
+`welcomeSeen` setting is false (`welcomeDue`), so it greets on every chapter
+until **Got it** (the last step) or **Skip**, which write the setting true.
+Collapsing hides it without counting as seen; an expand resumes at the same
+step. Install leaves the setting false
 and opens Alma 5; an update writes it true, so updates never greet; "Show the
 welcome again" writes it false. The page beside the panel stays usable while
 it shows.

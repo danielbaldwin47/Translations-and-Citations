@@ -937,35 +937,45 @@ eq(P.WELCOME_STEPS.map((s) => [s.id, s.control]), [
   ['citations', 'citations-tab'],
   ['translation', 'translation-tab'],
   ['settings', 'settings'],
-  ['text-size', 'text-size'],
   ['hide', 'collapse'],
-], 'five steps, in tour order (what the panel opens on first), against their controls');
+], 'four steps, in tour order (what the panel opens on first, the way back last), against their controls');
+// Every step's control shows in every mode and on every card, so no step
+// ever points at nothing (A− / A+ and the toolbar's selects hide on a card).
+check(P.WELCOME_STEPS.every((s) => ['translation-tab', 'citations-tab', 'settings', 'collapse'].includes(s.control)), 'every step points at a header control, which always shows');
 eq(new Set(P.WELCOME_STEPS.map((s) => s.id)).size, P.WELCOME_STEPS.length, 'step ids are unique');
 const sentences = (t) => t.split(/(?<=[.?])\s+/).filter(Boolean);
 for (const s of P.WELCOME_STEPS) {
-  check(typeof s.title === 'string' && s.title.length > 0 && s.title.length <= 24, `step "${s.id}" has a short title`);
-  check(s.lines.length >= 1 && s.lines.length <= 2, `step "${s.id}" says one or two things`);
+  check(typeof s.title === 'string' && s.title.length > 0 && s.title.length <= 40, `step "${s.id}" has a short title`);
+  check(s.lines.length >= 1 && s.lines.length <= 3, `step "${s.id}" says three things at most`);
+  // Plain words for readers of English as a second language: none of the
+  // idioms first-run testers stumbled on.
+  for (const l of s.lines) check(!/tuck|right beside|preferences|page itself/i.test(l.text), `step "${s.id}": no idioms ("${l.text.slice(0, 30)}…")`);
   for (const l of s.lines) {
     check(/[.?]$/.test(l.text) && sentences(l.text).length <= 2, `step "${s.id}": "${l.text.slice(0, 30)}…" is whole sentences, two at most`);
-    check(sentences(l.text).every((x) => x.length <= 95), `step "${s.id}": every sentence is short (95 characters at most)`);
+    check(sentences(l.text).every((x) => x.length <= 100), `step "${s.id}": every sentence is short (100 characters at most)`);
   }
 }
 const stepById = (id) => P.WELCOME_STEPS.find((s) => s.id === id) || { title: '', lines: [] };
 const said = (id) => stepById(id).lines.map((l) => l.text).join(' ');
-// The tabs' steps are titled with the tabs' own names, so the ring and the
-// card name the same thing.
-eq(stepById('citations').title, 'Citations', 'the Citations step is titled with the tab\'s name');
+// The first step greets; the others are titled with what their control
+// does, the tabs with the tabs' own names, so the ring and the card name the
+// same thing.
+eq(stepById('citations').title, P.WELCOME_COPY.title, 'the first step greets with the welcome\'s title');
+check(/^Citations\b/.test(said('citations')), '...and its text names the tab it points at, first');
 eq(stepById('translation').title, 'Translation', 'the Translation step is titled with the tab\'s name');
+check(/Collapse/.test(said('hide')), 'the last step names the Collapse button: the ring is not read out');
 // Spec A's model: Citations is where the panel opens (its step comes first),
 // and a language you add reads on the page whatever the panel shows.
 check(/talks/.test(said('citations')) && /each verse/.test(said('citations')), 'Citations: the talks that quote each verse');
 check(/language/.test(said('translation')) && /Bible/.test(said('translation')), 'Translation: another language or Bible version');
-check(/on the page/.test(said('translation')), 'a language you add reads on the page');
-check(/toolbar/.test(said('hide')) && /bring it back/.test(said('hide')), 'the last step: the toolbar icon brings the panel back');
+check(/on the page/.test(said('translation')) && /beside or under each verse/.test(said('translation')), 'a language you add reads on the page, beside or under each verse (as the room allows)');
+check(/the Bible in another version/.test(said('translation')), 'a Bible version only on the Bible');
+check(/tab/.test(said('hide')) && /bring it back/.test(said('hide')), 'the last step: the tab at the window\'s edge brings the panel back');
+check(/Translations & Citations icon \{icon\}/.test(said('hide')) && /toolbar/.test(said('hide')), '...and so does the toolbar icon, named in words beside its picture');
 // A line draws the extension's icon inline, where its text marks it.
 eq(P.lineParts({ text: 'The {icon} button hides it.' }), ['The ', { icon: true }, ' button hides it.'], 'lineParts: the marker becomes the icon, in place');
 eq(P.lineParts({ text: 'Plain text.' }), ['Plain text.'], 'lineParts: a line with no marker is one text part');
-check(P.lineParts(stepById('hide').lines[0]).some((x) => typeof x !== 'string'), 'the last step draws the toolbar icon');
+check(stepById('hide').lines.some((l) => P.lineParts(l).some((x) => typeof x !== 'string')), 'the last step draws the toolbar icon');
 check(P.WELCOME_STEPS.filter((s) => s.id !== 'hide').every((s) => s.lines.every((l) => !/\{icon\}/.test(l.text))), 'only the last step draws the icon');
 check(typeof P.WELCOME_COPY.title === 'string' && P.WELCOME_COPY.title && P.WELCOME_COPY.gotIt === 'Got it', 'the welcome has a title and closes on Got it');
 // Which lines show, from what the panel knows (`when`: facts the line needs;
@@ -975,13 +985,13 @@ check(typeof P.WELCOME_COPY.title === 'string' && P.WELCOME_COPY.title && P.WELC
 // into "not pinned" (a pin suggested twice costs less than a needed one hidden).
 const pinLine = stepById('hide').lines.find((l) => l.when);
 check(pinLine && JSON.stringify(pinLine.when) === '{"pinned":false}', 'the pinning line needs { pinned: false }');
-check(pinLine && /pin/.test(pinLine.text) && /toolbar/.test(pinLine.text), 'the pinning line says how to pin to the toolbar');
+check(pinLine && /puzzle piece/.test(pinLine.text) && /the pin next to Translations & Citations/.test(pinLine.text), 'the pinning line says how to pin to the toolbar, click by click');
 const hideLines = (reply) => P.welcomeSteps(P.welcomeFactsFrom(reply)).find((s) => s.id === 'hide').lines.length;
 eq(P.welcomeSteps(P.welcomeFactsFrom({ isOnToolbar: true })).map((s) => s.id), P.WELCOME_STEPS.map((s) => s.id), 'every step shows whatever the facts');
-eq(hideLines({ isOnToolbar: false }), 2, 'icon not on the toolbar: the last step carries the pinning line');
-eq(hideLines({ isOnToolbar: true }), 1, 'icon pinned: no pinning line');
+eq(hideLines({ isOnToolbar: false }), 3, 'icon not on the toolbar: the last step carries the pinning line');
+eq(hideLines({ isOnToolbar: true }), 2, 'icon pinned: no pinning line');
 for (const [what, reply] of [['null (API missing)', { isOnToolbar: null }], ['an empty reply', {}], ['no reply', undefined], ['an error reply', { error: { code: 'NETWORK' } }], ['a non-boolean', { isOnToolbar: 'yes' }]]) {
-  eq(hideLines(reply), 2, `unknown answer, ${what}: the pinning line shows`);
+  eq(hideLines(reply), 3, `unknown answer, ${what}: the pinning line shows`);
 }
 {
   const table = [{ id: 'a', control: 'settings', title: 'A', lines: [{ text: 'A.' }, { text: 'Pin it.', when: { pinned: false } }] }];
@@ -996,22 +1006,21 @@ console.log('welcomeStepView:');
 {
   const steps = P.welcomeSteps({ pinned: false });
   const v = (i) => P.welcomeStepView(steps, i);
-  eq([v(0).step.id, v(0).position, v(0).welcome, v(0).back, v(0).skip, v(0).next, v(0).last],
-    ['citations', '1 of 5', P.WELCOME_COPY.title, false, true, 'Next', false],
-    'step 1: the welcome\'s title above the first step, no Back, Skip and Next');
-  eq([v(2).step.id, v(2).position, v(2).welcome, v(2).back, v(2).skip, v(2).next],
-    ['settings', '3 of 5', null, true, true, 'Next'], 'a middle step: Back, Skip and Next; the welcome\'s title only on the first');
-  eq([v(4).step.id, v(4).position, v(4).back, v(4).skip, v(4).next, v(4).last],
-    ['hide', '5 of 5', true, false, 'Got it', true], 'the last step: Back and Got it, no Skip');
-  eq([v(-1).index, v(9).index, v(undefined).index, v(1.5).index], [0, 4, 0, 0], 'an index out of range is held to the tour\'s ends');
+  eq([v(0).step.id, v(0).position, v(0).back, v(0).skip, v(0).next, v(0).last],
+    ['citations', '1 of 4', false, true, 'Next', false], 'step 1: no Back; Skip and Next');
+  eq([v(2).step.id, v(2).position, v(2).back, v(2).skip, v(2).next],
+    ['settings', '3 of 4', true, true, 'Next'], 'a middle step: Back, Skip and Next');
+  eq([v(3).step.id, v(3).position, v(3).back, v(3).skip, v(3).next, v(3).last],
+    ['hide', '4 of 4', true, false, 'Got it', true], 'the last step: Back and Got it, no Skip');
+  eq([v(-1).index, v(9).index, v(undefined).index, v(1.5).index], [0, 3, 0, 0], 'an index out of range is held to the tour\'s ends');
 }
 
 // Where the step's card is drawn (#113): under the control it names, its
 // caret aimed at the control's centre, and a ring round the control itself.
 // All in the welcome layer's coordinates (the panel's box); `area` is the
 // card's content box, so the card's left comes back relative to it. The
-// shipped geometry: cards at most 300px wide, the caret at least 18px in
-// from a card's edge, the ring 3px out from the control and never past the
+// shipped geometry: cards at most 300px wide, the caret at least 14px in
+// from a card's edge, the ring 4px out from the control and never past the
 // panel's edge.
 console.log('calloutPlacement:');
 {
@@ -1021,14 +1030,14 @@ console.log('calloutPlacement:');
   const NARROW = { width: 280, height: 700 };
   const NARROW_AREA = { left: 22, width: 236 };
   eq(at({ left: 10, top: 7, width: 80, height: 30 }, NARROW_AREA, NARROW),
-    { card: { left: 0, width: 236 }, caret: 28, ring: { left: 7, top: 4, width: 86, height: 36 } },
+    { card: { left: 0, width: 236 }, caret: 28, ring: { left: 6, top: 3, width: 88, height: 38 } },
     '280px, the Translation tab: a full-width card, the caret under the tab\'s centre, the tab ringed');
   eq(at({ left: 214, top: 7, width: 30, height: 30 }, NARROW_AREA, NARROW),
-    { card: { left: 0, width: 236 }, caret: 207, ring: { left: 211, top: 4, width: 36, height: 36 } },
+    { card: { left: 0, width: 236 }, caret: 207, ring: { left: 210, top: 3, width: 38, height: 38 } },
     '280px, Settings: the caret moves right under the gear');
   eq(at({ left: 222, top: 51, width: 56, height: 28 }, NARROW_AREA, NARROW),
-    { card: { left: 0, width: 236 }, caret: 218, ring: { left: 219, top: 48, width: 61, height: 34 } },
-    '280px, A− / A+ at the edge: the caret stops 18px in from the card\'s corner, the ring at the panel\'s edge');
+    { card: { left: 0, width: 236 }, caret: 222, ring: { left: 218, top: 47, width: 62, height: 36 } },
+    '280px, A− / A+ at the edge: the caret stops 14px in from the card\'s corner, the ring at the panel\'s edge');
   for (const none of [null, { left: 0, top: 0, width: 0, height: 0 }]) {
     eq(at(none, NARROW_AREA, NARROW), { card: { left: 0, width: 236 }, caret: null, ring: null },
       `280px, ${none ? 'a control not showing (no box)' : 'no control'}: a plain full-width card, no caret, no ring`);
@@ -1038,25 +1047,25 @@ console.log('calloutPlacement:');
   const WIDE = { width: 900, height: 700 };
   const WIDE_AREA = { left: 22, width: 856 };
   eq(at({ left: 10, top: 7, width: 200, height: 30 }, WIDE_AREA, WIDE),
-    { card: { left: 0, width: 300 }, caret: 88, ring: { left: 7, top: 4, width: 206, height: 36 } },
+    { card: { left: 0, width: 300 }, caret: 88, ring: { left: 6, top: 3, width: 208, height: 38 } },
     '900px, the Translation tab: a 300px card held at the area\'s left edge, the caret under the tab');
   eq(at({ left: 210, top: 7, width: 200, height: 30 }, WIDE_AREA, WIDE).card, { left: 138, width: 300 },
     '900px, the Citations tab: the card centred under the tab');
   eq(at({ left: 210, top: 7, width: 200, height: 30 }, WIDE_AREA, WIDE).caret, 150, '...the caret at its middle');
   eq(at({ left: 834, top: 7, width: 30, height: 30 }, WIDE_AREA, WIDE),
-    { card: { left: 556, width: 300 }, caret: 271, ring: { left: 831, top: 4, width: 36, height: 36 } },
+    { card: { left: 556, width: 300 }, caret: 271, ring: { left: 830, top: 3, width: 38, height: 38 } },
     '900px, Settings: the card held at the area\'s right edge, the caret under the gear');
   eq(at(null, WIDE_AREA, WIDE), { card: { left: 0, width: 856 }, caret: null, ring: null },
     '900px, no control: a plain card across the area');
   // A tab from x=10.4 to 90.7: centre 50.55, so the caret at 28.55 from the
-  // area's edge; the ring from 7.4 to 93.7.
+  // area's edge; the ring from 6.4 to 94.7.
   eq(at({ left: 10.4, top: 7.2, width: 80.3, height: 29.6 }, NARROW_AREA, NARROW),
-    { card: { left: 0, width: 236 }, caret: 29, ring: { left: 7, top: 4, width: 87, height: 36 } },
+    { card: { left: 0, width: 236 }, caret: 29, ring: { left: 6, top: 3, width: 89, height: 38 } },
     'measured fractions come back as whole pixels');
   // A short panel (the browser window squeezed): the A− / A+ stepper's
   // bottom sits 1px above the panel's bottom, so its ring stops at the edge.
   eq(at({ left: 222, top: 51, width: 56, height: 28 }, NARROW_AREA, { width: 280, height: 80 }).ring,
-    { left: 219, top: 48, width: 61, height: 32 },
+    { left: 218, top: 47, width: 62, height: 33 },
     'a control near the panel\'s bottom: the ring stops at the bottom edge too');
 }
 eq(P.unionRect([{ left: 212, top: 51, width: 28, height: 28 }, { left: 244, top: 51, width: 28, height: 28 }]),
@@ -1375,13 +1384,13 @@ const controlsLit = (panelSrcText.match(/const controls = \{([\s\S]*?)\};/) || [
 eq((controlsLit.match(/'[a-z-]+'(?=:)|\b[a-z]+(?=:)/g) || []).map((k) => k.replace(/'/g, '')).sort(), P.CONTROL_NAMES.slice().sort(),
   'the shell maps exactly the exported control names to the nodes it built');
 const welcomeSrc = (panelSrcText.match(/function buildWelcome\(\) \{[\s\S]*?\n {2}\}\n/) || [''])[0];
-check(/setAttribute\('role', 'dialog'\)/.test(welcomeSrc) && /setAttribute\('aria-label', WELCOME_COPY\.title\)/.test(welcomeSrc),
+check(/setAttribute\('role', 'dialog'\)/.test(welcomeSrc) && /setAttribute\('aria-labelledby', 'btx-welcome-title'\)/.test(welcomeSrc),
   'the welcome is a labelled dialog');
 check(welcomeSrc && !/innerHTML/.test(welcomeSrc), 'the welcome is built from text nodes, never markup');
 check(/addEventListener\('keydown', \(e\) => \{ if \(e\.key === 'Escape'\) e\.stopPropagation\(\); \}\)/.test(welcomeSrc),
   'Esc stops at the welcome: the talk reader\'s listener on #btx-root never sees it');
 check(/welcomeSteps\(welcomeFacts\)/.test(welcomeSrc), 'the welcome is built from the facts the worker answered');
-const stepSrc = (panelSrcText.match(/function showStep\(i\) \{[\s\S]*?\n {2}\}\n/) || [''])[0];
+const stepSrc = (panelSrcText.match(/function fillStep\(i\) \{[\s\S]*?\n {2}\}\n/) || [''])[0];
 check(/welcomeStepView\(/.test(stepSrc) && /lineParts\(/.test(stepSrc) && !/innerHTML/.test(stepSrc), 'each step is drawn by the pure view, from text nodes');
 check(/persist\(\{ welcomeSeen: true \}\)/.test(panelSrcText), 'Got it writes the flag through __BTX.settings');
 const placeSrc = (panelSrcText.match(/function placeWelcome\(\) \{[\s\S]*?\n {2}\}\n/) || [''])[0];
@@ -1393,6 +1402,12 @@ const gotItSrc = (panelSrcText.match(/function onWelcomeDone\(\) \{[\s\S]*?\n {2
 check(/ui\.body\.inert = true/.test(openSrc) && /ui\.body\.inert = false/.test(closeSrc),
   'the body under the welcome is inert while it shows (Tab never reaches a hidden row; Esc never reaches a hidden talk), and not after');
 check(/welcomeTakesFocus\(/.test(openSrc), 'the welcome takes focus only by the pure rule (a background tab keeps its focus)');
+check(/welcome\.next\.focus\(/.test(openSrc), '...and gives it to Next: the first Tab stop is never Skip, which ends the tour');
+check(openSrc.indexOf('fillStep(') !== -1 && openSrc.indexOf('fillStep(') < openSrc.indexOf('appendChild(welcome.layer)'),
+  'the first step is filled before the welcome is in the page: the live region doesn\'t read it out over the dialog');
+const nextSrc = (panelSrcText.match(/function onWelcomeNext\(\) \{[\s\S]*?\n {2}\}\n/) || [''])[0];
+check(/WELCOME_CLICK_GUARD_MS/.test(nextSrc), 'a click just after a step change is dropped: a double click never ends the tour');
+check(/dimControls\(null\)/.test(closeSrc), 'closing the welcome undims every control');
 check(gotItSrc && !/\.focus\(/.test(gotItSrc), 'Got it and Skip move focus once: closeWelcome does it, onWelcomeDone does not again');
 check(/focusOnToggle\(state\)/.test((panelSrcText.match(/function setCollapsed\([\s\S]*?\n {2}\}\n/) || [''])[0]),
   'a collapse or an expand puts focus where the pure rule says');
