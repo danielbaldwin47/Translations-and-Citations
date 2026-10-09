@@ -8,7 +8,8 @@
  * versions lead the list and which are duplicates, which start checked, which
  * default wins, where a refreshed list's rows go, what an autosave may write
  * and retry, which controls a change arriving from another context may
- * repaint, when Connect rests, the language search, and the status copy.
+ * repaint, when Connect rests and how it re-runs, the language search, and
+ * the status copy with its links.
  * Those are the rules the stale-list and wrong-default bugs lived in.
  *
  * It also checks where the in-product disclosures (C.DISCLOSURE) sit: beside
@@ -224,6 +225,40 @@ eq(kc({ keyState: 'checking', listed: true }), { connect: false, recheck: true }
 eq(kc({ field: 'k2', keyState: 'checking', listed: true }), { connect: false, recheck: false }, 'while another key is checked: neither');
 eq(kc({ field: 'k1', keyState: 'error' }), { connect: true, recheck: false }, 'the stored key after an error: Connect retries it');
 
+// ---- keyFromField: a pasted key connects as if pasted cleanly (#124) ----
+console.log('keyFromField:');
+eq(F.keyFromField('  abc123  '), 'abc123', 'spaces around a pasted key are dropped');
+eq(F.keyFromField('\tabc123\n'), 'abc123', 'so are tabs and a trailing line break');
+eq(F.keyFromField('\u200babc123\ufeff\u00a0'), 'abc123', 'and the invisible characters a web page copies along');
+eq(F.keyFromField('abc123'), 'abc123', 'a clean key is unchanged');
+eq(F.keyFromField('   '), '', 'only spaces is no key');
+eq(F.keyFromField(undefined), '', 'no field value is no key');
+
+// ---- checkingWait / statusChange: every Connect visibly re-runs (#124) ----
+// An explicit Connect (button, Enter, "Check for new translations") shows
+// "Checking…" long enough to be seen and announced, however fast api.bible
+// answers; an automatic try (paste, change) shows its answer at once.
+console.log('checkingWait:');
+const HOLD = F.CHECKING_MIN_MS;
+check(HOLD >= 400 && HOLD <= 1000, `"Checking…" holds long enough to see, not long enough to drag (${HOLD} ms)`);
+eq(F.checkingWait({ explicit: true, since: 1000, now: 1050 }), HOLD - 50, 'a fast answer to Connect waits out the rest of the hold');
+eq(F.checkingWait({ explicit: true, since: 1000, now: 1000 + HOLD }), 0, 'an answer at the hold shows at once');
+eq(F.checkingWait({ explicit: true, since: 1000, now: 1000 + HOLD + 2000 }), 0, 'a slow answer is never held longer');
+eq(F.checkingWait({ explicit: false, since: 1000, now: 1001 }), 0, 'an automatic try shows its answer at once');
+
+// What a status line write does to its live region. A screen reader hears a
+// line only when its text changes, so a result asked to be announced that
+// matches what is shown is cleared and set again ('reannounce'); an unasked
+// repeat writes nothing, so it can't be announced twice by accident.
+console.log('statusChange:');
+const LINE = 'api.bible didn’t accept that key.';
+eq(F.statusChange({ shown: 'Checking…', text: LINE, announce: true }), 'set', 'a new line is simply set (and announced)');
+eq(F.statusChange({ shown: 'Checking…', text: LINE, announce: false }), 'set', '...asked or not');
+eq(F.statusChange({ shown: LINE, text: LINE, announce: true }), 'reannounce', 'the same line asked to be announced is cleared, then set again');
+eq(F.statusChange({ shown: LINE, text: LINE, announce: false }), 'keep', 'the same line unasked writes nothing');
+eq(F.statusChange({ shown: '', text: '', announce: true }), 'keep', 'an empty line has nothing to announce');
+check(F.REANNOUNCE_MS >= 100, `the clear lasts past a rendered frame, so the accessibility tree sees it (${F.REANNOUNCE_MS} ms)`);
+
 // ---- fillPlan: what an incoming change is allowed to repaint ----
 console.log('fillPlan:');
 const FIELD_KEYS = ['apiKey', 'scrollSync', 'sidebarWidth'];
@@ -282,18 +317,33 @@ eq(F.yoursNote({ partial: false, yours: 0 }), [
   ' (Plan, then Edit Plan, then Edit Bible Licenses), then choose Check for new translations — or turn on a free one below.',
 ], 'an empty "yours" links the dashboard, names the path there, and refills through the button that refetches (Connect rests on a connected key)');
 eq(F.yoursNote({ partial: false, yours: 2 }), [], 'a full list with versions in "yours" needs no note');
-const bad = 'api.bible didn’t accept that key. Check that you copied all of it.';
-eq(F.keyErrorText({ code: C.ERR.INVALID_KEY }), bad, 'a wrong key says so in plain words');
+// keyErrorText is linked text too. A wrong key (#124): both fixes, for a
+// reader who miscopied and for one with no account yet, each phrase a link
+// straight to api.bible's page.
+const bad = [
+  'api.bible didn’t accept that key. Copy it again from ',
+  { text: 'your api.bible account page', href: 'https://api.bible/team' },
+  ', or ',
+  { text: 'create a free account', href: 'https://api.bible/sign-up' },
+  ' first.',
+];
+eq(F.keyErrorText({ code: C.ERR.INVALID_KEY }), bad, 'a wrong key names both fixes, linking the dashboard and sign-up');
 eq(F.keyErrorText({ code: C.ERR.FORBIDDEN }), bad, 'a 403 on the list is a key problem too');
-eq(F.keyErrorText({ code: C.ERR.NETWORK, message: 'Failed to fetch' }), 'Couldn’t reach api.bible. Check your connection and try again.',
+eq(F.plainText(bad), 'api.bible didn’t accept that key. Copy it again from your api.bible account page, or create a free account first.',
+  'the line reads (and is announced) as one sentence');
+eq(F.plainText([]), '', 'no parts is no text');
+eq(F.keyErrorText({ code: C.ERR.NETWORK, message: 'Failed to fetch' }), ['Couldn’t reach api.bible. Check your connection and try again.'],
   'offline says to check the connection');
-eq(F.keyErrorText({ code: C.ERR.RATE_LIMITED }), 'api.bible is busy. Try again in a minute.', 'rate-limited says to wait');
-eq(F.keyErrorText({ code: C.ERR.UNKNOWN, message: 'HTTP 500' }), 'Couldn’t check the key (HTTP 500). Try again.',
+eq(F.keyErrorText({ code: C.ERR.RATE_LIMITED }), ['api.bible is busy. Try again in a minute.'], 'rate-limited says to wait');
+eq(F.keyErrorText({ code: C.ERR.UNKNOWN, message: 'HTTP 500' }), ['Couldn’t check the key (HTTP 500). Try again.'],
   'anything else names what happened, never a bare error code');
-eq(F.keyErrorText(undefined), 'Couldn’t check the key (no answer). Try again.', 'no response at all is still a sentence');
+eq(F.keyErrorText(undefined), ['Couldn’t check the key (no answer). Try again.'], 'no response at all is still a sentence');
 for (const code of Object.values(C.ERR)) {
-  check(!/^[A-Z_]+$/.test(F.keyErrorText({ code })) && !new RegExp(`^Error: `).test(F.keyErrorText({ code })),
-    `${code} reads as a sentence`);
+  const words = F.plainText(F.keyErrorText({ code }));
+  check(!/^[A-Z_]+$/.test(words) && !/^Error: /.test(words), `${code} reads as a sentence`);
+  if (code !== C.ERR.INVALID_KEY && code !== C.ERR.FORBIDDEN) {
+    check(F.keyErrorText({ code }).every((part) => typeof part === 'string'), `${code}: no links (the fix is to wait or retry)`);
+  }
 }
 
 // ---- Church languages ----
@@ -461,9 +511,9 @@ for (const reply of [{ error: { code: 'UNKNOWN', message: 'x' } }, null, undefin
 // ---- the DOM shell stays out of Node ----
 console.log('Shell:');
 eq(Object.keys(F).sort(), [
-  'aboutCopy', 'commitPatch', 'connectedText', 'dedupeVersions', 'failedWrites', 'fillPlan', 'groupCount', 'initialChecks', 'isAdded',
-  'keyControls', 'keyErrorText', 'languageGroups', 'languageList', 'languageTick', 'listGuesses', 'matchesLanguage', 'mergeVersions', 'moreLabel', 'offeredLanguages',
-  'patchLanded', 'pickDefaultId', 'stableGroups', 'translationPatch', 'versionGroups', 'versionLabel', 'welcomeAgainError', 'withStored',
+  'aboutCopy', 'CHECKING_MIN_MS', 'checkingWait', 'commitPatch', 'connectedText', 'dedupeVersions', 'failedWrites', 'fillPlan', 'groupCount', 'initialChecks', 'isAdded',
+  'keyControls', 'keyFromField', 'keyErrorText', 'languageGroups', 'languageList', 'languageTick', 'listGuesses', 'matchesLanguage', 'mergeVersions', 'moreLabel', 'offeredLanguages',
+  'patchLanded', 'pickDefaultId', 'plainText', 'REANNOUNCE_MS', 'stableGroups', 'statusChange', 'translationPatch', 'versionGroups', 'versionLabel', 'welcomeAgainError', 'withStored',
   'WELCOME_AGAIN', 'yoursNote',
 ].sort(), 'requiring the page in Node exposes the pure core and nothing else');
 
@@ -516,6 +566,24 @@ check(/await write\(partial, \['apiKey'\][\s\S]*\n {4}updateConnect\(\);/.test(b
   'once a connect saves its key, Connect rests and "Check for new translations" shows');
 check((bodyOf('connect').match(/settleKeyFocus\(from\)/g) || []).length === 2 && /const from = document\.activeElement/.test(bodyOf('connect')),
   'a connect that disables the button pressed puts keyboard focus back on the key row, on success and on error');
+// Every Connect visibly re-runs and is heard (#124).
+check(/const since = Date\.now\(\);\s*const res = await send\(/.test(bodyOf('connect'))
+  && /await sleep\(checkingWait\(\{ explicit, since, now: Date\.now\(\) \}\)\);\s*if \(seq !== connectSeq\) return;/.test(bodyOf('connect')),
+  'an explicit Connect holds "Checking…" for checkingWait, and a newer try still wins');
+check(/setKeyStatus\(keyErrorText\(res\.error\), 'error', \{ announce \}\)/.test(bodyOf('connect'))
+  && /showKeyState\(\{ announce \}\)/.test(bodyOf('connect')),
+  'a Connect\'s answer, error or success, is announced even when it repeats the last one');
+check(/setKeyStatus\(keyErrorText\(res\.error\), 'error'\)/.test(bodyOf('refreshList')), 'a stored key rejected on open shows the same linked line');
+check(/statusChange\(\{ shown: statusShown, text: plainText\(parts\), announce/.test(bodyOf('setKeyStatus'))
+  && /setTimeout\([\s\S]*?REANNOUNCE_MS\)/.test(bodyOf('setKeyStatus')),
+  'the key status writes through statusChange, re-announcing a repeat after its clear has rendered');
+check(/linkedText\(els\.keyStatus, parts\)/.test(bodyOf('writeKeyStatus')) && !/innerHTML/.test(shell),
+  'the status line renders through linkedText (text nodes and anchors, never innerHTML)');
+check((shell.match(/linkedText\(els\.keyStatus/g) || []).length === 1 && !/els\.keyStatus\.(textContent|innerText|replaceChildren)/.test(shell),
+  'the key status line has one writer');
+check(!/apiKey\.value\.trim\(\)/.test(shell) && (shell.match(/keyFromField\(els\.apiKey\.value\)/g) || []).length >= 5,
+  'the shell reads the key field through keyFromField, so stray spaces never cost a reader');
+check(/id="keyStatus"[^>]*role="status"[^>]*aria-live="polite"/.test(html), 'the key status is a polite live region');
 check(/listed: versionsLoaded/.test(bodyOf('updateConnect')), '"Check for new translations" knows whether a list is on screen');
 check(/if \(!els\.connectKey\.disabled\) connect\(true\)/.test(shell), 'Enter in the key field rests with Connect (no refetch of the connected key)');
 check(/keyControls\(/.test(bodyOf('updateConnect')) && /els\.recheckKey\.hidden = !c\.recheck/.test(bodyOf('updateConnect')),
