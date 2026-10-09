@@ -21,9 +21,12 @@
  *   how does each read, and what else could be added?
  *     labelFor(row, list) -> "NIV — New International Version" | "Español — Spanish"
  *       twins in `list` told apart by description, else id edition, else order
- *     menuFor(list) -> [{ label, items: [{ id, label }] }]
- *       the dropdown: 'Bible translations' then 'Church languages', headed only
- *       when both are there
+ *     menuFor(list, { isBible }) -> [{ label, items: [{ id, label }] }]
+ *       the dropdown. Bible chapter: 'Bible versions' then 'Languages', always
+ *       headed, a group only when it has rows (one Bible version alone is still
+ *       headed). Any other chapter: no Bible group, the language rows in one
+ *       unheaded group. `isBible` is the caller's fact about the chapter, never
+ *       inferred from the rows.
  *     languagesToAdd({ collection, pageLang, enabled }) -> [{ code, label }]
  *       the setup card's list: languages publishing the volume, not yet on,
  *       A–Z by English name and labelled English first ("Spanish — Español")
@@ -165,18 +168,21 @@
     return n < 0 ? base : `${base} (${n + 1})`;
   }
 
-  // The translation dropdown: Bible translations, then Church languages, each
-  // under its own heading only when both kinds are there.
-  //   -> [{ label: 'Bible translations' | 'Church languages' | null, items: [{ id, label }] }]
-  function menuFor(list) {
+  // The translation dropdown: on a Bible chapter "Bible versions" then
+  // "Languages", each only when it has rows; elsewhere the rows unheaded.
+  //   -> [{ label: 'Bible versions' | 'Languages' | null, items: [{ id, label }] }]
+  function menuFor(list, opts) {
     const rows = Array.isArray(list) ? list : [];
     const item = (r) => ({ id: r.id, label: labelFor(r, rows) });
     const bible = rows.filter((r) => r.provider !== PROVIDER).map(item);
     const church = rows.filter((r) => r.provider === PROVIDER).map(item);
-    if (bible.length && church.length) {
-      return [{ label: 'Bible translations', items: bible }, { label: 'Church languages', items: church }];
+    if (!(opts && opts.isBible)) {
+      return bible.length || church.length ? [{ label: null, items: bible.concat(church) }] : [];
     }
-    return bible.length || church.length ? [{ label: null, items: bible.concat(church) }] : [];
+    const groups = [];
+    if (bible.length) groups.push({ label: 'Bible versions', items: bible });
+    if (church.length) groups.push({ label: 'Languages', items: church });
+    return groups;
   }
 
   // The languages the setup card offers to add: every Church language that
