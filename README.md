@@ -16,8 +16,9 @@ Citations and the World English Bible need no setup. Church languages need no
 key. Other Bible translations need a free key from api.bible.
 
 **Current version: 1.0.0** — see [CHANGELOG.md](CHANGELOG.md). Free, no ads, no
-account, no analytics; the [privacy policy](docs/privacy.md) lists what is
-stored and what is sent where.
+account. No analytics of our own. Only api.bible's required usage report, and
+only once you connect a key. The [privacy policy](docs/privacy.md) lists what
+is stored and what is sent where.
 
 ## Install
 

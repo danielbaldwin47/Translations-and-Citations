@@ -89,16 +89,49 @@
     },
 
     // --- The options page's About card (spec #69) ---
-    // Source lines and links, shown as text (options.js aboutCopy). The Store
-    // description (docs/store/listing.md) carries `citationSource` word for
-    // word (tools/validate-options-form.js). The two URLs are owner decisions:
-    // the privacy policy's published address (#81) and the support channel.
+    // Source lines, links and "Your data", shown as text (options.js
+    // aboutCopy). The Store description (docs/store/listing.md) carries
+    // `citationSource` word for word (tools/validate-options-form.js). The two
+    // URLs are owner decisions: the privacy policy's published address (#81)
+    // and the support channel.
+    //
+    // `yourData` (#128) is what the code stores and contacts, in plain words:
+    // a change to what is kept in chrome.storage.local or .sync, or to a host
+    // the extension fetches from, changes these lines and docs/privacy.md
+    // together. A site line is { text, hosts }: what it is for, then its full
+    // hostnames; tools/validate-manifest.js checks every manifest host is one.
     ABOUT: {
       citationSource: 'Citation data compiled with reference to the BYU Scripture Citation Index. '
         + 'Not affiliated with or endorsed by BYU or The Church of Jesus Christ of Latter-day Saints.',
       jodSource: 'Journal of Discourses text: Wikisource, public domain',
       privacyUrl: 'https://github.com/danielbaldwin47/Translations-and-Citations/blob/main/docs/privacy.md',
       supportUrl: 'https://github.com/danielbaldwin47/Translations-and-Citations/issues',
+      yourData: {
+        local: {
+          head: 'On this computer',
+          items: [
+            'Your highlights',
+            'api.bible chapters you’ve read, so they open faster',
+            'The list of translations your api.bible key unlocks',
+            'A random id that api.bible’s usage report uses',
+            'This month’s count of api.bible requests',
+            'The translation or language you picked last',
+          ],
+        },
+        synced: {
+          head: 'Synced through your Chrome account',
+          items: ['Your settings, including your api.bible key and your languages'],
+        },
+        sites: {
+          head: 'Sites it contacts',
+          items: [
+            { text: 'Church languages and General Conference talks', hosts: ['www.churchofjesuschrist.org'] },
+            { text: 'Early conference talks', hosts: ['scriptures.byu.edu'] },
+            { text: 'Only once you connect a key: Bible chapters, your list of translations, and the usage report',
+              hosts: ['rest.api.bible', 'fums.api.bible'] },
+          ],
+        },
+      },
     },
 
     // --- First run ---
