@@ -433,13 +433,20 @@ eq(about.links[1].href, 'https://github.com/danielbaldwin47/Translations-and-Cit
 const settingKeys = Object.keys(S.defaults());
 check(!Object.keys(about).some((k) => settingKeys.indexOf(k) >= 0), 'nothing the About card shows is a setting');
 
+// "Show the welcome again" (#115): the one control on the About card. Its write
+// is the welcome-seen flag false; the welcome then shows by its ordinary due rule.
+eq(F.WELCOME_AGAIN.label, 'Show the welcome again', 'the About card\'s button reads "Show the welcome again"');
+eq(F.WELCOME_AGAIN.patch, { welcomeSeen: false }, '...and its write is the welcome-seen flag false, nothing else');
+check(settingKeys.indexOf('welcomeSeen') >= 0 && S.normalize(F.WELCOME_AGAIN.patch).welcomeSeen === false,
+  '...a key __BTX.settings owns, which its normalizer keeps false');
+
 // ---- the DOM shell stays out of Node ----
 console.log('Shell:');
 eq(Object.keys(F).sort(), [
   'aboutCopy', 'commitPatch', 'connectedText', 'dedupeVersions', 'failedWrites', 'fillPlan', 'groupCount', 'initialChecks', 'isAdded',
   'keyControls', 'keyErrorText', 'languageGroups', 'languageList', 'languageTick', 'listGuesses', 'matchesLanguage', 'mergeVersions', 'moreLabel', 'offeredLanguages',
   'patchLanded', 'pickDefaultId', 'stableGroups', 'translationPatch', 'versionGroups', 'versionLabel', 'withStored',
-  'yoursNote',
+  'WELCOME_AGAIN', 'yoursNote',
 ].sort(), 'requiring the page in Node exposes the pure core and nothing else');
 
 // ---- the shell actually uses the core ----
@@ -624,7 +631,17 @@ check(/id="languages"[\s\S]*id="churchLanguages"[\s\S]*id="reading"/.test(html),
 eq(C.OPTIONS_SECTIONS, ['languages', 'bible', 'reading', 'about'], 'About is the fourth section; the ids are the same four');
 const aboutCard = (html.match(/<section class="card" id="about"[\s\S]*?<\/section>/) || [''])[0];
 check(aboutCard, 'the About card is on the page');
-check(!/<(input|select|textarea|button)\b|contenteditable/i.test(aboutCard), 'the About card has no form control');
+check(!/<(input|select|textarea)\b|contenteditable/i.test(aboutCard), 'the About card has no form field');
+eq([...aboutCard.matchAll(/<button\b[^>]*>/g)].length, 1, 'the About card has one button');
+check(/<button id="welcomeAgain" type="button"[^>]*>Show the welcome again<\/button>/.test(aboutCard),
+  'the About card\'s button is "Show the welcome again"');
+const welcomeAgainBody = bodyOf('showWelcomeAgain');
+check(/write\(WELCOME_AGAIN\.patch,/.test(welcomeAgainBody), 'pressing it writes the flag through write() (one SETTINGS.patch)');
+check(/C\.MSG\.OPEN_WELCOME/.test(welcomeAgainBody), 'then asks the worker to open the Alma 5 tab (C.MSG.OPEN_WELCOME)');
+check(welcomeAgainBody.indexOf('write(') >= 0 && welcomeAgainBody.indexOf('write(') < welcomeAgainBody.indexOf('OPEN_WELCOME'),
+  'the flag is written before the tab is asked for, so the new tab sees the welcome due');
+check(/getElementById|\$\('welcomeAgain'\)|welcomeAgain:/.test(shell) && /showWelcomeAgain/.test(bodyOf('init')),
+  'init wires the button');
 check(!/els\.about/.test(fieldsTable), 'no FIELDS row reads or writes the About card');
 const renderAboutBody = bodyOf('renderAbout');
 check(/aboutCopy\(\{ version: chrome\.runtime\.getManifest\(\)\.version, pack \}\)/.test(renderAboutBody),

@@ -12,6 +12,8 @@
  * What it holds (spec #69, A12; #111):
  *   - `install` opens Alma 5 in a new tab and not the settings page; any other
  *     onInstalled reason opens nothing;
+ *   - OPEN_WELCOME (the About card's "Show the welcome again", #115) opens that
+ *     same Alma 5 tab, through the code install uses;
  *   - `update` writes the welcome seen (`welcomeSeen`, #112), keeping every
  *     other setting; `install` leaves it unseen;
  *   - a chapter is requested with `fums-version=3`;
@@ -20,6 +22,9 @@
  *   - no device id exists until a successful Connect (LIST_BIBLES naming a
  *     key); after it, every report carries the same one, kept across worker
  *     restarts, while the session id is new per worker lifetime;
+ *   - GET_TOOLBAR_PIN answers `isOnToolbar` from chrome.action.getUserSettings
+ *     (the welcome's pinning line, #114), and null when the API is missing,
+ *     throws or says nothing;
  *   - the reply to the content script carries no FUMS script text or token,
  *     and the content script injects no script;
  *   - the bundled World English Bible (provider `bundled`, #78) is offered and
@@ -83,7 +88,7 @@ const CHAPTER = {
 };
 const LIST = { data: [{ id: 'niv', name: 'New International Version', abbreviationLocal: 'NIV', description: 'Holy Bible' }] };
 
-function boot(disk, net) {
+function boot(disk, net, action) {
   const listeners = [];
   const installed = [];
   const tabs = [];
@@ -105,7 +110,7 @@ function boot(disk, net) {
         onInstalled: { addListener: (fn) => installed.push(fn) },
         openOptionsPage: async () => { opened.push(1); },
       },
-      action: { onClicked: { addListener() {} } },
+      action: Object.assign({ onClicked: { addListener() {} } }, action || {}),
       tabs: { sendMessage: async () => ({}), create: async (props) => { tabs.push(props); return {}; } },
     },
     fetch: async (url) => {
@@ -308,6 +313,21 @@ async function run() {
     }
   }
 
+  // ---- OPEN_WELCOME opens the same Alma 5 tab install does (#115) ----
+  {
+    const w = boot({ local: {}, sync: {} }, apiBible());
+    eq(C.MSG.OPEN_WELCOME, 'OPEN_WELCOME', 'the message type lives in C.MSG');
+    const reply = await w.send({ type: C.MSG.OPEN_WELCOME });
+    await flush();
+    eq(w.tabs.map((t) => t.url), [C.FIRST_RUN_URL], 'OPEN_WELCOME creates one tab at Alma 5 in English, the URL install opens');
+    eq(reply && reply.ok, true, '...and answers ok');
+    eq(w.opened.length, 0, '...without opening the settings page');
+    const inst = boot({ local: {}, sync: {} }, apiBible());
+    inst.install('install');
+    await flush();
+    eq(inst.tabs.map((t) => t.url), w.tabs.map((t) => t.url), 'install and OPEN_WELCOME open the same tab');
+  }
+
   // ---- an update never greets: it marks the welcome seen (#112) ----
   // A profile from before the welcome has no flag, which reads as not seen; the
   // update writes it true through __BTX.settings. A fresh install leaves it
@@ -327,6 +347,20 @@ async function run() {
     i.install('install');
     await flush();
     eq(seen(fresh), false, 'install leaves the welcome unseen');
+  }
+
+  // ---- the welcome's pinning line: is the icon on the toolbar? (#114) ----
+  // Content scripts can't call chrome.action.getUserSettings; the worker does,
+  // and answers { isOnToolbar } — null when it can't tell (old Chrome without
+  // the API, or an error), which the panel treats as "not pinned".
+  {
+    const ask = (action) => boot({ local: {}, sync: {} }, apiBible(), action).send({ type: C.MSG.GET_TOOLBAR_PIN });
+    check(typeof C.MSG.GET_TOOLBAR_PIN === 'string' && C.MSG.GET_TOOLBAR_PIN, 'the message type lives in C.MSG');
+    eq(await ask({ getUserSettings: async () => ({ isOnToolbar: false }) }), { isOnToolbar: false }, 'icon not on the toolbar: answers isOnToolbar false');
+    eq(await ask({ getUserSettings: async () => ({ isOnToolbar: true }) }), { isOnToolbar: true }, 'icon pinned: answers isOnToolbar true');
+    eq(await ask(undefined), { isOnToolbar: null }, 'getUserSettings missing (old Chrome): answers unknown');
+    eq(await ask({ getUserSettings: async () => { throw new Error('boom'); } }), { isOnToolbar: null }, 'getUserSettings throws: answers unknown');
+    eq(await ask({ getUserSettings: async () => ({}) }), { isOnToolbar: null }, 'getUserSettings answers without isOnToolbar: unknown');
   }
 
   // ---- the page gets no script; the manifest lets the worker reach FUMS ----

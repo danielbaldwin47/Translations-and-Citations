@@ -60,7 +60,10 @@ The panel's grouping of corpora, named by each corpus's `sourceType` in the
 pack descriptor and ordered as the descriptor first names them: "General
 Conference" (G+E), "Journal of Discourses" (J), "Teachings of the Prophet
 Joseph Smith" (T, personal pack only). A **source-type group** is the
-collapsible panel section for one of these.
+collapsible panel section for one of these. Its header's hover text is the
+**source note**, the corpus entry's `sourceNote` ("Sermons by early Church
+leaders, published 1854–1886"): one per source type, the same on each of its
+corpora.
 _Avoid_: source (bare — say source type, talk, or BYU DBs depending on which you mean)
 
 **BYU DBs**:
@@ -214,8 +217,9 @@ A new reader's introduction, laid over the panel's body as a labelled dialog:
 a short list of **callouts**, each one line of copy and the panel control it
 points at (`WELCOME_CALLOUTS` and `CONTROL_NAMES` in the panel's pure core).
 A callout with a control is a bubble placed under it, its caret aimed at it,
-and the control is ringed (`calloutPlacement`); one with none — the toolbar
-icon's line, which draws the extension's icon inline — is a plain line. It shows on any
+and the control is ringed (`calloutPlacement`); one with none (the toolbar
+icon's line, which draws the extension's icon inline, and the pinning line) is
+a plain line. It shows on any
 panel shown while the synced `welcomeSeen` setting is false (`welcomeDue`),
 so it greets on every chapter until **Got it**, which writes the setting true.
 Collapsing hides it without counting as seen. Install leaves the setting false
@@ -485,7 +489,7 @@ A data pack's statement of what it holds — which corpora it indexes, which it
 bundles, which carry snippets — that the reader's corpus plan follows. The
 `pack` field of the pack's `index.json`, written by the build per pack mode:
 flavor, pack vintage, base stamp, derived conferences, and per corpus its
-`sourceType`, `text`, `target`, `excerpt` and `inclusion`.
+`sourceType`, `sourceNote`, `text`, `target`, `excerpt` and `inclusion`.
 _Avoid_: pack manifest (manifest means the extension's), flavor flag
 
 **Rights evidence**:

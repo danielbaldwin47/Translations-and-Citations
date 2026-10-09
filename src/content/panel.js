@@ -437,6 +437,7 @@
     { id: 'settings', control: 'settings', text: 'Settings holds the rest: languages, Bible translations and reading options.' },
     { id: 'text-size', control: 'text-size', text: 'A− and A+ change the size of the panel’s text.' },
     { id: 'toolbar-icon', control: null, text: 'The {icon} button in your browser’s toolbar shows and hides the panel.' },
+    { id: 'pin', control: null, text: 'Pin the extension to the toolbar, so the panel is easy to bring back.', when: { pinned: false } },
   ];
 
   // The lines that show, given what the panel knows (`facts`, e.g.
@@ -445,6 +446,14 @@
   function welcomeCallouts(facts, table) {
     const f = facts || {};
     return (table || WELCOME_CALLOUTS).filter((c) => !c.when || Object.keys(c.when).every((k) => f[k] === c.when[k]));
+  }
+
+  // The facts the table's `when` lines read, from the worker's answer to
+  // GET_TOOLBAR_PIN. `pinned` is true only when the worker said the icon is on
+  // the toolbar: any other reply (null, an error, no reply, an old Chrome)
+  // counts as not pinned, so the pinning line shows.
+  function welcomeFactsFrom(reply) {
+    return { pinned: !!reply && reply.isOnToolbar === true };
   }
 
   // A callout's text as parts to render: strings, and { icon: true } where
@@ -1072,7 +1081,7 @@
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = {
       createState, arrangement, layoutChoice, arrangementOf, effectiveMode, selectMode, selectText, selectCitationView, setChapter, sameChapter,
-      welcomeDue, setWelcomeSeen, CONTROL_NAMES, WELCOME_COPY, WELCOME_CALLOUTS, welcomeCallouts, calloutParts,
+      welcomeDue, setWelcomeSeen, CONTROL_NAMES, WELCOME_COPY, WELCOME_CALLOUTS, welcomeCallouts, welcomeFactsFrom, calloutParts,
       CALLOUT_GEOMETRY, calloutPlacement, welcomeRings, separateRings, unionRect,
       stepFontScale, setupCopy, noteCopy, besideCopy, pressedLayout, layoutClick, roomHint, errorCopy, retryWait, LAYOUTS, RETRY_MAX_WAIT_MS, RETRY_MAX,
       createViews, saveViewScroll, selectView, keepView, settleView, dropViews, SAME_CHAPTER_VIEWS,
@@ -1331,12 +1340,31 @@
   // — a click elsewhere, a scroll or Esc leave it up. Focus moves into it when
   // it appears, and to the panel's first control on Got it.
   let welcome = null; // { layer, sheet, list, items, rings, observer, frame } while it shows
+  let welcomeFacts = welcomeFactsFrom(null); // what the worker last said (is the icon pinned?)
+  let welcomeAsking = false;
 
   function applyWelcomeUI() {
     if (!ui) return;
     const want = visible && welcomeDue(state);
-    if (want && !welcome) openWelcome();
+    if (want && !welcome) askThenOpenWelcome();
     else if (!want && welcome) closeWelcome();
+  }
+
+  // The pinning line needs the worker's answer, so the welcome opens once it
+  // has come (a round trip to the worker, not a wait on the reader). Asked
+  // afresh each time the welcome opens: "Show the welcome again" after a pin
+  // sees the pin. By then the welcome may no longer be due; it is re-checked.
+  function askThenOpenWelcome() {
+    if (welcomeAsking) return;
+    welcomeAsking = true;
+    Promise.resolve()
+      .then(() => (cbs.welcomeFacts ? cbs.welcomeFacts() : null))
+      .catch(() => null)
+      .then((reply) => {
+        welcomeAsking = false;
+        welcomeFacts = welcomeFactsFrom(reply);
+        if (ui && !welcome && visible && welcomeDue(state)) openWelcome();
+      });
   }
 
   // The layer covers the whole panel but takes no pointer events: it holds
@@ -1347,7 +1375,7 @@
   function buildWelcome() {
     const layer = el('div', 'btx-welcome');
     const rings = {};
-    for (const name of welcomeRings(welcomeCallouts({}))) {
+    for (const name of welcomeRings(welcomeCallouts(welcomeFacts))) {
       const ring = el('div', 'btx-welcome-ring');
       ring.setAttribute('data-btx-control', name);
       ring.setAttribute('aria-hidden', 'true');
@@ -1363,7 +1391,7 @@
     title.id = 'btx-welcome-title';
     const list = el('ul', 'btx-welcome-list');
     const items = [];
-    for (const c of welcomeCallouts({})) {
+    for (const c of welcomeCallouts(welcomeFacts)) {
       const item = el('li', 'btx-welcome-item');
       item.setAttribute('data-btx-callout', c.id);
       if (c.control) item.setAttribute('data-btx-control', c.control);

@@ -28,6 +28,13 @@
  *   OPEN_OPTIONS { section? } -> opens (or focuses) the options page; a section
  *                               from C.OPTIONS_SECTIONS is parked in
  *                               chrome.storage.session for the page to scroll to.
+ *   GET_TOOLBAR_PIN          -> { isOnToolbar } from chrome.action.getUserSettings
+ *                               (content scripts can't call it); null when the
+ *                               API is missing or fails: the welcome then
+ *                               suggests the pin (#114)
+ *   OPEN_WELCOME            -> opens the Alma 5 tab install opens (the options page's
+ *                               "Show the welcome again", which has written
+ *                               `welcomeSeen` false first).
  *
  * Browser events: the toolbar icon sends TOGGLE_PANEL to the tab. It opens
  * the options page instead on a tab without our content script, and on a
@@ -143,6 +150,26 @@ async function openOptions(section) {
   return { ok: true };
 }
 
+// Is the toolbar icon pinned? Asked by the welcome's pinning line. Unknown
+// (null) when this Chrome has no getUserSettings or it fails: the panel shows
+// the line, since a pin suggested twice costs less than a needed one hidden.
+async function handleGetToolbarPin() {
+  try {
+    const u = await chrome.action.getUserSettings();
+    return { isOnToolbar: u && typeof u.isOnToolbar === 'boolean' ? u.isOnToolbar : null };
+  } catch (e) {
+    return { isOnToolbar: null };
+  }
+}
+
+// The Alma 5 tab: where install sends a new reader, and where the options
+// page's "Show the welcome again" sends one who asked. One function, so both
+// open the same page.
+async function openWelcome() {
+  await chrome.tabs.create({ url: C.FIRST_RUN_URL });
+  return { ok: true };
+}
+
 // ---- Message router ----
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (!msg || !msg.type) return false;
@@ -159,6 +186,12 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       break;
     case C.MSG.OPEN_OPTIONS:
       promise = openOptions(msg.section);
+      break;
+    case C.MSG.GET_TOOLBAR_PIN:
+      promise = handleGetToolbarPin();
+      break;
+    case C.MSG.OPEN_WELCOME:
+      promise = openWelcome();
       break;
     default:
       return false;
@@ -194,6 +227,6 @@ chrome.action.onClicked.addListener((tab) => {
 // marks it seen. Install leaves it unseen, and Alma 5 opens with it up.
 chrome.runtime.onInstalled.addListener((details) => {
   const reason = details && details.reason;
-  if (reason === 'install') chrome.tabs.create({ url: C.FIRST_RUN_URL });
+  if (reason === 'install') openWelcome();
   else if (reason === 'update') SETTINGS.patch({ welcomeSeen: true });
 });
