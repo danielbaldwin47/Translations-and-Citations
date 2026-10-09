@@ -106,6 +106,9 @@
  *                                  says what would make room (roomHint).
  *   populateTranslations(menu, selectedId)  the dropdown, from
  *                                  __BTX.churchText.menuFor; hidden when empty
+ *   controlNodes(name)             the node(s) a CONTROL_NAMES name stands for
+ *                                  (the A− / A+ stepper is two): what a welcome
+ *                                  callout points at; [] before init
  *   retryWait(error, attempts)     pure: whether a rate-limited load retries by
  *                                  itself (ms to wait) or shows the error card
  *                                  (null)
@@ -152,6 +155,14 @@
  * who wants none of it turns the `scrollSync` setting off: then the page never
  * moves the body at all — no tracking and no re-alignment either.
  *
+ * The welcome (GLOSSARY: Welcome) is the panel's too: a labelled dialog laid
+ * over the body on any panel shown while the synced `welcomeSeen` flag is
+ * false (the pure welcomeDue; collapsing hides it without counting as seen).
+ * Its content is the pure callouts table (WELCOME_CALLOUTS: each line's copy
+ * and the CONTROL_NAMES control it points at, filtered by welcomeCallouts).
+ * Only Got it closes it: it writes the flag true and focuses the panel's
+ * first control. Esc stops at the layer, so the talk reader never sees it.
+ *
  * The panel's top: 0, except while the site's header band, laid out for the
  * full window while the panel was away, runs under the open panel — then the
  * panel starts below the band until it fits again (panelTop, --btx-top).
@@ -184,6 +195,7 @@
       facts: null, // what content.js last said about it (setChapter / arrange)
       click: null, // this visit's mode click: cleared by the next chapter
       picked: null, // this visit's dropdown pick (a row id): cleared by the next chapter
+      welcomeSeen: init.welcomeSeen === true, // the synced flag: Got it was pressed
     };
   }
 
@@ -373,6 +385,72 @@
     const moved = Number((scale + dir * step).toFixed(4));
     const next = Math.max(min, Math.min(max, moved));
     return next === scale ? null : next;
+  }
+
+  // ---- The welcome (GLOSSARY: Welcome) ----------------------------------------
+  // When the welcome shows over the panel's body: on any panel shown while
+  // the synced `welcomeSeen` flag is false — every chapter until Got it, so a
+  // tab closed without it greets again. A collapsed panel shows no welcome,
+  // and collapsing doesn't count as seen: expanding brings it back.
+  function welcomeDue(s) {
+    return s.welcomeSeen !== true && s.chapter !== null && s.collapsed !== true;
+  }
+
+  // The flag moved: Got it (true), "Show the welcome again" or another
+  // computer's write (either way). True when it changed; the caller persists
+  // a change it made.
+  function setWelcomeSeen(s, seen) {
+    const v = seen === true;
+    if (s.welcomeSeen === v) return false;
+    s.welcomeSeen = v;
+    return true;
+  }
+
+  // The controls the panel builds, by name: what a welcome callout may point
+  // at. The DOM shell maps each name to its node(s) (controlNodes), and
+  // validate-panel-state holds the callouts table to this list.
+  //   translation-tab / citations-tab   the header's mode segments
+  //   settings / collapse               the header's icon buttons
+  //   translation-select                the toolbar's version dropdown
+  //   citation-layout                   the toolbar's By source | By verse
+  //   text-size                         the toolbar's A− / A+ (two buttons)
+  const CONTROL_NAMES = ['translation-tab', 'citations-tab', 'settings', 'collapse', 'translation-select', 'citation-layout', 'text-size'];
+
+  // What the welcome says. Each callout: `id`, the `control` it points at (a
+  // CONTROL_NAMES name, or null: the toolbar icon is the browser's, not the
+  // panel's, so its line names it in words), its `text` (one short sentence;
+  // `{icon}` marks where the extension's icon is drawn inline, calloutParts),
+  // and optionally `when`: facts the line needs, all of which must match
+  // (welcomeCallouts). In reading order. The copy is spec A's model: the panel
+  // opens on Citations, and a language you add reads beside the page's text
+  // whatever the panel shows.
+  const WELCOME_COPY = { title: 'Welcome to Translations & Citations', gotIt: 'Got it' };
+  const WELCOME_CALLOUTS = [
+    { id: 'translation', control: 'translation-tab', text: 'Translation shows this chapter in another version or language.' },
+    { id: 'citations', control: 'citations-tab', text: 'Citations, where the panel opens, lists the talks that quote each verse.' },
+    { id: 'languages', control: 'translation-tab', text: 'A language you add reads beside the page’s text; change that under Translation.' },
+    { id: 'settings', control: 'settings', text: 'Settings holds the rest: languages, Bible translations and reading options.' },
+    { id: 'text-size', control: 'text-size', text: 'A− and A+ change the size of the panel’s text.' },
+    { id: 'toolbar-icon', control: null, text: 'The {icon} button in your browser’s toolbar shows and hides the panel.' },
+  ];
+
+  // The lines that show, given what the panel knows (`facts`, e.g.
+  // { pinned }): a line with `when` shows only when every fact it names is
+  // known and matches — unsure, the welcome says nothing.
+  function welcomeCallouts(facts, table) {
+    const f = facts || {};
+    return (table || WELCOME_CALLOUTS).filter((c) => !c.when || Object.keys(c.when).every((k) => f[k] === c.when[k]));
+  }
+
+  // A callout's text as parts to render: strings, and { icon: true } where
+  // the extension's icon is drawn.
+  function calloutParts(c) {
+    const out = [];
+    String(c.text).split('{icon}').forEach((t, i) => {
+      if (i) out.push({ icon: true });
+      if (t) out.push(t);
+    });
+    return out;
   }
 
   // ---- Pure translation-state copy (Node-testable) ------------------------
@@ -911,6 +989,7 @@
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = {
       createState, arrangement, layoutChoice, arrangementOf, effectiveMode, selectMode, selectText, selectCitationView, setChapter, sameChapter,
+      welcomeDue, setWelcomeSeen, CONTROL_NAMES, WELCOME_COPY, WELCOME_CALLOUTS, welcomeCallouts, calloutParts,
       stepFontScale, setupCopy, noteCopy, besideCopy, pressedLayout, layoutClick, roomHint, errorCopy, retryWait, LAYOUTS, RETRY_MAX_WAIT_MS, RETRY_MAX,
       createViews, saveViewScroll, selectView, keepView, settleView, dropViews, SAME_CHAPTER_VIEWS,
       viewRestoresScroll, wantsScrollSync,
@@ -943,7 +1022,7 @@
   // The settings this panel handles by itself when they change. Exposed as
   // panel.HANDLED_KEYS so the orchestrator can skip its full re-render for a
   // change touching only these — one list, no mirror to drift.
-  const PANEL_HANDLED_KEYS = ['sidebarWidth', 'fontScale', 'citationView', 'panelMode', 'panelCollapsed', 'scrollSync'];
+  const PANEL_HANDLED_KEYS = ['sidebarWidth', 'fontScale', 'citationView', 'panelMode', 'panelCollapsed', 'scrollSync', 'welcomeSeen'];
 
   let ui = null; // refs once built
   const cbs = {}; // event handlers set by init()
@@ -1121,7 +1200,19 @@
       scrollFadeTimer = setTimeout(() => body.classList.remove('btx-scrolling'), 1000);
     }, { passive: true });
 
-    ui = { rootEl, panel, header, toolbar, select, smaller, larger, modes, modeTranslation, modeCitations, citModes, citViewSource, citViewVerse, body, tab, collapse, resize };
+    // Each of CONTROL_NAMES to the node(s) it names: what a welcome callout
+    // points at (controlNodes).
+    const controls = {
+      'translation-tab': [modeTranslation],
+      'citations-tab': [modeCitations],
+      settings: [gear],
+      collapse: [collapse],
+      'translation-select': [select],
+      'citation-layout': [citModes],
+      'text-size': [smaller, larger],
+    };
+
+    ui = { rootEl, panel, header, toolbar, select, smaller, larger, modes, modeTranslation, modeCitations, citModes, citViewSource, citViewVerse, body, tab, collapse, resize, controls };
     return ui;
   }
 
@@ -1146,6 +1237,101 @@
     ui.rootEl.classList.toggle('btx-collapsed', state.collapsed);
     refreshScrollSync();
     updatePageReserve();
+    applyWelcomeUI();
+  }
+
+  // ---- The welcome -----------------------------------------------------------
+  // A layer over the body (header and toolbar stay in view and usable), shown
+  // while welcomeDue says so. It is a labelled dialog *within* the panel, not
+  // a modal: the page beside it stays fully usable, and only Got it closes it
+  // — a click elsewhere, a scroll or Esc leave it up. Focus moves into it when
+  // it appears, and to the panel's first control on Got it.
+  let welcome = null; // { layer, observer } while it shows
+
+  function applyWelcomeUI() {
+    if (!ui) return;
+    const want = visible && welcomeDue(state);
+    if (want && !welcome) openWelcome();
+    else if (!want && welcome) closeWelcome();
+  }
+
+  function buildWelcome() {
+    const layer = el('div', 'btx-welcome');
+    const dialog = el('div', 'btx-welcome-dialog');
+    dialog.setAttribute('role', 'dialog');
+    dialog.setAttribute('aria-labelledby', 'btx-welcome-title');
+    dialog.tabIndex = -1;
+    const title = el('h2', 'btx-welcome-title', WELCOME_COPY.title);
+    title.id = 'btx-welcome-title';
+    const list = el('ul', 'btx-welcome-list');
+    for (const c of welcomeCallouts({})) {
+      const item = el('li', 'btx-welcome-item');
+      item.setAttribute('data-btx-callout', c.id);
+      if (c.control) item.setAttribute('data-btx-control', c.control);
+      for (const part of calloutParts(c)) item.appendChild(typeof part === 'string' ? document.createTextNode(part) : extensionIcon());
+      list.appendChild(item);
+    }
+    const done = el('button', 'btx-cta btx-welcome-done', WELCOME_COPY.gotIt);
+    done.addEventListener('click', onGotIt);
+    dialog.appendChild(title);
+    dialog.appendChild(list);
+    dialog.appendChild(done);
+    layer.appendChild(dialog);
+    // Esc is not Got it, and must not reach the talk reader's Back either.
+    layer.addEventListener('keydown', (e) => { if (e.key === 'Escape') e.stopPropagation(); });
+    return layer;
+  }
+
+  // The extension's own toolbar icon, drawn where the toolbar line names it.
+  function extensionIcon() {
+    const img = el('img', 'btx-welcome-icon');
+    img.alt = 'Translations & Citations';
+    img.width = 16;
+    img.height = 16;
+    try { img.src = chrome.runtime.getURL('icons/icon-32.png'); } catch (e) { /* extension reloaded: the alt text stands */ }
+    return img;
+  }
+
+  // The layer starts where the body does: below whichever chrome rows show.
+  function placeWelcome() {
+    if (welcome) welcome.layer.style.top = `${ui.body.offsetTop}px`;
+  }
+
+  function openWelcome() {
+    const layer = buildWelcome();
+    ui.panel.appendChild(layer);
+    const observer = typeof ResizeObserver === 'function' ? new ResizeObserver(placeWelcome) : null;
+    if (observer) observer.observe(ui.body);
+    welcome = { layer, observer };
+    placeWelcome();
+    layer.querySelector('[role="dialog"]').focus({ preventScroll: true });
+  }
+
+  // Collapse, hide or Got it on another computer. Focus inside it goes to
+  // the panel's first control rather than to the page's top.
+  function closeWelcome() {
+    const { layer, observer } = welcome;
+    const hadFocus = layer.contains(document.activeElement);
+    welcome = null;
+    if (observer) observer.disconnect();
+    layer.remove();
+    if (hadFocus && visible && !state.collapsed) firstControl().focus({ preventScroll: true });
+  }
+
+  function firstControl() {
+    return ui.controls['translation-tab'][0];
+  }
+
+  function onGotIt() {
+    if (setWelcomeSeen(state, true)) persist({ welcomeSeen: true });
+    applyWelcomeUI();
+    firstControl().focus({ preventScroll: true });
+  }
+
+  // The nodes a CONTROL_NAMES name stands for (empty for an unknown name or
+  // before the panel is built): what a callout points at.
+  function controlNodes(name) {
+    return (ui && ui.controls[name]) ? ui.controls[name].slice() : [];
   }
 
   // The reader's text-size multiplier. It is a *second* variable rather than a
@@ -1299,8 +1485,8 @@
     if (state.collapsed === c) return;
     const hadFocus = ui.rootEl.contains(document.activeElement);
     state.collapsed = c;
-    applyCollapsedUI();
-    if (hadFocus) (c ? ui.tab : ui.collapse).focus();
+    applyCollapsedUI(); // an expand may bring the welcome back, which takes focus
+    if (hadFocus && !(welcome && !c)) (c ? ui.tab : ui.collapse).focus();
     persist({ panelCollapsed: c });
   }
 
@@ -1339,6 +1525,8 @@
     if (changed.includes('sidebarWidth')) applyWidth(next.sidebarWidth);
     if (changed.includes('fontScale')) applyFontScale(next.fontScale);
     if (own) return;
+    // Got it on another computer, or "Show the welcome again".
+    if (changed.includes('welcomeSeen') && setWelcomeSeen(state, next.welcomeSeen)) applyWelcomeUI();
     // When the same write also moved a key the panel doesn't handle, the
     // orchestrator's own settings subscriber will do a full re-render — firing
     // renderMode too would race two renders into the same body.
@@ -1377,7 +1565,7 @@
     ensureRoot();
     await migrateLegacyLocal();
     const s = await SETTINGS().get();
-    state = createState({ mode: s.panelMode, citationView: s.citationView, collapsed: s.panelCollapsed });
+    state = createState({ mode: s.panelMode, citationView: s.citationView, collapsed: s.panelCollapsed, welcomeSeen: s.welcomeSeen });
     scrollSync = s.scrollSync; // before applyModeUI: it asserts the sync predicate
     applyWidth(s.sidebarWidth);
     applyFontScale(s.fontScale);
@@ -1399,6 +1587,7 @@
     setChapter(state, ctx);
     applyModeUI();
     updatePageReserve();
+    applyWelcomeUI();
     scheduleTopChecks(); // the site may re-lay its header out after navigating
     return arrangementOf(state);
   }
@@ -1418,6 +1607,7 @@
     ui.rootEl.style.display = 'none';
     refreshScrollSync(); // `visible` just moved — one of the predicate's inputs
     updatePageReserve();
+    applyWelcomeUI();
   }
 
   // ---- The body's scroll position -------------------------------------------
@@ -2408,6 +2598,7 @@
       setNote,
       updateBeside,
       populateTranslations,
+      controlNodes,
       getRootEl,
     },
   });

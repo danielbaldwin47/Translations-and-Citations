@@ -32,7 +32,8 @@
  * Browser events: the toolbar icon sends TOGGLE_PANEL to the tab. It opens
  * the options page instead on a tab without our content script, and on a
  * Gospel Library page showing no chapter (the reply says `shown: false`); a
- * fresh install (reason `install`, never an update) opens Alma 5 in a new tab.
+ * fresh install (reason `install`, never an update) opens Alma 5 in a new tab;
+ * an update (reason `update`) marks the welcome seen (`welcomeSeen`).
  *
  * Classic (non-module) worker so a single IIFE authoring style works everywhere;
  * dependencies are pulled in with importScripts in dependency order.
@@ -188,7 +189,12 @@ chrome.action.onClicked.addListener((tab) => {
 });
 
 // ---- First install: open Alma 5, where the panel is already at work ----
-// `install` only: an update, a browser update or a shared-module update opens nothing.
+// `install` only: an update, a browser update or a shared-module update opens
+// nothing. The welcome (GLOSSARY: Welcome) greets new installs only: a profile
+// from before it has no `welcomeSeen`, which reads as not seen, so an update
+// marks it seen. Install leaves it unseen, and Alma 5 opens with it up.
 chrome.runtime.onInstalled.addListener((details) => {
-  if (details && details.reason === 'install') chrome.tabs.create({ url: C.FIRST_RUN_URL });
+  const reason = details && details.reason;
+  if (reason === 'install') chrome.tabs.create({ url: C.FIRST_RUN_URL });
+  else if (reason === 'update') SETTINGS.patch({ welcomeSeen: true });
 });

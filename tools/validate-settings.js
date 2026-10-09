@@ -33,7 +33,7 @@ console.log('Schema:');
 const KEYS = [
   'apiKey', 'provider', 'enabledTranslations', 'defaultTranslationId', 'churchLanguages', 'churchLanguageLayout',
   'actOnNonEngOnly', 'sidebarWidth', 'fontScale', 'citationView',
-  'panelMode', 'panelCollapsed', 'scrollSync', 'noTranslationLineDismissed',
+  'panelMode', 'panelCollapsed', 'scrollSync', 'noTranslationLineDismissed', 'welcomeSeen',
 ];
 check(Array.isArray(S.KEYS), 'exports KEYS');
 eq(S.KEYS.slice().sort(), KEYS.slice().sort(), 'KEYS covers exactly the known settings');
@@ -101,6 +101,16 @@ eq(S.normalize({ noTranslationLineDismissed: false }).noTranslationLineDismissed
 for (const bad of ['true', 1, null, undefined, {}]) {
   eq(S.normalize({ noTranslationLineDismissed: bad }).noTranslationLineDismissed, false,
     `dismissed ${JSON.stringify(bad)} falls back to false (the line shows)`);
+}
+
+// ---- normalize: welcomeSeen (the welcome's Got it, GLOSSARY: Welcome) ----
+console.log('normalize (welcomeSeen):');
+eq(S.defaults().welcomeSeen, false, 'a fresh profile has not seen the welcome');
+eq(S.normalize({ welcomeSeen: true }).welcomeSeen, true, 'Got it (true) survives');
+eq(S.normalize({ welcomeSeen: false }).welcomeSeen, false, '"Show the welcome again" (false) survives');
+for (const bad of ['true', 1, null, undefined, {}]) {
+  eq(S.normalize({ welcomeSeen: bad }).welcomeSeen, false,
+    `welcomeSeen ${JSON.stringify(bad)} falls back to false (the welcome is due)`);
 }
 
 // ---- normalize: booleans ----

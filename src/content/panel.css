@@ -559,6 +559,65 @@
   font-weight: 600;
 }
 
+/* ---- The welcome (panel.js: a labelled dialog over the body) ----
+   The layer covers the body only (panel.js sets its top to the body's), so
+   the header and toolbar it describes stay in view; the resize grip (z 5)
+   stays above it. UI font at fixed px, like the cards; the panel's colours.
+   It scrolls on its own and wraps any word, so 280px never scrolls sideways. */
+#btx-root .btx-welcome {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 4;
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding: 12px 12px 18px;
+  background: color-mix(in srgb, var(--btx-bg) 80%, transparent);
+}
+#btx-root .btx-welcome-dialog {
+  max-width: 100%;
+  padding: 14px 14px 16px;
+  border: 1px solid var(--btx-border);
+  border-radius: 10px;
+  background: var(--btx-bg);
+  color: var(--btx-fg);
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.14);
+  font-family: var(--btx-ui-font);
+  font-size: 14px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+/* Focus lands on the dialog itself so it is announced; it is no control, so
+   it shows no ring (Got it, next by Tab, does). */
+#btx-root .btx-welcome-dialog:focus { outline: none; }
+#btx-root .btx-welcome-title {
+  margin: 0 0 10px;
+  font-family: inherit;         /* an h2, which the site styles */
+  letter-spacing: normal;
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.35;
+  color: var(--btx-fg);
+}
+#btx-root .btx-welcome-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0 0 14px;
+  padding: 0;
+  list-style: none;             /* the site strips bullets anyway: no empty indent */
+}
+#btx-root .btx-welcome-item { margin: 0; padding: 0; }
+#btx-root .btx-welcome-icon {
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  margin: 0 2px;
+  vertical-align: -3px;
+}
+
 #btx-root .btx-cta {
   appearance: none;
   border: none;

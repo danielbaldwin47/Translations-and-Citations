@@ -12,6 +12,8 @@
  * What it holds (spec #69, A12; #111):
  *   - `install` opens Alma 5 in a new tab and not the settings page; any other
  *     onInstalled reason opens nothing;
+ *   - `update` writes the welcome seen (`welcomeSeen`, #112), keeping every
+ *     other setting; `install` leaves it unseen;
  *   - a chapter is requested with `fums-version=3`;
  *   - every display sends GET https://fums.api.bible/f3?t=…&sId=…[&dId=…],
  *     a cache hit too, with the token stored beside the cached chapter;
@@ -34,6 +36,7 @@ const vm = require('vm');
 
 const ROOT = path.resolve(__dirname, '..');
 const C = require(path.join(ROOT, 'src/shared/constants.js'));
+const S_NORM = require(path.join(ROOT, 'src/shared/settings.js')).normalize;
 
 let failures = 0;
 function check(cond, msg) {
@@ -303,6 +306,27 @@ async function run() {
       await flush();
       check(u.tabs.length === 0 && u.opened.length === 0, `"${reason}" opens no tab and no settings page`);
     }
+  }
+
+  // ---- an update never greets: it marks the welcome seen (#112) ----
+  // A profile from before the welcome has no flag, which reads as not seen; the
+  // update writes it true through __BTX.settings. A fresh install leaves it
+  // false, so Alma 5 opens with the welcome up.
+  {
+    const seen = (disk) => S_NORM(disk.sync[C.SETTINGS_KEY]).welcomeSeen;
+    const old = { local: {}, sync: { [C.SETTINGS_KEY]: { panelMode: 'translation', churchLanguages: ['spa'] } } };
+    const u = boot(old, apiBible());
+    u.install('update');
+    await flush();
+    eq(seen(old), true, 'update writes the welcome seen');
+    eq(S_NORM(old.sync[C.SETTINGS_KEY]).churchLanguages, ['spa'], '...and keeps the reader\'s other settings');
+    eq(old.sync[C.SETTINGS_KEY].panelMode, 'translation', '...the stored mode included');
+
+    const fresh = { local: {}, sync: {} };
+    const i = boot(fresh, apiBible());
+    i.install('install');
+    await flush();
+    eq(seen(fresh), false, 'install leaves the welcome unseen');
   }
 
   // ---- the page gets no script; the manifest lets the worker reach FUMS ----
