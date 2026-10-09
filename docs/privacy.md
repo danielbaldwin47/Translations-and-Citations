@@ -72,7 +72,7 @@ and no identity.
 ### api.bible (`api.scripture.api.bible`), only if you connect a key
 
 Bible translations beyond the built-in World English Bible come from
-api.bible with your own free key, which you create at scripture.api.bible
+api.bible with your own free key, which you create at api.bible
 and paste into settings. The sentence beside Connect says what connecting
 sends; clicking Connect is your consent. Until you connect, no request goes
 to api.bible.
