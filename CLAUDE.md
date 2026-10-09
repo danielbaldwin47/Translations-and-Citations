@@ -84,7 +84,7 @@ src/
     fums.js                __BTX.fums      api.bible usage report (FUMS v3 GET) on every api.bible display, cache hits too; device id minted on a successful Connect (storage.local), session id per worker lifetime
   content/
     church-text.js         __BTX.churchText which texts a chapter offers + which shows (textsFor/pickText; the chapter check's chapterOffer); dropdown rows (labelFor/menuFor); setup-card list (languagesToAdd); pick memory (mruFrom/rememberPick; rememberTicked for a tick in settings; stored under C.SELECTION_KEY, written by content.js and the options page); same-origin Church-language chapter → IR with element ids (chapterFrom; its block walk blockElements also reads the English side for the split)
-    page-split.js/.css     __BTX.pageSplit show/hide the page split (columns | interlinear), paired by element id; pure cores wantsSplit / fitWidth / effectiveLayout / groupRows / soloIds / rowRules / readingRight / readingEdges / collapseFits
+    page-split.js/.css     __BTX.pageSplit the reading layer: start() fits the site's reading column to the open space while the panel is open, any mode (fitColumn / fitRule); show/hide the page split (columns | interlinear), paired by element id; pure cores wantsSplit / fitWidth / effectiveLayout / fitColumn / fitRule / groupRows / soloIds / rowRules / readingRight / readingEdges / collapseFits
     detect.js              __BTX.detect    URL parse (all standard works, isBible) + SPA nav
     page-hook.js           page-world history patch, injected via web-accessible <script src>
     theme.js               __BTX.theme     mirror(resolveTarget) → {refresh}: site colors/fonts/header onto the panel; pure policies nextAlignDelay / dominantTextStyle / sameVars
@@ -334,6 +334,13 @@ validators — go there before changing behaviour.
   Under each verse | In the panel control (writes `churchLanguageLayout`), and
   "Collapse panel for wider columns" when `collapseFits`. Collapsing the panel
   does not hide the split — it widens it.
+- **Reading column fit** (#89) belongs to `__BTX.pageSplit` too, split or
+  not: `content.js` calls `start()` once, and the pure `fitColumn` places
+  `section#content` inside the visible reading area while the panel is open
+  and the site's own column would be clipped (the site's grid holds it at
+  least 640px wide, and docks the drawer at full-window widths). Its one
+  id-scoped rule goes away with the panel collapsed or narrow enough, and
+  the split lays out inside the fitted column.
 - **Pack descriptor** (`index.json` `pack`): the build's `CORPORA` /
   `PACK_CORPORA` tables (`build-citation-data.js`) are the one place a
   per-corpus fact is written; the reader learns every per-corpus fact from the
@@ -383,7 +390,10 @@ validators — go there before changing behaviour.
   / `--btx-header-bg`; it stays put when the site header expands. Exception:
   while the site's header band, laid out for the full window (it re-lays out
   only on a real viewport resize), runs under the open panel, the panel starts
-  below it (`--btx-top`, pure `panelTop`).
+  below it (`--btx-top`, pure `panelTop`), and `paintTopCap` fills the strip
+  above it beneath the band's controls. A synthetic `resize` event does not
+  re-lay the band out: it compares `documentElement.clientWidth`, which the
+  page reserve leaves unchanged.
 - Commits are unsigned (GitHub shows "Unverified"); author email
   `noreply@anthropic.com`. The git proxy port rotates — retry pushes; clear
   any stale `remote.origin.pushurl`.
