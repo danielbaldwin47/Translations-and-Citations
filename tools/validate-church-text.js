@@ -164,12 +164,24 @@ eq(sameDesc.map((r) => T.labelFor(r, sameDesc)), [
 eq(T.labelFor(WEBU('x-01', { description: 'Protestant' }), [NIV]), 'WEBU — World English Bible Updated',
   'a row with no twin carries no suffix, description or not');
 
-eq(T.menuFor([NIV, SPA_ROW]), [
-  { label: 'Bible translations', items: [{ id: 'niv', label: 'NIV — New International Version' }] },
-  { label: 'Church languages', items: [{ id: 'church:spa', label: 'Español — Spanish' }] },
-], 'both kinds on offer: two headed groups, Bible translations first');
-eq(T.menuFor([SPA_ROW]), [{ label: null, items: [{ id: 'church:spa', label: 'Español — Spanish' }] }],
-  'one kind: one group with no heading');
+const WEB_ROW = { id: 'bundled:engwebp', abbr: 'WEB', name: 'World English Bible', provider: C.PROVIDER_BUNDLED || 'bundled' };
+const JPN_ROW = T.rowFor('jpn');
+eq(T.menuFor([WEB_ROW], { isBible: true }), [
+  { label: 'Bible versions', items: [{ id: 'bundled:engwebp', label: 'WEB — World English Bible' }] },
+], 'Bible chapter, one Bible version and no language: still headed "Bible versions"');
+eq(T.menuFor([NIV, SPA_ROW], { isBible: true }), [
+  { label: 'Bible versions', items: [{ id: 'niv', label: 'NIV — New International Version' }] },
+  { label: 'Languages', items: [{ id: 'church:spa', label: 'Español — Spanish' }] },
+], 'Bible chapter, both kinds on offer: "Bible versions" then "Languages"');
+eq(T.menuFor([SPA_ROW], { isBible: true }), [
+  { label: 'Languages', items: [{ id: 'church:spa', label: 'Español — Spanish' }] },
+], 'Bible chapter, no Bible rows offered: "Languages" alone, no empty Bible heading');
+eq(T.menuFor([SPA_ROW, JPN_ROW], { isBible: false }), [
+  { label: null, items: [
+    { id: 'church:spa', label: 'Español — Spanish' },
+    { id: 'church:jpn', label: '日本語 — Japanese' },
+  ] },
+], 'off the Bible: language rows stay unheaded, no Bible group');
 eq(T.menuFor([]), [], 'nothing on offer: an empty menu (the select hides)');
 
 console.log('languagesToAdd:');
