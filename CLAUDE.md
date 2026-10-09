@@ -14,7 +14,7 @@ panel, two modes:
 1. **Translation** — the same chapter in another version: on the Bible the
    bundled **World English Bible** (no key; the default while no api.bible
    version is on) or
-   **scripture.api.bible** with the user's own key (NIV, NKJV, …), and on any
+   **api.bible** with the user's own key (NIV, NKJV, …), and on any
    standard work in a **Church language** (Spanish, Japanese, …) fetched from
    the site's own content endpoint. A Church language is split into the page
    beside the English by default (the **page split**), not shown in the panel.
@@ -73,13 +73,13 @@ its interface doc — read that before its body.
 ```
 manifest.json              MV3 (v1.0.0); content_scripts order matters; tools/validate-manifest.js checks it, docs/store/listing.md and docs/privacy.md
 src/
-  shared/constants.js      __BTX.const     message types, storage keys, API bases, limits, BUNDLED_BIBLE, DISCLOSURE (the two consent sentences), ABOUT (source lines, privacyUrl, supportUrl)
+  shared/constants.js      __BTX.const     message types, storage keys, API bases, API_BIBLE_PAGES (sign-up, dashboard: the reader-facing links), limits, BUNDLED_BIBLE, DISCLOSURE (the two consent sentences), ABOUT (source lines, privacyUrl, supportUrl)
   shared/settings.js       __BTX.settings  THE owner of synced `btxSettings`: schema, one normalizer per key, get/patch/replace, subscribe({next,prev,changed,own})
   shared/books.js          __BTX.books     66 Bible (slug→USFM/name) + BoM/D&C/PGP registry
   background/
     service-worker.js      classic worker; importScripts; onMessage router (OPEN_OPTIONS {section} → storage.session; OPEN_WELCOME → the Alma 5 tab); toolbar icon = TOGGLE_PANEL, else opens options; install opens Alma 5 (`C.FIRST_RUN_URL`, through `openWelcome`, which OPEN_WELCOME shares), update marks the welcome seen
-    api.js                 __BTX.api       api.bible fetch + JSON→IR (403 "Invalid API key" → INVALID_KEY; 429 → remote + retryAfterMs; partial version lists); fetchBundledChapter serves the World English Bible from src/bible/
-    cache.js               __BTX.cache     chapter cache + LRU; version list keyed by a key fingerprint, 7-day TTL (storage.local; the options page reads it too)
+    api.js                 __BTX.api       api.bible fetch (host `rest.api.bible`, C.API_BIBLE_BASE) + JSON→IR (403 "Invalid API key" → INVALID_KEY; 429 → remote + retryAfterMs; partial version lists); fetchBundledChapter serves the World English Bible from src/bible/
+    cache.js               __BTX.cache     chapter cache, LRU by last read; fewer than `C.CACHE_MAX_VERSES` (500) api.bible verses held (api.bible's terms; pure `versesIn` / `dropKeys`; an index record with no count drops first, the chapter just written never); version list keyed by a key fingerprint, 7-day TTL (storage.local; the options page reads it too)
     ratelimit.js           __BTX.rate      15/30s burst window + this browser's api.bible calls per calendar month (no daily or monthly cap: only api.bible's 429 at or past 5,000 pauses); pure rateState ok/near/paused, attached as `rate` to every api.bible chapter answer
     fums.js                __BTX.fums      api.bible usage report (FUMS v3 GET) on every api.bible display, cache hits too; device id minted on a successful Connect (storage.local), session id per worker lifetime
   content/
@@ -161,9 +161,11 @@ source-data/               GITIGNORED build input, filled from the owner's priva
   (the reader falls back to the public pack); with it, the personal build.
   README "Install" has both recipes.
 - **Translation:** on a fresh profile `nt/john/3` opens in Translation with
-  the World English Bible and its public-domain line. Paste an api.bible key under Bible
-  translations in settings — it connects itself, turns on the versions added
-  to the key, NIV default. Church languages: Add Español from the setup card
+  the World English Bible and its public-domain line. Settings' Bible
+  translations card lists the api.bible setup steps; their links open
+  api.bible's sign-up and dashboard pages with no redirect. Paste the key from
+  the dashboard — it connects itself, turns on the versions added to the key,
+  NIV default. Church languages: Add Español from the setup card
   on `bofm/alma/5` (or check it in settings) — the page splits (columns once
   the panel is collapsed, under each verse while it's too narrow); `ot/ps/23`
   shows poetry lines (Spanish) and furigana (Japanese). A version-list refresh
