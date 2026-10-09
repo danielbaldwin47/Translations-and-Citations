@@ -12,6 +12,8 @@
  * What it holds (spec #69, A12; #111):
  *   - `install` opens Alma 5 in a new tab and not the settings page; any other
  *     onInstalled reason opens nothing;
+ *   - OPEN_WELCOME (the About card's "Show the welcome again", #115) opens that
+ *     same Alma 5 tab, through the code install uses;
  *   - `update` writes the welcome seen (`welcomeSeen`, #112), keeping every
  *     other setting; `install` leaves it unseen;
  *   - a chapter is requested with `fums-version=3`;
@@ -306,6 +308,21 @@ async function run() {
       await flush();
       check(u.tabs.length === 0 && u.opened.length === 0, `"${reason}" opens no tab and no settings page`);
     }
+  }
+
+  // ---- OPEN_WELCOME opens the same Alma 5 tab install does (#115) ----
+  {
+    const w = boot({ local: {}, sync: {} }, apiBible());
+    eq(C.MSG.OPEN_WELCOME, 'OPEN_WELCOME', 'the message type lives in C.MSG');
+    const reply = await w.send({ type: C.MSG.OPEN_WELCOME });
+    await flush();
+    eq(w.tabs.map((t) => t.url), [C.FIRST_RUN_URL], 'OPEN_WELCOME creates one tab at Alma 5 in English, the URL install opens');
+    eq(reply && reply.ok, true, '...and answers ok');
+    eq(w.opened.length, 0, '...without opening the settings page');
+    const inst = boot({ local: {}, sync: {} }, apiBible());
+    inst.install('install');
+    await flush();
+    eq(inst.tabs.map((t) => t.url), w.tabs.map((t) => t.url), 'install and OPEN_WELCOME open the same tab');
   }
 
   // ---- an update never greets: it marks the welcome seen (#112) ----

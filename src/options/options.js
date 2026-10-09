@@ -6,7 +6,8 @@
  * and which translations the panel offers), `reading` (text size, panel width,
  * scroll sync),
  * and `about` (version, pack vintage, source lines, privacy and support
- * links: text only, no control, so nothing for the autosave; aboutCopy).
+ * links: text, plus one button, "Show the welcome again", which writes the
+ * welcome-seen flag false and asks the worker to open Alma 5; aboutCopy).
  *
  * The form is an editor of the stored settings, not a second copy of them.
  * Every change is written as it happens, through __BTX.settings.patch (never
@@ -404,9 +405,15 @@
     };
   }
 
+  // The About card's one control. Its write is the synced welcome-seen flag
+  // false (GLOSSARY: Welcome); the panel's ordinary due rule then shows the
+  // welcome on the Alma 5 tab the worker opens. Not part of aboutCopy: that
+  // stays text.
+  const WELCOME_AGAIN = { label: 'Show the welcome again', patch: { welcomeSeen: false } };
+
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = {
-      aboutCopy, isAdded, dedupeVersions, versionGroups, stableGroups, mergeVersions, listGuesses, withStored, initialChecks, pickDefaultId,
+      WELCOME_AGAIN, aboutCopy, isAdded, dedupeVersions, versionGroups, stableGroups, mergeVersions, listGuesses, withStored, initialChecks, pickDefaultId,
       translationPatch, commitPatch, patchLanded, failedWrites, fillPlan, keyControls,
       versionLabel, moreLabel, connectedText, yoursNote, keyErrorText,
       offeredLanguages, languageGroups, languageList, languageTick, groupCount, matchesLanguage,
@@ -453,6 +460,7 @@
     aboutVintage: $('aboutVintage'),
     aboutSources: $('aboutSources'),
     aboutLinks: $('aboutLinks'),
+    welcomeAgain: $('welcomeAgain'),
   };
 
   let settings = SETTINGS.defaults();
@@ -1079,6 +1087,14 @@
     }));
   }
 
+  // "Show the welcome again": the flag first, so the tab the worker opens finds
+  // the welcome due. A write that doesn't land shows the page's usual save
+  // error and opens nothing.
+  async function showWelcomeAgain() {
+    if (!(await write(WELCOME_AGAIN.patch, [], true))) return;
+    await send({ type: C.MSG.OPEN_WELCOME });
+  }
+
   // ---- Deep links ----
 
   function focusSection(section) {
@@ -1157,6 +1173,7 @@
     showStoredList(cached);
     fillForm();
     renderAbout();
+    els.welcomeAgain.addEventListener('click', showWelcomeAgain);
 
     for (const f of FIELDS) {
       if (f.key === 'apiKey') continue;
