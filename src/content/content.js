@@ -46,9 +46,8 @@
  *    click on a citation row opens it afresh (a numbered key). Back returns
  *    focus to the row it came from (citPanel.refocus)
  *  - answers the panel's renderMode event with fresh mode content
- *  - answers the toolbar icon (TOGGLE_PANEL): collapse or expand the panel; on
- *    a chapter the language preference hides, show it for this tab instead.
- *    The reply's `shown` says whether a chapter shows (false: the worker
+ *  - answers the toolbar icon (TOGGLE_PANEL): collapse or expand the panel,
+ *    on every chapter page whatever its language. The reply's `shown` says whether a chapter shows (false: the worker
  *    opens the options page)
  *  - asks the worker to open the options page, at a card when one is named
  *    (OPEN_OPTIONS { section: 'bible' })
