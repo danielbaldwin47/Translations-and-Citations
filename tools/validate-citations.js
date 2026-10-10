@@ -5,7 +5,7 @@
  *
  * Covers src/citations/cit-data.js (the pack probe and its Store stamp, chapterIndex, citedVerses,
  * refRanks, chapterData over a stub pack) and tools/build-citation-data.js's
- * pure core (toChurchUrl, excerptChars, packDescriptor in both modes,
+ * pure core (toChurchUrl, excerptChars, inFootnote and isFootnoteCite, packDescriptor in both modes,
  * parseInclusion, citeRecord) on fixtures.
  *
  * Then every pack on disk — the committed public pack always, the personal
@@ -194,6 +194,29 @@ console.log('Footnote cites (fixtures):');
   // STPJS's footnote list follows its own body-passage rule (ADR-0006): not a note at a marker.
   const stpjs = `<p>Body<span class="footRef">1</span></p><div class="footnotes"><div class="footnote">1. ${span(7, 'John 3:5')}</div></div>`;
   eq(build.inFootnote(stpjs, 7), false, 'an STPJS footnote-list cite is not flagged by this rule');
+
+  // The footnote-cite rule (tools/footnote-cite.js) over BYU's copy: the
+  // build reads the note and the paragraph around its marker from the talk
+  // HTML, and flags a note cite only when the rule does.
+  const F = require(path.join(ROOT, 'tools', 'footnote-cite.js'));
+  const ctx = F.footnoteContext([
+    { slug: '1-ne', ch: 3, v: 7, text: 'And it came to pass that I, Nephi, said unto my father: I will go and do the things which the Lord hath commanded, for I know that the Lord giveth no commandments unto the children of men, save he shall prepare a way for them that they may accomplish the thing which he commandeth them.' },
+    { slug: 'alma', ch: 5, v: 14, text: 'And now behold, I ask of you, my brethren of the church, Have ye spiritually been born of God? Have ye received his image in your countenances? Have ye experienced this mighty change in your hearts?' },
+    { slug: '2-ne', ch: 27, v: 21, text: 'Touch not the things which are sealed, for I will bring them forth in mine own due time; for I will show unto the children of men that I am able to do mine own work.' },
+    ...Array.from({ length: 4000 }, (_, i) => ({ slug: 'gen', ch: 1 + Math.floor(i / 50), v: 1 + (i % 50), text: 'and the Lord did give unto the people of the land' })),
+  ]);
+  const flag = (html, id, slug, ch, verses) => build.isFootnoteCite(html, id, { slug, ch, verses }, ctx);
+  const modern = '<p data-aid="146038910" id="p3">He said, “I will show [you] that I am able to do mine own work.”' +
+    `<sup class="noteMarker"><a href="#note1">1</a><span class="footnote">[<span class="note-p">${span(137180, '2 Nephi 27:21')}</span>]</span></sup></p>\n` +
+    `<footer class="notes"><ol><li id="note1"><p>${span(137180, '2 Nephi 27:21')}</p></li></ol></footer>`;
+  eq(flag(cook, 139829, '1-ne', 3, [7]), true, 'Cook 139829: a prose note beside a paragraph about something else is a footnote cite');
+  eq(flag(cook, 139830, 'alma', 5, [14]), false, 'a body-text cite (136384\'s case) is never a footnote cite');
+  eq(flag(modern, 137180, '2-ne', 27, [21]), false, 'a bare note naming the source of the paragraph\'s quotation is not a footnote cite');
+  const seeQuoted = modern.replace('<span class="note-p">', '<span class="note-p">See ');
+  eq(flag(seeQuoted, 137180, '2-ne', 27, [21]), false, 'a "See" note on a paragraph that quotes the verse is not a footnote cite');
+  const seeAside = seeQuoted.replace('He said, “I will show [you] that I am able to do mine own work.”', 'We moved house twice that year.');
+  eq(flag(seeAside, 137180, '2-ne', 27, [21]), true, 'a "See" note on a paragraph that neither quotes nor echoes the verse is a footnote cite');
+  eq(flag(null, 139829, '1-ne', 3, [7]), false, 'a talk with no HTML flags nothing');
 }
 
 // chapterData over an in-memory pack (stubbed chrome.runtime and fetch): a
@@ -484,6 +507,11 @@ function descriptorChecks() {
     const flagged = build.derivedCites([noted], pub.corpora.G, { books: new Set(['moses', 'dc']), base });
     deep(flagged.shards.moses.cites[20261000001], { t: 'gc/2026/10/12gong', v: '39', a: 'p_oTBi9', ec: 127, fn: true },
       'a derived cite the derivation run found in a note keeps fn: true');
+    noted.talks[0].cites[1].note = true;
+    const inNote = build.derivedCites([noted], pub.corpora.G, { books: new Set(['moses', 'dc']), base });
+    eq(inNote.inNote, 2, 'the derived cites in a note are counted (note: true, or a footnote cite\'s fn), for the diff report');
+    deep(inNote.shards.dc.cites[20261000002], { t: 'gc/2026/10/12gong', v: '7,18-19', a: 'p_d5rju', ec: 369 },
+      'a cite in a note that is not a footnote cite carries no fn');
     const covered = build.derivedCites([Object.assign({}, input, { conference: '2026-04' })], pub.corpora.G, { books: new Set(['moses']), base });
     check(covered.errors.length === 1 && /2026-04/.test(covered.errors[0]), `a conference the base covers is refused (${covered.errors})`);
     const old = build.derivedCites([Object.assign({}, input, { conference: '2025-04' })], pub.corpora.G,
@@ -502,19 +530,20 @@ function descriptorChecks() {
         { cites: { 13: { t: 1 }, 20261000002: { t: 'gc/2026/10/11a' }, 20261000003: { t: 'gc/2026/10/11a' } } }],
     };
     const descriptor = { flavor: 'public', vintage: '2026-10', base: { db: 'core.53.db', updated: '2026-05-18' }, derived: ['2026-10'] };
-    eq(build.diffReport(build.tallyPack(before), build.tallyPack(after), descriptor, '2026-04'), [
+    eq(build.diffReport(build.tallyPack(before), build.tallyPack(after), descriptor, '2026-04', { G: 3 }), [
       '### Pack diff: public pack',
       '',
       'Vintage 2026-04 -> 2026-10. Base: core.53.db, updated 2026-05-18. Derived conferences: 2026-10.',
       '',
-      '| Corpus | Talks before | Talks after | Added | Removed | Cites before | Cites after | Footnote cites before | Footnote cites after |',
-      '| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |',
-      '| G | 2 | 3 | 2 | 1 | 3 | 5 | 0 | 2 |',
-      '| J | 1 | 1 | 0 | 0 | 1 | 1 | 0 | 0 |',
+      '| Corpus | Talks before | Talks after | Added | Removed | Cites before | Cites after | Cites in a note | Footnote cites before | Footnote cites after |',
+      '| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |',
+      '| G | 2 | 3 | 2 | 1 | 3 | 5 | 3 | 0 | 2 |',
+      '| J | 1 | 1 | 0 | 0 | 1 | 1 | 0 | 0 | 0 |',
       '',
       'Added (G): gc/2026/10/11a, gc/2026/10/12gong',
       'Removed (G): 2',
-    ].join('\n'), 'talks added and removed, cites and footnote cites (fn) before and after, per corpus, with the base stamp and derived conferences');
+    ].join('\n'), 'talks added and removed, cites before and after, the build\'s cites in a note, and footnote cites (fn) before and after, ' +
+      'per corpus, with the base stamp and derived conferences');
     eq(build.diffReport(build.tallyPack(null), build.tallyPack(after), descriptor, '').split('\n')[2],
       'Vintage (none) -> 2026-10. Base: core.53.db, updated 2026-05-18. Derived conferences: 2026-10.', 'a first build reports from nothing');
   }
