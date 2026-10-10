@@ -84,7 +84,7 @@ src/
     ratelimit.js           __BTX.rate      15/30s burst window + this browser's api.bible calls per calendar month, its writes serialized (no cap: only api.bible's 429 at or past 5,000, naming no short wait, pauses); pure answerOf / rateState ok/near/paused (near only below 5,000), attached as `rate` to every api.bible chapter and version-list answer
     fums.js                __BTX.fums      api.bible usage report (FUMS v3 GET) on every api.bible display, cache hits too; device id minted on a successful Connect (storage.local), session id per worker lifetime
   content/
-    church-text.js         __BTX.churchText which texts a chapter offers + which shows (textsFor/pickText/pickOrder; the one walk firstOffered; the chapter check's chapterOffer over checkResults, keyed by checkKey; the page's language, pageLanguage); dropdown rows (labelFor/menuFor); setup-card list (languagesToAdd); pick memory (mruFrom/rememberPick; rememberTicked for a tick in settings; stored under C.SELECTION_KEY, written by content.js and the options page); same-origin Church-language chapter → IR with element ids (chapterFrom; its block walk blockElements also reads the English side for the split)
+    church-text.js         __BTX.churchText which texts a chapter offers + which shows (textsFor/pickText/pickOrder; the one walk firstOffered; the chapter check's chapterOffer over checkResults, keyed by checkKey; the page's language, pageLanguage); the toolbar's two menus (bibleMenu/languageMenu, labels labelFor, a lone language's name nameFor); setup-card list (languagesToAdd); pick memory (mruFrom/rememberPick; rememberTicked for a tick in settings; stored under C.SELECTION_KEY, written by content.js and the options page); same-origin Church-language chapter → IR with element ids (chapterFrom; its block walk blockElements also reads the English side for the split)
     page-split.js/.css     __BTX.pageSplit the reading layer, independent of the mode: start() fits the site's reading column to the open space while the panel is open (fitColumn / fitRule); show/hide the page split (columns | interlinear) while the arrangement names a page's language, paired by element id; pure cores wantsSplit / fitWidth / effectiveLayout / fitColumn / fitRule / groupRows / soloIds / rowRules / readingRight / readingEdges / collapseFits
     detect.js              __BTX.detect    URL parse (all standard works, isBible) + SPA nav
     page-hook.js           page-world history patch, injected via web-accessible <script src>
@@ -325,11 +325,15 @@ validators — go there before changing behaviour.
   not re-clamp). Two editors: the options slider and the toolbar's A− / A+
   stepper, which writes through `persist` like every other panel setting.
   `stepFontScale` is one rule for both jobs — where a click lands, and
-  (`null` = nowhere) which button is disabled. Two chrome rows — header
-  (Translation | Citations, Settings, Collapse) and toolbar (the version
-  dropdown or By source | By verse, then A− / A+): in each the one wide
-  control yields (`flex: 1 1 auto; min-width: 0`) and the buttons stay fixed,
-  so both fit at the 280px minimum width.
+  (`null` = nowhere) which button is disabled. Chrome rows — header
+  (Translation | Citations, Settings, Collapse); the toolbar's main row (the
+  Bible version dropdown or By source | By verse, then A− / A+); and in
+  Translation, while a language is ticked, the language row (GLOSSARY: the
+  name or the language dropdown, then the switch; off the Bible it takes the
+  stepper and the main row goes; which rows show is the pure `toolbarRows`):
+  in each the one wide control yields (`flex: 1 1 auto; min-width: 0`) and
+  the buttons and the switch stay fixed, so all fit at the 280px minimum
+  width.
   `--btx-line` is **always a length** — `theme.lineHeightOf` states even
   `normal` in px — because multiplying a ratio would apply the scale twice.
 - **Source-type marking** is a coloured strip on each source-type group, hue

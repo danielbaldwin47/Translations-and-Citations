@@ -289,9 +289,11 @@ is on. Its text is never edited (the condition of the name).
 A language the Church publishes the standard works in, offered beside the
 page from the site's own content endpoint (`__BTX.churchText`). Enabled ones
 are the `churchLanguages` setting (codes from `C.CHURCH_LANGUAGES`); each
-becomes a row in the translation dropdown after the api.bible versions, minus
-the page's own language and any language that hasn't published the chapter's
-collection. A chapter a language lacks is "not available", not an error to
+becomes a row of the **language row**'s dropdown (`churchText.languageMenu`,
+"Español — Spanish"), minus the page's own language and any language that
+hasn't published the chapter's collection. Bible versions have the other
+dropdown, the version row's (`churchText.bibleMenu`, Bible chapters only); a
+language named on its own is `churchText.nameFor`'s native name ("Español"). A chapter a language lacks is "not available", not an error to
 retry. In the reader, *translation* code (the `translation` view,
 `findTranslation`, `populateTranslations`, `C.SELECTION_KEY`, the pick memory — a
 most-recently-used list of row ids, newest first; a language ticked in settings or added on the setup card goes first) handles both kinds of row —
@@ -307,11 +309,28 @@ every language. Off hides the language from the page: the **arrangement**
 names no page's language, so there is no **page split** and no chapter check
 for it, and the **no-translation line** never shows. The languages stay
 ticked and `churchLanguageLayout` is untouched, so on returns the language in
-the layout the reader had. It is not a panel-handled key: a change, this
-tab's or another's, re-asks the arrangement through `content.js`'s settings
-subscriber. Unticking a language never writes it; adding one writes it on.
+the layout the reader had. Every control that flips it in the reader calls
+`content.js`'s one write, `setLanguageShown`, which re-arranges the page and
+the panel. It is not a panel-handled key: another tab's change re-asks the
+arrangement through `content.js`'s settings subscriber. Unticking a language
+never writes it; adding one writes it on.
 _Avoid_: toggle, enable (a language is *enabled* by ticking it in settings;
 the switch says whether the enabled ones *show*)
+
+**Language row**:
+The Translation toolbar's second row, under the version row, present
+whenever a Church language is ticked (or English is offered on request,
+#119): the language and its **language switch**. Its form is the panel's
+pure `languageRow` over the arrangement's facts: one language that may offer
+the chapter (a chapter check still asking counts) is its name as plain text;
+two or more are a dropdown at the newest pick; none offering the chapter is
+the name nearest the front of the pick memory with the switch greyed (an
+absence reads as "not translated yet"). No language ticked: no row, and the
+toolbar is the one row it always was. The switch is a `role="switch"` button
+named "Show Español", restated in place so focus stays on it. A dropdown
+pick goes to the pick memory, and turns the switch on while it is off.
+Off the Bible the version row goes and the A− / A+ stepper sits here.
+_Avoid_: language bar, toggle row
 
 **Page split**:
 A Church-language chapter set into the site's own reading column, each block

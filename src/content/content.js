@@ -6,8 +6,10 @@
  *  - points the theme module at the panel root (it owns keeping it in sync)
  *  - manages translation selection and hands the panel each Translation state
  *    (loading, rate-limit wait, error, setup card, beside card, text); the
- *    dropdown's rows and labels are __BTX.churchText's pure textsFor /
- *    menuFor, and the row shown is the arrangement's, walking a
+ *    Translation toolbar's two rows (populateToolbar) read __BTX.churchText's
+ *    pure textsFor and its two menus, bibleMenu (the version row) and
+ *    languageMenu (the language row, in the form the panel's languageRow
+ *    answers), and the row shown is the arrangement's, walking a
  *    most-recently-used list (C.SELECTION_KEY in chrome.storage.local); a row
  *    on request the arrangement `chooses` (English on a page read in another
  *    language, shown by the Translation tab) is remembered there. The options page writes
@@ -32,6 +34,11 @@
  *    dropdown drops rows lacking the chapter. A rate-limited
  *    load waits and retries only as panel.retryWait allows, counting its
  *    automatic retries per chapter and version
+ *  - owns the language switch's one write, setLanguageShown(on, { anchor }):
+ *    the language row's switch, a pick in its dropdown while the switch is
+ *    off (after the pick memory), and the reading layer's and the cards'
+ *    controls all call it; it patches the setting and re-arranges the page
+ *    and the panel itself (its settings subscriber skips this tab's writes)
  *  - writes the cards' picks through __BTX.settings (a Church language added
  *    from the setup card, the layout control's layout) and renders them
  *    itself, since its settings subscriber skips its own writes; a layout
@@ -213,6 +220,7 @@
       texts: offer.texts, picks: preferredIds(), languages: e.churchLanguages, layout: placement(),
       dismissed: e.noTranslationLineDismissed === true,
       shown: e.churchLanguageShown !== false,
+      isBible: !!current && current.isBible !== false,
     };
   }
 
@@ -278,7 +286,20 @@
     const offer = offerFor(parsed, rows);
     if (panel.arrange(factsFor(e, offer)).body === 'setup') return;
     texts = offer.texts.filter((t) => t.offered !== false);
-    panel.populateTranslations(churchText.menuFor(texts, { isBible: parsed.isBible !== false }), activeId);
+    populateToolbar(texts);
+  }
+
+  // The Translation toolbar's two rows from `list` (the texts that may offer
+  // the chapter): the Bible menu at the version showing — the arrangement's
+  // text when it is a Bible row, else the newest Bible pick — and the
+  // language row in the form the panel's languageRow answers, over the
+  // language menu.
+  function populateToolbar(list) {
+    if (!current) return;
+    const bible = churchText.bibleMenu(list, { isBible: current.isBible !== false });
+    const bibleRows = list.filter((t) => t.provider !== churchText.PROVIDER);
+    const selected = bible.some((i) => i.id === activeId) ? activeId : churchText.pickText(bibleRows, preferredIds());
+    panel.populateTranslations({ bible, selected, row: panel.languageRow(), languages: churchText.languageMenu(list) });
   }
 
   // The panel's brief loading state, while the check fetches.
@@ -299,11 +320,12 @@
   // The pick counts at once; the write waits for the stored list, so a pick
   // made before anything was read (the setup card, on a tab that opened in
   // Citations) doesn't replace the reader's older picks.
+  // Resolves once the list is stored (a write that must follow it waits).
   function remember(id) {
     mru = churchText.rememberPick(mru, id);
-    loadSelection().then(() => {
-      try { chrome.storage.local.set({ [C.SELECTION_KEY]: mru }); } catch (e) { /* ignore */ }
-    });
+    return loadSelection().then(() => new Promise((resolve) => {
+      try { chrome.storage.local.set({ [C.SELECTION_KEY]: mru }, () => resolve()); } catch (e) { resolve(); }
+    }));
   }
 
   async function render() {
@@ -348,6 +370,7 @@
     texts = offer.texts.filter((t) => t.offered !== false);
     panel.showChapter(Object.assign({ key }, factsFor(e, offer)));
     arrangedKey = key;
+    populateToolbar(texts); // the rows belong to this chapter before any mode renders
     if (themeMirror) themeMirror.refresh(); // the panel is on screen: theme it now
 
     await renderActiveMode();
@@ -490,7 +513,7 @@
       clearTimeout(retryTimer);
       activeId = null;
       syncSplit();
-      panel.populateTranslations([], '');
+      populateToolbar(list); // no version row; the language row greyed while languages are ticked
       // Nothing offers the chapter, and the arrangement says the setup card
       // (never cached — the panel re-renders it every time).
       const bible = current.isBible === false ? null
@@ -509,7 +532,7 @@
       } });
     }
     activeId = shown.text;
-    panel.populateTranslations(churchText.menuFor(list, { isBible: current.isBible !== false }), activeId);
+    populateToolbar(list);
     syncSplit({ anchor: splitAnchor() }); // another version may bring the split or take it away
     checkRest(parsed, e, stale);
     // Same chapter and same version -> the panel re-mounts what it has, and
@@ -804,6 +827,43 @@
     render();
   }
 
+  // The language switch (GLOSSARY: Language switch): its one write. Every
+  // control that turns the language on or off calls this — the language row's
+  // switch, a pick in its dropdown while off, the page's Hide line (`anchor`:
+  // the paragraph to keep in place), the off card's Show. It patches the
+  // setting and re-arranges the page and the panel here, since the settings
+  // subscriber skips this tab's own writes.
+  function setLanguageShown(on, opts) {
+    const shown = on === true;
+    if (enabled && (enabled.churchLanguageShown !== false) === shown) return;
+    if (enabled) enabled = Object.assign({}, enabled, { churchLanguageShown: shown });
+    SETTINGS.patch({ churchLanguageShown: shown });
+    if (!current || !enabled || arrangedKey !== chapterKey(current)) return;
+    const anchor = (opts && opts.anchor) || splitAnchor();
+    const before = panel.effectiveMode();
+    rearrange();
+    if (before === 'translation' || panel.effectiveMode() !== before) {
+      renderActiveMode();
+      return;
+    }
+    populateToolbar(texts);
+    applyNote();
+    syncSplit({ anchor });
+  }
+
+  // A pick in the language row's dropdown: the pick memory, then (while the
+  // switch is off, `patch`) the switch on, in that order; then the chapter in
+  // the language picked.
+  async function pickLanguage(id, patch) {
+    const stored = remember(id);
+    if (patch && patch.churchLanguageShown) {
+      await stored;
+      setLanguageShown(true);
+      return;
+    }
+    if (panel.effectiveMode() === 'translation') renderTranslation();
+  }
+
   // The layout control: on the beside card, in the beside-the-page line's
   // place (its Change), and above a language read in the panel (the way back
   // into the page). `pick` is the row the choice makes the pick (the panel's
@@ -848,6 +908,8 @@
         // its own cache key rather than overwriting the mounted one.
         if (panel.effectiveMode() === 'translation') renderTranslation();
       },
+      onLanguagePick: pickLanguage,
+      onLanguageShown: (on) => setLanguageShown(on),
       onRetry: () => { retries = { key: null, n: 0 }; loadChapter(); }, // the reader's own retry starts a fresh run
       onGear: (section) => send(section ? { type: C.MSG.OPEN_OPTIONS, section } : { type: C.MSG.OPEN_OPTIONS }),
       onAddLanguage: addLanguage,

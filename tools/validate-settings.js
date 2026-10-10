@@ -547,15 +547,19 @@ for (const chip of ['btx-cit-count', 'btx-cit-range']) {
 const stepRule = /#btx-root \.btx-font-step \{[^}]*\}/.exec(panelCss);
 check(stepRule && !/--btx-size-scale|--btx-body-size/.test(stepRule[0]),
   'the text-size stepper stays fixed-size chrome');
-// Two chrome rows (header: mode control + Settings + Collapse; toolbar: the
-// mode's control + the stepper), each on one line at the minimum panel width.
-// In each row the buttons are rigid and the one wide control yields. These
-// regexes pin the rules that make that true; they cannot measure an overflow,
-// so the 280px check itself is a look at the real panel.
-const rows = /#btx-root \.btx-header,\s*#btx-root \.btx-toolbar \{[^}]*\}/.exec(panelCss);
-check(rows && /flex-wrap: nowrap/.test(rows[0]), 'neither chrome row wraps');
+// The chrome rows (header: mode control + Settings + Collapse; the toolbar's
+// main row: the mode's control + the stepper; in Translation, the language
+// row: the language's name or dropdown + its switch, GLOSSARY: Language row),
+// each on one line at the minimum panel width. In each row the buttons are
+// rigid and the one wide control yields; the switch never does. These regexes
+// pin the rules that make that true; they cannot measure an overflow, so the
+// 280px check itself is a look at the real panel.
+const rows = /#btx-root \.btx-header,\s*#btx-root \.btx-toolbar-row \{[^}]*\}/.exec(panelCss);
+check(rows && /flex-wrap: nowrap/.test(rows[0]), 'no chrome row wraps');
 check(/#btx-root \.btx-btn \{[^}]*flex: 0 0 auto/.test(panelCss), 'the icon and stepper buttons never shrink');
-for (const wide of ['btx-modes', 'btx-select', 'btx-cit-modes']) {
+const switchRule = /#btx-root \.btx-switch \{[^}]*\}/.exec(panelCss);
+check(switchRule && /flex: 0 0 auto/.test(switchRule[0]), 'the language switch never shrinks');
+for (const wide of ['btx-modes', 'btx-select', 'btx-cit-modes', 'btx-lang-name']) {
   const rule = new RegExp(`#btx-root \\.${wide} \\{[^}]*\\}`).exec(panelCss);
   check(rule && /flex: 1 1 auto/.test(rule[0]) && /min-width: 0/.test(rule[0]),
     `.${wide} takes the row's spare width and yields it (a <select>'s floor would otherwise be its widest option)`);

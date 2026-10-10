@@ -71,16 +71,14 @@
  *       else id edition, else order (after the provider when both apply). All
  *       written before the abbreviation so the cut spares it:
  *       "World English Bible Updated, Protestant (WEBU)", "…, 2 (WEBU)"
- *     menuFor(list, { isBible }) -> [{ label, items: [{ id, label }] }]
- *       the dropdown. Bible chapter: 'Bible versions' then 'Languages', always
- *       headed, a group only when it has rows (one Bible version alone is still
- *       headed). Any other chapter: no Bible group, the language rows in one
- *       unheaded group. `isBible` is the caller's fact about the chapter, never
- *       inferred from the rows.
+ *     nameFor(code) -> "Español" | null
+ *       a language named on its own (the language row, its switch "Show
+ *       Español", the cards and lines about one language): the native name
+ *       its dropdown row leads with
  *     bibleMenu(list, { isBible }) -> [{ id, label }]
  *     languageMenu(list) -> [{ id, label }]
- *       the menus the Translation toolbar's two rows read (menuFor feeds the
- *       one mixed dropdown until the panel switches over, #154). Each is one
+ *       the menus the Translation toolbar's two rows read (the panel's
+ *       version row and language row, GLOSSARY: Language row). Each is one
  *       kind of thing: a flat list in `list` order, labels from labelFor, no
  *       group heading. bibleMenu: the Bible rows, empty off the Bible.
  *       languageMenu: the Church rows on any chapter, an on-request English
@@ -345,6 +343,14 @@
 
   const SOURCE_NAME = { bundled: 'built in', 'api.bible': 'api.bible' };
 
+  // A language named on its own (the language row and its switch, and the
+  // cards and lines about one language): the native name its dropdown row
+  // leads with, "Español"; English once.
+  function nameFor(code) {
+    const row = rowFor(code);
+    return row ? row.abbr || row.name : null;
+  }
+
   function labelFor(row, list) {
     const base = baseLabel(row);
     const twins = (Array.isArray(list) ? list : []).filter((r) => r !== row && baseLabel(r) === base);
@@ -365,23 +371,6 @@
     if (edition(row) && kin.every((r) => edition(r) !== edition(row))) return told(edition(row));
     const n = list.filter((r) => baseLabel(r) === base && r.provider === row.provider).indexOf(row);
     return n < 0 ? base : told(String(n + 1));
-  }
-
-  // The translation dropdown: on a Bible chapter "Bible versions" then
-  // "Languages", each only when it has rows; elsewhere the rows unheaded.
-  //   -> [{ label: 'Bible versions' | 'Languages' | null, items: [{ id, label }] }]
-  function menuFor(list, opts) {
-    const rows = Array.isArray(list) ? list : [];
-    const item = (r) => ({ id: r.id, label: labelFor(r, rows) });
-    const bible = rows.filter((r) => r.provider !== PROVIDER).map(item);
-    const church = rows.filter((r) => r.provider === PROVIDER).map(item);
-    if (!(opts && opts.isBible)) {
-      return bible.length || church.length ? [{ label: null, items: bible.concat(church) }] : [];
-    }
-    const groups = [];
-    if (bible.length) groups.push({ label: 'Bible versions', items: bible });
-    if (church.length) groups.push({ label: 'Languages', items: church });
-    return groups;
   }
 
   // The two menus the Translation toolbar's rows read. Each is one kind of
@@ -593,7 +582,7 @@
   }
 
   const CORE = {
-    PROVIDER, ID_PREFIX, MRU_MAX, rowFor, textsFor, pickText, pickOrder, firstOffered, chapterOffer, pageLanguage, mruFrom, rememberPick, rememberTicked, labelFor, menuFor, bibleMenu, languageMenu, languagesToAdd,
+    PROVIDER, ID_PREFIX, MRU_MAX, rowFor, textsFor, pickText, pickOrder, firstOffered, chapterOffer, pageLanguage, mruFrom, rememberPick, rememberTicked, labelFor, nameFor, bibleMenu, languageMenu, languagesToAdd,
     chapterUri, apiUrl, chapterFrom, blockElements, servesChapter, dirOf,
   };
 
