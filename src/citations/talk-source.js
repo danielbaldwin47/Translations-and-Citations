@@ -51,9 +51,10 @@
  * (snippetKey / snippetMatches).
  *
  * Credit (talkCredit): the byline line saying whose text the reader shows,
- * from the descriptor's corpus entry: a BYU-fetched talk's fetch line, or a
- * Wikisource-attributed corpus's "Text: Wikisource, revision N" linking the
- * source's permalink.
+ * from the descriptor's corpus entry (never a corpus letter): a BYU-fetched
+ * talk's fetch line; a live-church corpus's "From churchofjesuschrist.org"
+ * linking the talk; a Wikisource-attributed corpus's "Text from Wikisource"
+ * linking the permalink, "Wikisource revision N" as the link's title.
  *
  * The DOM-free half (corpusPlan, readingDestination, talkCredit, the BYU URL
  * builders, the pre-2013 URL repair, locateParagraph, slotPolicy,
@@ -408,19 +409,31 @@
 
   // The byline line of a talk whose text came from BYU (spec #69 disclosure).
   const BYU_CREDIT = 'Text fetched from scriptures.byu.edu';
+  const CHURCH_CREDIT = 'From churchofjesuschrist.org';
+  const WIKISOURCE_CREDIT = 'Text from Wikisource';
 
   // The reader's credit line for a loaded talk, from its corpus's descriptor
   // entry (`corpusEntry`, descriptor.corpora[letter]). Pure. -> { text, href? } | null
   //   text 'live-byu'            the BYU fetch line
-  //   attribution 'wikisource'   "Text: Wikisource, revision N" linking the
-  //                              source's URL, the permalink whose `oldid` is N
+  //   text 'live-church'         "From churchofjesuschrist.org" linking the
+  //                              talk's URL (none without one)
+  //   attribution 'wikisource'   "Text from Wikisource" linking the source's
+  //                              URL, the permalink whose `oldid` is N, with
+  //                              title "Wikisource revision N" (no title for
+  //                              a URL without an oldid)
+  // `title` is the link's hover text. Decided by the descriptor, never by the
+  // corpus letter.
   function talkCredit(corpusEntry, source) {
     if (!corpusEntry) return null;
     if (corpusEntry.text === 'live-byu') return { text: BYU_CREDIT };
     const url = source && source.url;
-    if (corpusEntry.attribution === 'wikisource' && url) {
+    if (!url) return null;
+    if (corpusEntry.text === 'live-church') return { text: CHURCH_CREDIT, href: url };
+    if (corpusEntry.attribution === 'wikisource') {
       const rev = /[?&]oldid=(\d+)/.exec(url);
-      return { text: 'Text: Wikisource' + (rev ? `, revision ${rev[1]}` : ''), href: url };
+      const credit = { text: WIKISOURCE_CREDIT, href: url };
+      if (rev) credit.title = `Wikisource revision ${rev[1]}`;
+      return credit;
     }
     return null;
   }
@@ -823,7 +836,7 @@
       html,
       url,
       destination: readingDestination(plan, { entry, source: src, url }),
-      credit: html != null ? talkCredit(corpusEntry, src) : null,
+      credit: html != null ? talkCredit(corpusEntry, { ...src, url: url || src.url }) : null,
       findTarget: (container) => findTarget(container, { plan, entry, live, html }),
     };
   }

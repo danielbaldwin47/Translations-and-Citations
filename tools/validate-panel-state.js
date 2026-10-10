@@ -1395,6 +1395,16 @@ for (const name of ['applyModeUI', 'applyCitationViewUI']) {
 // Icons are built node by node (safe rendering: no markup strings).
 check(!/\.innerHTML\s*=/.test(panelSrc), 'panel.js never assigns innerHTML');
 check(/createElementNS\(SVG_NS/.test(panelSrc), 'icons are built with createElementNS');
+// The collapsed tab is the extension's own packaged icon (#141), not a
+// drawn arrow: an <img> the tab holds, loaded through chrome.runtime.getURL,
+// with the same words as its title and its accessible name. Its surface is
+// the panel's (not the accent) so the icon's own teal tile reads in both
+// themes: the accent is nearly the tile's colour in the light theme.
+check(/const tab = labelled\(el\('button', 'btx-tab'\), 'Show Translations & Citations'\)/.test(panelSrc), 'the collapsed tab carries its words as title and aria-label together (labelled)');
+check(/tab\.appendChild\(extensionIcon\('btx-tab-icon', 24, 'icons\/icon-48\.png'\)\)/.test(panelSrc), 'the collapsed tab shows the extension\'s packaged icon, drawn at 24px from the 48px file');
+check(!/icon\('expand'/.test(panelSrc), 'the tab no longer draws the expand arrow');
+const tabRule = (fs.readFileSync(path.join(ROOT, 'src/content/panel.css'), 'utf8').match(/#btx-root \.btx-tab \{[^}]*\}/) || [''])[0];
+check(/background:\s*var\(--btx-bg\)/.test(tabRule) && !/background:\s*var\(--btx-accent\)/.test(tabRule), 'the tab sits on the panel surface, so the icon\'s tile shows in the light and the dark theme');
 // One way to put the panel away: Collapse (and the toolbar icon, which
 // toggles the same persisted state). There is no second, unpersisted "close".
 check(!/onClose|btx-close|userClosed/.test(panelSrc), 'the panel has no close control besides Collapse');

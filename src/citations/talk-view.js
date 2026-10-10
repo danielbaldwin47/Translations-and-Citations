@@ -10,16 +10,23 @@
  *       Resolves once the talk or its error state shows. Scrolling goes
  *       through __BTX.panel.scrollIntoView, the body's one scroll writer.
  *   render(html) -> element     Sanitize talk HTML into a detached .btx-talk.
- *   refPunctuation(classAttr) -> { open, close }   Pure; Node-tested in
- *       tools/test-talk-source.js.
+ *   markCite(target) -> { tinted, reveal }   Mark findTarget's element:
+ *       the block tinted, and the element open() scrolls to (the target).
+ *   refPunctuation(classAttr) -> { open, close }   Pure.
+ *   All three are Node-tested in tools/test-talk-source.js (render and
+ *   markCite over tools/mini-dom.js: the render contract below).
  *
  * Layout: a sticky header (Back, verse chip, external link; then the title),
  * then in the scroll body a byline (speaker, source, and talk-source's credit
- * line: the BYU fetch line, or "Text: Wikisource, revision N" linking the
- * permalink), the one-line highlight
- * hint until the first highlight exists, and the article. The cited passage is
- * marked (btx-cit-highlight on the target, btx-cit-passage on its paragraph)
- * and revealed on open; the verse chip reveals it again.
+ * line: the BYU fetch line, "From churchofjesuschrist.org" linking the talk,
+ * or "Text from Wikisource" linking the permalink, revision N on hover), the
+ * one-line highlight hint until the first highlight exists, and the article.
+ * The cited passage is marked (markCite: btx-cit-highlight tints the target,
+ * or its paragraph when the target has no text, as a Journal of Discourses
+ * marker or page anchor has none; btx-cit-passage puts the accent bar on
+ * that paragraph). Open scrolls to the target itself (btx-cit-target), where
+ * the cited words are, never to a tinted paragraph's top; the verse chip
+ * scrolls there again.
  *
  * Re-mount: the panel caches a loaded talk and re-mounts the same DOM at its
  * scroll offset without calling open(), so every listener lives on the view's
@@ -33,8 +40,9 @@
  * survive, source classes come back prefixed `btxk-`, footnotes carry
  * data-btx-footnum, and the article's textContent stays exactly the source
  * text. Display additions are CSS generated content (reference punctuation on
- * data-btx-open/close, note numbers on data-value) or wrapper spans, and the
- * byline and hint sit outside the article, so saved highlight offsets hold.
+ * data-btx-open/close, note numbers on data-value) or wrapper spans, the
+ * cite's mark is classes, and the byline and hint sit outside the article,
+ * so saved highlight offsets hold.
  *
  * IIFE -> __BTX.talkView (+ module.exports for the Node tests).
  */
@@ -57,6 +65,23 @@
     'HEAD', 'NAV', 'BUTTON', 'FORM', 'INPUT', 'IMG', 'PICTURE', 'FIGURE', 'VIDEO', 'AUDIO']);
   // The paragraph-like block around a target, which gets the accent bar.
   const PASSAGE = 'p, li, blockquote, .btxk-paragraph, .btxk-std, .btxk-footnote';
+
+  // Mark the cite at `target` (findTarget's element) -> { tinted, reveal }.
+  // A target with text is tinted itself; one with none (a Journal of
+  // Discourses marker or page anchor) has nothing to tint, so its paragraph
+  // is tinted instead. The paragraph around the target gets the accent bar.
+  // The reader always scrolls to the target itself (reveal, marked
+  // btx-cit-target for the panel's place-keeper), since a tinted paragraph
+  // can run for screens above the cited words. Classes only: the article's
+  // text is unchanged.
+  function markCite(target) {
+    const passage = target.closest(PASSAGE);
+    const tinted = passage && !target.textContent.trim() ? passage : target;
+    tinted.classList.add('btx-cit-highlight');
+    if (passage) passage.classList.add('btx-cit-passage');
+    target.classList.add('btx-cit-target');
+    return { tinted, reveal: target };
+  }
 
   const SVG_NS = 'http://www.w3.org/2000/svg';
   const ICONS = {
@@ -258,11 +283,11 @@
     const a = el('a', cls, text);
     a.href = href;
     a.target = '_blank';
-    a.rel = 'noopener';
+    a.rel = 'noopener noreferrer';
     return a;
   }
 
-  // `credit` is talk-source's { text, href? } naming whose text this is;
+  // `credit` is talk-source's { text, href?, title? } naming whose text this is;
   // with an href the line links it.
   function byline(heading, credit) {
     const b = el('div', 'btx-talk-byline');
@@ -270,7 +295,11 @@
     if (heading.where) b.appendChild(el('div', 'btx-talk-where', heading.where));
     if (credit) {
       const line = el('div', 'btx-talk-credit', credit.href ? null : credit.text);
-      if (credit.href) line.appendChild(externalLink('btx-talk-credit-link', credit.href, credit.text));
+      if (credit.href) {
+        const link = externalLink('btx-talk-credit-link', credit.href, credit.text);
+        if (credit.title) link.title = credit.title;
+        line.appendChild(link);
+      }
       b.appendChild(line);
     }
     return b.childElementCount ? b : null;
@@ -417,11 +446,9 @@
       // Two frames, so re-applied highlights and reflow have settled before
       // the header and target are measured.
       requestAnimationFrame(() => requestAnimationFrame(() => {
-        target = loaded.findTarget(article);
-        if (!target) return;
-        target.classList.add('btx-cit-highlight');
-        const passage = target.closest(PASSAGE);
-        if (passage) passage.classList.add('btx-cit-passage');
+        const found = loaded.findTarget(article);
+        if (!found) return;
+        target = markCite(found).reveal;
         chip.hidden = false;
         reveal();
       }));
@@ -430,7 +457,7 @@
     return show(false);
   }
 
-  const API = { open, render, refPunctuation };
+  const API = { open, render, markCite, refPunctuation };
   if (typeof module !== 'undefined' && module.exports) module.exports = API;
   root.__BTX = Object.assign(root.__BTX || {}, { talkView: API });
 })(typeof globalThis !== 'undefined' ? globalThis : this);

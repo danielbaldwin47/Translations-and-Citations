@@ -139,7 +139,6 @@
   transition: background 0.12s;
 }
 #btx-root .btx-cit-toolbtn:hover { background: var(--btx-border); }
-#btx-root .btx-cit-toolbtn:focus-visible { outline: 2px solid var(--btx-accent); outline-offset: 1px; }
 
 /* Rows / groups hidden by the filter, and chrome with nothing to say. */
 #btx-root .btx-cit-list .btx-cit-hidden,
@@ -192,7 +191,7 @@
 #btx-root summary.btx-cit-vhead:hover,
 #btx-root summary.btx-cit-chead:hover { background-image: linear-gradient(var(--btx-border), var(--btx-border)); }
 #btx-root summary.btx-cit-vhead:focus-visible,
-#btx-root summary.btx-cit-chead:focus-visible { outline: 2px solid var(--btx-accent); outline-offset: -2px; }
+#btx-root summary.btx-cit-chead:focus-visible { outline-offset: -2px; }
 
 /* ---- Pinned group headers ----
  * An open group's header sticks to the top of the panel body while its rows
@@ -318,7 +317,7 @@
 /* The talk last opened from this list, where Back returns focus. */
 #btx-root .btx-cit.btx-cit-last { background: color-mix(in srgb, var(--btx-accent) 9%, transparent); }
 #btx-root .btx-cit:hover { background: var(--btx-border); }
-#btx-root .btx-cit:focus-visible { outline: 2px solid var(--btx-accent); outline-offset: -2px; }
+#btx-root .btx-cit:focus-visible { outline-offset: -2px; }
 /* The speaker is the row's identity, so it wraps at its spaces rather than
    truncating; the range chip keeps the right edge and top-aligns beside a
    wrapped name. Where even the name's longest word can't sit beside the chip
@@ -528,8 +527,9 @@
   overflow-wrap: anywhere;
 }
 #btx-root .btx-talk-speaker { color: var(--btx-fg); font-weight: 600; }
-/* Whose text this is ("Text fetched from scriptures.byu.edu"; "Text:
-   Wikisource, revision N", linked to the permalink). */
+/* Whose text this is ("Text fetched from scriptures.byu.edu"; "From
+   churchofjesuschrist.org", linked to the talk; "Text from Wikisource",
+   linked to the permalink, revision on hover). */
 #btx-root .btx-talk-credit { margin-top: 2px; font-size: 12px; }
 #btx-root .btx-talk-credit-link { color: inherit; text-decoration: underline; text-underline-offset: 2px; }
 #btx-root .btx-talk-credit-link:hover { color: var(--btx-accent); }
@@ -608,23 +608,9 @@
 #btx-root .btx-talk .btx-ref-gap + .btxk-citation { margin-inline-start: 0.3em; }
 #btx-root .btx-talk .btxk-citation.btx-cit-highlight { color: var(--btx-fg); font-weight: 600; }
 /* Journal of Discourses from Wikisource (tools/build-jod-talks.js): the
-   citation marker is an empty span after the cited words, and a cite with
-   no marker targets its printed page's empty anchor; the marked one is drawn
-   as a short accent bar (generated content: the text is unchanged).
-   The printed subtitle and an appended item's heading read as headings. */
-#btx-root .btx-talk .btxk-citation:empty.btx-cit-highlight,
-#btx-root .btx-talk .btxk-jodPage.btx-cit-highlight { background: none; box-shadow: none; }
-#btx-root .btx-talk .btxk-citation:empty.btx-cit-highlight::before,
-#btx-root .btx-talk .btxk-jodPage.btx-cit-highlight::before {
-  content: '';
-  display: inline-block;
-  width: 3px;
-  height: 1.1em;
-  margin: 0 2px;
-  vertical-align: -0.2em;
-  border-radius: 1px;
-  background: var(--btx-accent);
-}
+   printed subtitle and an appended item's heading read as headings. Its
+   empty citation markers and page anchors draw nothing; talk-view's markCite
+   tints the cited one's paragraph. */
 #btx-root .btx-talk .btxk-jodSubtitle { font-style: italic; color: var(--btx-muted); }
 #btx-root .btx-talk .btxk-jodHeading { font-weight: 600; margin-top: 1.5em; }
 /* A footnote list is nothing but references: ordinary text there. */
