@@ -528,8 +528,9 @@
   overflow-wrap: anywhere;
 }
 #btx-root .btx-talk-speaker { color: var(--btx-fg); font-weight: 600; }
-/* Whose text this is ("Text fetched from scriptures.byu.edu"; "Text:
-   Wikisource, revision N", linked to the permalink). */
+/* Whose text this is ("Text fetched from scriptures.byu.edu"; "From
+   churchofjesuschrist.org", linked to the talk; "Text from Wikisource",
+   linked to the permalink, revision on hover). */
 #btx-root .btx-talk-credit { margin-top: 2px; font-size: 12px; }
 #btx-root .btx-talk-credit-link { color: inherit; text-decoration: underline; text-underline-offset: 2px; }
 #btx-root .btx-talk-credit-link:hover { color: var(--btx-accent); }

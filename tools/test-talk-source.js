@@ -95,17 +95,25 @@ test('targetIds: a modern talk\'s paragraph anchor is not a span fallback', () =
 
 const PERMALINK = 'https://en.wikisource.org/w/index.php?title=Journal_of_Discourses/Volume_1/Salvation&oldid=16217145';
 
-test('talkCredit: a Wikisource talk credits its revision and links its permalink', () => {
+test('talkCredit: a Wikisource talk says so plainly, linking its permalink with the revision on hover', () => {
   assert.deepStrictEqual(talkSource.talkCredit(CORPORA.J, { c: 'J', url: PERMALINK }),
-    { text: 'Text: Wikisource, revision 16217145', href: PERMALINK });
+    { text: 'Text from Wikisource', href: PERMALINK, title: 'Wikisource revision 16217145' });
   assert.deepStrictEqual(talkSource.talkCredit(CORPORA.J, { c: 'J', url: 'https://en.wikisource.org/wiki/Journal_of_Discourses' }),
-    { text: 'Text: Wikisource', href: 'https://en.wikisource.org/wiki/Journal_of_Discourses' }, 'no revision, no number');
+    { text: 'Text from Wikisource', href: 'https://en.wikisource.org/wiki/Journal_of_Discourses' }, 'no revision, no title');
   assert.strictEqual(talkSource.talkCredit(CORPORA.J, { c: 'J' }), null, 'nothing to link');
 });
 
-test('talkCredit: a BYU-fetched talk names the fetch; other corpora have no line', () => {
+test('talkCredit: a live-church talk credits the Church site and links the talk', () => {
+  assert.deepStrictEqual(talkSource.talkCredit(CORPORA.G, { c: 'G', url: NELSON }),
+    { text: 'From churchofjesuschrist.org', href: NELSON });
+  assert.strictEqual(talkSource.talkCredit(CORPORA.G, { c: 'G' }), null, 'no talk URL, nothing to link');
+  assert.deepStrictEqual(talkSource.talkCredit({ ...CORPORA.G }, { c: 'X', url: NELSON }),
+    { text: 'From churchofjesuschrist.org', href: NELSON }, 'decided by the descriptor text, not the letter');
+});
+
+test('talkCredit: a BYU-fetched talk keeps the fetch line; a corpus the pack lacks has none', () => {
   assert.deepStrictEqual(talkSource.talkCredit(CORPORA.E, { c: 'E' }), { text: 'Text fetched from scriptures.byu.edu' });
-  assert.strictEqual(talkSource.talkCredit(CORPORA.G, { c: 'G', url: NELSON }), null);
+  assert.deepStrictEqual(talkSource.talkCredit(CORPORA.E, { c: 'E', url: NELSON }), { text: 'Text fetched from scriptures.byu.edu' });
   assert.strictEqual(talkSource.talkCredit(null, { c: 'T' }), null, 'a corpus the pack lacks');
 });
 
@@ -442,7 +450,7 @@ test('load: a Journal of Discourses talk credits its Wikisource revision and ope
   const log = stubReader(PUBLIC);
   const r = await talkSource.load({ entry: { talkId: 10001, citId: 7 }, source: { c: 'J', url: PERMALINK } });
   assert.strictEqual(r.html, '<p>bundled</p>');
-  assert.deepStrictEqual(r.credit, { text: 'Text: Wikisource, revision 16217145', href: PERMALINK });
+  assert.deepStrictEqual(r.credit, { text: 'Text from Wikisource', href: PERMALINK, title: 'Wikisource revision 16217145' });
   assert.deepStrictEqual(r.destination, { href: PERMALINK, label: 'Open on en.wikisource.org' });
   assert.strictEqual(log.requests.length, 0, 'read from the bundle, offline');
 });
@@ -464,6 +472,7 @@ test('load: a modern talk is fetched once per session too', async () => {
   const r = await talkSource.load({ entry: { talkId: 6141, anchor: 'p9' }, source });
   assert.strictEqual(log.requests.length, 1);
   assert.strictEqual(r.destination.href, `${NELSON}&id=p9#p9`);
+  assert.deepStrictEqual(r.credit, { text: 'From churchofjesuschrist.org', href: NELSON }, 'the credit opens the talk, not a paragraph');
 });
 
 test('load: a failed fetch is not kept, so Try again asks the network again', async () => {
