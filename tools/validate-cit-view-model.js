@@ -642,7 +642,7 @@ console.log('Source-type notes:');
   eq(verse.groups[0].a11yLabel, 'Verse 3, 2 talks', 'the note never changes the group\u2019s screen-reader label');
 
   deep(titles(VM.buildView(makeData(cites, PUBLIC), OPTS)).map((t) => t[1]), [null, null],
-    'a descriptor without notes gives no title (today\u2019s pack)');
+    'a descriptor without notes gives no title');
   const partial = Object.assign({}, PUBLIC, { corpora: Object.assign({}, CORPORA, {
     J: Object.assign({}, CORPORA.J, { sourceNote: JD_NOTE }) }) });
   deep(titles(VM.buildView(makeData(cites, partial), OPTS)).map((t) => t[1]), [null, JD_NOTE],
