@@ -165,7 +165,8 @@
 /* While a card fills the body (the setup card, or the one standing in for a
    language split into the page), the stepper has no text to size — the split
    takes the site's own size. The setup card has no dropdown either, so its
-   toolbar goes altogether; so does a chapter no talk cites. */
+   toolbar goes altogether; so does a chapter no talk cites. The off and
+   not-available cards keep it: the language row names what they speak of. */
 #btx-root[data-btx-card] .btx-font-step { display: none; }
 #btx-root[data-btx-card='setup'] .btx-toolbar,
 #btx-root[data-btx-mode='citations']:has(.btx-body [data-btx-cit-empty]) .btx-toolbar { display: none; }
@@ -425,7 +426,7 @@
 #btx-root .btx-loading { animation: btx-appear 0.15s ease-out 0.2s both; }
 @keyframes btx-appear { from { opacity: 0; } to { opacity: 1; } }
 
-/* ---- Cards: setup, beside ----
+/* ---- Cards: setup, beside, off, not-available ----
    Left-aligned blocks at the top of the body, UI font at fixed px. */
 #btx-root .btx-card {
   display: flex;

@@ -193,13 +193,16 @@ walk, `firstOffered`, is the arrangement's too); the fetching loops are
 The one pure rule for what the panel body shows (`arrangement` in the
 panel's pure core). Inputs: the chapter's texts, each marked offered or not
 (`chapterOffer`), the pick memory, the enabled Church languages, the split
-layout, the **language switch**, whether the **no-translation line** is
+layout, the **language switch**, whether the chapter is a Bible chapter
+(`isBible`), whether the **no-translation line** is
 dismissed, the stored **mode**,
 this visit's mode click and this visit's dropdown pick. Answer: the effective
-mode, the body (Citations, loading, the **setup card**, the **beside card**, or
-a text), the text the Translation tab is about, the page's language (the
-**page split**'s, in either mode, or none), the note (`no-translation`,
-`beside-page`, `missing-chapter` or none, with the language it names), the
+mode, the body (Citations, loading, the **setup card**, the **beside card**,
+the **off card**, the **not-available card**, or a text; a card names its
+language as `bodyLang`), the text the Translation tab is about, the page's
+language (the **page split**'s, in either mode, or none), the note
+(`no-translation`, `beside-page`, `missing-chapter`, `not-available` or none,
+with the language it names), the
 mode a click saves, and `chooses`: a row on request (English on a page read in
 another language) the Translation tab shows, which the reader thereby chose
 and `content.js` adds to the pick memory. With Translation stored:
@@ -207,13 +210,19 @@ and `content.js` adds to the pick memory. With Translation stored:
   that text is the page's language; a Bible version beside a page's language
   carries the beside-the-page line; when this visit's dropdown pick lacks the
   chapter, the text shown in its place carries the missing-chapter line, "No
-  Pohnpeian translation for Doctrine and Covenants 84.");
+  Pohnpeian translation for Doctrine and Covenants 84."; a Bible version shown
+  while every ticked language lacks the chapter carries the not-available
+  line, the not-available card's sentence);
 - a language not yet checked stands before it: the loading state;
 - nothing offers it and no Church language is on: the setup card;
+- the **language switch** off, off the Bible: the off card, unless the chapter
+  check already knows every ticked language lacks the chapter;
 - nothing offers it and languages are on: Citations with the **no-translation
-  line**, unless the reader clicked Translation on this visit, which shows the
-  setup card; with the **language switch** off, no line.
-With the switch off the answer names no page's language, in either mode.
+  line** (no line while the switch is off), unless the reader clicked
+  Translation on this visit, which shows the not-available card.
+With the switch off the answer names no page's language, in either mode, and
+the Translation tab walks the Bible rows alone: a hidden language never shows
+in the panel either.
 `content.js` describes the chapter to it wherever an input moves
 (`panel.showChapter`, `panel.arrange`) and applies the answer.
 
@@ -223,7 +232,7 @@ Translation, Church languages are on and none offers the chapter: "No
 Kiribati translation for Doctrine and Covenants 76. **Add a language** ×".
 It names the enabled Church language nearest the front of the pick memory,
 else the first enabled one. "Add a language" is a Translation click on this
-visit (the **setup card**); × sets the synced `noTranslationLineDismissed`
+visit (the **not-available card**); × sets the synced `noTranslationLineDismissed`
 setting, so it never shows again on any computer. It never shows with
 Citations stored, on a Bible chapter (the **bundled Bible** always offers
 one), or once dismissed. The **arrangement** answers it (`note`); the panel's
@@ -255,10 +264,33 @@ source of truth.
 
 **Setup card**:
 Translation mode's body when nothing offers the chapter and no Church
-language is on, or the reader clicked Translation on this visit: add a Church
+language is ticked (readers with a language get the **off card** or the
+**not-available card** instead): add a Church
 language (select + Add; the chapter then shows in it at once), or, on the
 Bible, set up api.bible for more translations (opens settings at the `bible`
 card via `OPEN_OPTIONS {section}`), or go to the talks that cite the chapter.
+
+**Off card**:
+Translation mode's body off the Bible while the **language switch** is off and
+a language is ticked: "Español is hidden." with one button, **Show**, which
+turns the switch on (`content.js` `setLanguageShown`) and counts as a
+Translation click on this visit, so the tab shows the language or, lacking
+the chapter, the not-available card. It names the ticked language nearest the
+front of the pick memory, else the first ticked, by its short name
+(`churchText.nameFor`). On a Bible chapter the switch off shows the Bible
+version alone, with no line. When the chapter check already knows every ticked
+language lacks the chapter, the not-available card's rules apply instead.
+Copy: the panel's pure `offCopy`.
+
+**Not-available card**:
+Translation mode's body when languages are ticked, none has the chapter, and
+the reader clicked Translation on this visit: "Doctrine and Covenants 76
+isn't available in Kiribati yet." with one link, **Add another language**,
+which opens settings at the `languages` card (`OPEN_OPTIONS {section}`). So a
+gap reads as the language's, never as a fault. It names the language as the
+off card does. Its sentence alone is the **not-available line**, the note
+above a Bible version on a Bible chapter every ticked language lacks. Copy:
+the panel's pure `notAvailableCopy`.
 
 **Beside card**:
 Translation mode's body while the text the tab is about is the page split's

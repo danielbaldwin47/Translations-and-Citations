@@ -73,8 +73,10 @@ const NIV = { id: 'niv', provider: 'apibible', offered: true };
 const church = (lang, offered) => ({ id: 'church:' + lang, provider: 'church', lang, offered });
 const failed = (row) => Object.assign(row, { failed: true }); // chapterOffer's mark: the check hit a network error
 const engAsked = (offered) => Object.assign(church('eng', offered), { onRequest: true }); // English, unticked, on a page read in another language
-// A chapter as content.js describes it to the panel.
-const chapter = (key, texts, languages, more) => Object.assign({ key, texts, picks: [], languages, layout: 'columns' }, more);
+// A chapter as content.js describes it to the panel (`isBible` from detect:
+// the Old and New Testaments).
+const chapter = (key, texts, languages, more) =>
+  Object.assign({ key, texts, picks: [], languages, layout: 'columns', isBible: /^(ot|nt)\//.test(key) }, more);
 const MOSIAH3 = chapter('bofm/mosiah/3', [], []); // no Church language on: nothing offers it
 const MOSIAH4 = chapter('bofm/mosiah/4', [], []);
 const JOHN3 = chapter('nt/john/3', [WEB], []); // the bundled Bible offers every Bible chapter
@@ -103,14 +105,14 @@ const ARRANGEMENT_CASES = [
     [{ chapter: ALMA5_SPA }, { mode: 'translation', body: 'beside', text: 'church:spa', saved: 'translation' }],
     [{ chapter: ALMA5_NONE }, { mode: 'translation', body: 'setup', text: null, saved: 'translation' }],
   ] },
-  { name: 'a Translation click on an untranslatable chapter with languages on: the setup card for the visit, translation saved', init: {}, steps: [
+  { name: 'a Translation click on an untranslatable chapter with languages on: the not-available card for the visit, translation saved', init: {}, steps: [
     [{ chapter: DC76_GIL }, { mode: 'citations', body: 'citations', saved: 'citations' }],
-    [{ click: 'translation' }, { mode: 'translation', body: 'setup', saved: 'translation' }],
-    [{ chapter: DC76_GIL }, { mode: 'translation', body: 'setup', saved: 'translation' }], // a settings change re-renders it
+    [{ click: 'translation' }, { mode: 'translation', body: 'not-available', bodyLang: 'gil', note: null, saved: 'translation' }],
+    [{ chapter: DC76_GIL }, { mode: 'translation', body: 'not-available', bodyLang: 'gil', saved: 'translation' }], // a settings change re-renders it
   ] },
   { name: 'the next chapter, with no click, shows Citations', init: {}, steps: [
     [{ chapter: DC76_GIL }, { mode: 'citations', body: 'citations', saved: 'citations' }],
-    [{ click: 'translation' }, { mode: 'translation', body: 'setup', saved: 'translation' }],
+    [{ click: 'translation' }, { mode: 'translation', body: 'not-available', saved: 'translation' }],
     [{ chapter: DC77_GIL }, { mode: 'citations', body: 'citations', saved: 'translation' }],
   ] },
   { name: 'a language added from the setup card shows the chapter in it once the check finds it', init: {}, steps: [
@@ -162,7 +164,7 @@ const ARRANGEMENT_CASES = [
   // language from the page in either mode, and its no-translation line never shows.
   { name: 'switch off, Alma 5 with Español: no page language in Translation or Citations', init: { mode: 'translation' }, steps: [
     [{ chapter: chapter('bofm/alma/5', [church('spa', true)], ['spa'], { picks: ['church:spa'], shown: false }) },
-      { mode: 'translation', page: null, pageNext: null, note: null }],
+      { mode: 'translation', body: 'off', bodyLang: 'spa', text: null, page: null, pageNext: null, note: null }],
     [{ click: 'citations' }, { mode: 'citations', body: 'citations', page: null, pageNext: null, note: null }],
     [{ chapter: chapter('bofm/alma/5', [church('spa', true)], ['spa'], { picks: ['church:spa'], shown: true }) },
       { mode: 'citations', page: 'church:spa', pageNext: null }], // on again: back on the page
@@ -171,11 +173,94 @@ const ARRANGEMENT_CASES = [
     [{ chapter: chapter('bofm/alma/5', [church('spa', null)], ['spa'], { picks: ['church:spa'], shown: false }) },
       { mode: 'citations', page: null, pageNext: null }],
   ] },
-  { name: 'switch off, Doctrine and Covenants 84 with Pohnpeian, saved Translation: Citations with no line', init: { mode: 'translation' }, steps: [
+  // The off card (GLOSSARY: Off card): languages ticked, switch off, nothing
+  // else for the Translation tab (off the Bible), stored or clicked. Its Show
+  // is the switch on plus a Translation click on this visit, so the tab stays
+  // put: the language, or the not-available card when it lacks the chapter.
+  { name: 'switch off, Alma 5 with Español, Show: the off card, then Español beside the page', init: { mode: 'translation' }, steps: [
+    [{ chapter: chapter('bofm/alma/5', [church('spa', null)], ['spa'], { picks: ['church:spa'], shown: false }) },
+      { mode: 'translation', body: 'off', bodyLang: 'spa', page: null, pageNext: null, note: null, noteLang: null }],
+    [{ show: true }, { mode: 'translation', body: 'loading', pageNext: 'spa' }],
+    [{ chapter: chapter('bofm/alma/5', [church('spa', true)], ['spa'], { picks: ['church:spa'] }) },
+      { mode: 'translation', body: 'beside', text: 'church:spa', page: 'church:spa', note: null }],
+  ] },
+  { name: 'switch off, In the panel: the off card too (off hides it from the panel as well)', init: { mode: 'translation' }, steps: [
+    [{ chapter: chapter('bofm/alma/5', [church('spa', true)], ['spa'], { picks: ['church:spa'], layout: 'panel', shown: false }) },
+      { mode: 'translation', body: 'off', bodyLang: 'spa', text: null, page: null }],
+  ] },
+  { name: 'switch off, a Translation click from Citations: the off card', init: {}, steps: [
+    [{ chapter: chapter('bofm/alma/5', [church('spa', true)], ['spa'], { shown: false }) }, { mode: 'citations', body: 'citations', note: null }],
+    [{ click: 'translation' }, { mode: 'translation', body: 'off', bodyLang: 'spa', saved: 'translation' }],
+  ] },
+  { name: 'the off card names the ticked language nearest the front of the pick memory, else the first ticked', init: { mode: 'translation' }, steps: [
+    [{ chapter: chapter('bofm/alma/5', [church('spa', true), church('jpn', true)], ['spa', 'jpn'], { picks: ['niv', 'church:jpn', 'church:spa'], shown: false }) },
+      { body: 'off', bodyLang: 'jpn' }],
+    [{ chapter: chapter('bofm/alma/5', [church('spa', true), church('jpn', true)], ['spa', 'jpn'], { picks: [], shown: false }) },
+      { body: 'off', bodyLang: 'spa' }],
+  ] },
+  // The check already knows every ticked language lacks the chapter: the
+  // switch-on rules, minus the no-translation line, so Show never leads to a
+  // dead end.
+  { name: 'switch off, Doctrine and Covenants 84 known to lack Pohnpeian, saved Translation: Citations with no line; a click: the not-available card', init: { mode: 'translation' }, steps: [
     [{ chapter: chapter('dc-testament/dc/84', [church('pon', false)], ['pon'], { shown: false }) },
       { mode: 'citations', body: 'citations', note: null, noteLang: null, saved: 'translation' }],
+    [{ click: 'translation' }, { mode: 'translation', body: 'not-available', bodyLang: 'pon', note: null, saved: 'translation' }],
+    [{ chapter: chapter('dc-testament/dc/84', [], ['gil'], { shown: false }) },
+      { mode: 'translation', body: 'not-available', bodyLang: 'gil' }], // a language that publishes no D&C at all lacks it too
+  ] },
+  { name: 'switch off, Doctrine and Covenants 84 not asked yet: the off card; Show finds it lacking: the not-available card', init: { mode: 'translation' }, steps: [
+    [{ chapter: chapter('dc-testament/dc/84', [church('pon', null)], ['pon'], { shown: false }) },
+      { mode: 'translation', body: 'off', bodyLang: 'pon', note: null, pageNext: null, saved: 'translation' }],
+    [{ show: true }, { mode: 'translation', body: 'loading' }],
+    [{ chapter: chapter('dc-testament/dc/84', [church('pon', false)], ['pon']) },
+      { mode: 'translation', body: 'not-available', bodyLang: 'pon', note: null, saved: 'translation' }],
+    [{ chapter: chapter('dc-testament/dc/85', [church('pon', false)], ['pon']) },
+      { mode: 'citations', body: 'citations', note: 'no-translation', noteLang: 'pon', saved: 'translation' }], // the next chapter: the fall to Citations
+  ] },
+  { name: 'switch off, saved Citations: Citations, no line', init: {}, steps: [
+    [{ chapter: chapter('dc-testament/dc/84', [church('pon', false)], ['pon'], { shown: false }) },
+      { mode: 'citations', body: 'citations', note: null, noteLang: null }],
+  ] },
+  { name: 'switch off, John 3 with Español, WEB: the Bible version alone, no line, no split', init: { mode: 'translation' }, steps: [
+    [{ chapter: chapter('nt/john/3', [WEB, church('spa', true)], ['spa'], { picks: ['engwebp', 'church:spa'], shown: false }) },
+      { mode: 'translation', body: 'text', text: 'engwebp', note: null, noteLang: null, page: null, pageNext: null }],
+    [{ chapter: chapter('nt/john/3', [WEB, church('spa', true)], ['spa'], { picks: ['church:spa'], layout: 'panel', shown: false }) },
+      { mode: 'translation', body: 'text', text: 'engwebp', note: null, page: null }], // off hides it from the panel too
+    [{ chapter: chapter('nt/john/3', [WEB, church('spa', false)], ['spa'], { shown: false }) },
+      { mode: 'translation', body: 'text', text: 'engwebp', note: null }], // a hidden language's gap is not said either
+  ] },
+  // The not-available card (GLOSSARY: Not-available card): languages ticked,
+  // switch on, none offers the chapter, and the reader clicked Translation.
+  { name: 'Doctrine and Covenants 84, Pohnpeian ticked, switch on: Citations with the line stored, the not-available card on a click', init: { mode: 'translation' }, steps: [
     [{ chapter: chapter('dc-testament/dc/84', [church('pon', false)], ['pon'], { shown: true }) },
-      { mode: 'citations', body: 'citations', note: 'no-translation', noteLang: 'pon', saved: 'translation' }], // on: the line shows
+      { mode: 'citations', body: 'citations', note: 'no-translation', noteLang: 'pon', saved: 'translation' }],
+    [{ click: 'translation' }, { mode: 'translation', body: 'not-available', bodyLang: 'pon', text: null, note: null, page: null }],
+  ] },
+  { name: 'the not-available card names the ticked language nearest the front of the pick memory, else the first ticked', init: {}, steps: [
+    [{ chapter: chapter('dc-testament/dc/84', [church('pon', false), church('gil', false)], ['pon', 'gil'], { picks: ['church:gil'] }) },
+      { mode: 'citations', body: 'citations' }],
+    [{ click: 'translation' }, { body: 'not-available', bodyLang: 'gil' }],
+    [{ chapter: chapter('dc-testament/dc/84', [church('pon', false), church('gil', false)], ['pon', 'gil'], { picks: ['church:spa'] }) },
+      { body: 'not-available', bodyLang: 'pon' }],
+  ] },
+  { name: 'no language ticked, a Translation click: the setup card, never the not-available card', init: {}, steps: [
+    [{ chapter: MOSIAH3 }, { mode: 'citations' }],
+    [{ click: 'translation' }, { mode: 'translation', body: 'setup', bodyLang: null }],
+  ] },
+  // The not-available note: a Bible chapter the ticked languages lack, said
+  // above the Bible version once the check has asked them all.
+  { name: 'John 3, Español ticked but lacking the chapter: WEB plus the not-available note', init: { mode: 'translation' }, steps: [
+    [{ chapter: chapter('nt/john/3', [WEB, church('spa', null)], ['spa']) },
+      { mode: 'translation', body: 'text', text: 'engwebp', note: null, noteLang: null }], // not asked yet: no line
+    [{ chapter: chapter('nt/john/3', [WEB, church('spa', false)], ['spa']) },
+      { mode: 'translation', body: 'text', text: 'engwebp', note: 'not-available', noteLang: 'spa' }],
+    [{ chapter: chapter('nt/john/3', [WEB, NIV, church('spa', false), church('jpn', false)], ['spa', 'jpn'], { picks: ['niv', 'church:jpn'] }) },
+      { body: 'text', text: 'niv', note: 'not-available', noteLang: 'jpn' }],
+    [{ chapter: chapter('nt/john/3', [WEB, church('spa', false), church('jpn', true)], ['spa', 'jpn'], { layout: 'panel' }) },
+      { body: 'text', text: 'engwebp', note: null }], // one ticked language has it: no gap to name
+    [{ chapter: chapter('nt/john/3', [WEB], ['gil']) },
+      { body: 'text', text: 'engwebp', note: 'not-available', noteLang: 'gil' }], // a language that publishes no Bible at all
+    [{ click: 'citations' }, { mode: 'citations', note: null }],
   ] },
   { name: 'the no-translation line, dismissed: Citations, no line', init: { mode: 'translation' }, steps: [
     [{ chapter: chapter('dc-testament/dc/76', [church('gil', false)], ['gil'], { dismissed: true }) },
@@ -192,12 +277,13 @@ const ARRANGEMENT_CASES = [
   { name: 'the no-translation line never shows with Citations saved', init: {}, steps: [
     [{ chapter: DC76_GIL }, { mode: 'citations', body: 'citations', note: null, noteLang: null, saved: 'citations' }],
   ] },
-  { name: 'the no-translation line never shows on a Bible chapter (the bundled Bible always offers one)', init: { mode: 'translation' }, steps: [
-    [{ chapter: chapter('nt/john/3', [WEB, church('gil', false)], ['gil']) }, { mode: 'translation', body: 'text', note: null, text: 'engwebp', saved: 'translation' }],
+  { name: 'the no-translation line never shows on a Bible chapter (the bundled Bible always offers one): the not-available line does', init: { mode: 'translation' }, steps: [
+    [{ chapter: chapter('nt/john/3', [WEB, church('gil', false)], ['gil']) },
+      { mode: 'translation', body: 'text', note: 'not-available', noteLang: 'gil', text: 'engwebp', saved: 'translation' }],
   ] },
-  { name: 'Add a language on the line: the setup card for the visit, no line; the next chapter has the line again', init: { mode: 'translation' }, steps: [
+  { name: 'a Translation click where the line shows: the not-available card for the visit, no line; the next chapter has the line again', init: { mode: 'translation' }, steps: [
     [{ chapter: DC76_GIL }, { mode: 'citations', body: 'citations', note: 'no-translation', saved: 'translation' }],
-    [{ click: 'translation' }, { mode: 'translation', body: 'setup', note: null, saved: 'translation' }],
+    [{ click: 'translation' }, { mode: 'translation', body: 'not-available', note: null, saved: 'translation' }],
     [{ chapter: DC77_GIL }, { mode: 'citations', body: 'citations', note: 'no-translation', noteLang: 'gil', saved: 'translation' }],
   ] },
   { name: 'a Citations click where the line shows: saved, the line goes with the choice', init: { mode: 'translation' }, steps: [
@@ -362,6 +448,13 @@ for (const c of ARRANGEMENT_CASES) {
   c.steps.forEach(([act, want], i) => {
     if (act.chapter) P.setChapter(s, act.chapter);
     if (act.click) P.selectMode(s, act.click);
+    if (act.show) {
+      // The off card's Show, as the panel and content.js apply it: a
+      // Translation click on this visit, the switch written on, and the same
+      // chapter arranged again.
+      P.selectMode(s, 'translation');
+      P.setChapter(s, Object.assign({ key: s.chapter }, s.facts, { shown: true }));
+    }
     if (act.pick) {
       // A dropdown pick, as content.js applies it: remembered, then the
       // same chapter arranged again.
@@ -1132,6 +1225,33 @@ console.log('noteCopy:');
   const m = P.noteCopy({ kind: 'missing-chapter', row: { abbr: 'Pohnpei', name: 'Pohnpeian' }, chapter: 'Doctrine and Covenants 84' });
   eq([m.text, m.view, m.actions], ['No Pohnpeian translation for Doctrine and Covenants 84.', 'translation', []],
     'the missing-chapter line: the dropdown pick lacks the chapter, said once above the Translation tab, no buttons');
+  const na = P.noteCopy({ kind: 'not-available', row: SPA, chapter: 'John 3' });
+  eq([na.text, na.view, na.actions], ['John 3 isn’t available in Español yet.', 'translation', []],
+    'the not-available line: the not-available card\'s sentence alone, above the Bible version, no buttons');
+  eq(P.noteCopy({ kind: 'not-available' }).text, 'This chapter isn’t available in your language yet.',
+    '...missing names fall back to a plain sentence');
+}
+
+console.log('offCopy / notAvailableCopy:');
+{
+  // The two cards the Translation tab shows in place of a text (GLOSSARY:
+  // Off card, Not-available card). `row` is the language's churchText row.
+  eq(P.offCopy({ abbr: 'Español', name: 'Spanish' }), { text: 'Español is hidden.', show: 'Show', showLabel: 'Show Español' },
+    'the off card names the language as the language row does, and its one button is Show');
+  eq(P.offCopy({ abbr: '', name: 'English' }).text, 'English is hidden.', '...a language with no native name apart reads by its one name');
+  eq(P.offCopy(null), { text: 'The language is hidden.', show: 'Show', showLabel: 'Show the language' },
+    '...a missing name falls back to a plain sentence');
+  const GIL_ROW = CT.rowFor('gil'); // { abbr: 'Kiribati', name: 'Kiribati (Gilbertese)' }
+  eq(P.notAvailableCopy(GIL_ROW, 'Doctrine and Covenants 76'),
+    { text: 'Doctrine and Covenants 76 isn’t available in Kiribati yet.', add: 'Add another language' },
+    'the not-available card names the chapter and the language by its short name, and links to adding another');
+  eq(P.notAvailableCopy(CT.rowFor('spa'), 'Doctrine and Covenants 76').text, 'Doctrine and Covenants 76 isn’t available in Español yet.',
+    '...the same name the language row shows');
+  eq(P.offCopy(CT.rowFor('gil')).text, 'Kiribati is hidden.', 'the off card uses that name too');
+  eq(P.notAvailableCopy(null, null).text, 'This chapter isn’t available in your language yet.',
+    '...missing names fall back to a plain sentence');
+  eq(P.notAvailableCopy(GIL_ROW, '').text, 'This chapter isn’t available in Kiribati yet.',
+    '...a missing chapter alone falls back too');
 }
 
 console.log('setupCopy:');
@@ -1541,6 +1661,31 @@ check(/shown: e\.churchLanguageShown !== false/.test(contentSrc),
   'content.js hands the arrangement the language switch');
 check(!/PANEL_HANDLED_KEYS = \[[^\]]*churchLanguageShown/.test(panelSrcText),
   'the language switch is not a panel-handled key');
+
+// The off card and the not-available card: states like the setup card (never
+// an earned view), built from text nodes, their copy the pure offCopy /
+// notAvailableCopy. Show is a Translation click on this visit, then the
+// orchestrator's write of the switch through __BTX.settings; Add another
+// language opens settings at the languages card.
+for (const fn of ['renderOff', 'renderNotAvailable']) {
+  const src = (panelSrcText.match(new RegExp(`function ${fn}\\(host, st\\) \\{[\\s\\S]*?\\n {2}\\}\\n`)) || [''])[0];
+  check(src && !/innerHTML/.test(src), `${fn} is built from text nodes, never markup`);
+}
+const offSrc = (panelSrcText.match(/function renderOff\(host, st\) \{[\s\S]*?\n {2}\}\n/) || [''])[0];
+check(/offCopy\(st\.row\)/.test(offSrc) && /selectMode\(state, 'translation'\)/.test(offSrc) && /cbs\.onShowLanguage\(\)/.test(offSrc),
+  'the off card\'s Show is a Translation click on this visit, then the orchestrator\'s');
+const naSrc = (panelSrcText.match(/function renderNotAvailable\(host, st\) \{[\s\S]*?\n {2}\}\n/) || [''])[0];
+check(/notAvailableCopy\(st\.row, st\.chapter\)/.test(naSrc) && /cbs\.onGear\('languages'\)/.test(naSrc),
+  'the not-available card\'s link opens settings at the languages card');
+check(/case 'off':[\s\S]*?renderOff\(host, st\)/.test(panelSrcText) && /case 'not-available':[\s\S]*?renderNotAvailable\(host, st\)/.test(panelSrcText),
+  'showTranslation renders both cards (keepView keeps only a chapter\'s content)');
+check(/onShowLanguage: \(\) => setLanguageShown\(true\)/.test(contentSrc),
+  'content.js routes the off card\'s Show to the switch');
+const shownSrc = (contentSrc.match(/function setLanguageShown\(on[^)]*\) \{[\s\S]*?\n {2}\}\n/) || [''])[0];
+check(/SETTINGS\.patch\(\{ churchLanguageShown: (on|shown) \}\)/.test(shownSrc),
+  '...which writes it through __BTX.settings');
+check(/shown\.body === 'off'/.test(contentSrc) && /shown\.body === 'not-available'/.test(contentSrc),
+  'content.js renders the arrangement\'s off and not-available bodies');
 
 // The welcome's DOM shell: the controls it may point at are the ones the
 // panel builds, it is a labelled dialog of text nodes, Esc stops at it, and
