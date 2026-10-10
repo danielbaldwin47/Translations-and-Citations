@@ -28,13 +28,13 @@
  * No Church text is kept: responses live in memory for the run; the output
  * holds per talk its derived id (gc/YYYY/MM/{slug}), URL, speaker, title,
  * conference, label and revision (bibliographic facts), and per cite its
- * verse reference in the shard's form, the paragraph anchor and the excerpt
- * character count. Idempotent per conference: a run rewrites that
+ * verse reference in the shard's form, the paragraph anchor, the excerpt
+ * character count and the footnote flag. Idempotent per conference: a run rewrites that
  * conference's file whole, and the same pages give the same file.
  *
  * Output: {out}/gc-YYYY-MM.json
  *   { conference:'YYYY-MM', source:'church'|'saved-pages',
- *     talks:[{ id, url, sp, ti, d, lbl, rev, cites:[{ id, book, chapter, v, a, ec }] }] }
+ *     talks:[{ id, url, sp, ti, d, lbl, rev, cites:[{ id, book, chapter, v, a, ec, fn? }] }] }
  *
  * Derivation rules (measured in issue #64): scripture links in body
  * paragraphs and in footnotes; plain-text references in footnote text (other
@@ -43,7 +43,14 @@
  * the body paragraph holding the link, or for a footnote the paragraph
  * holding the note's first marker. Links into books the pack lacks (jst-*,
  * study helps) and chapters the book lacks are ignored. The same reference
- * twice at one anchor is one cite. Body prose is not read for references.
+ * twice at one anchor is one cite, the first in reading order (a body link
+ * before a note's). Body prose is not read for references.
+ *
+ * Footnote flag (`fn`, the shard's flag of issue #130, the same meaning as the
+ * build's inFootnote): a cite whose reference was found in one of the page's
+ * notes — a link in a note, or a note's plain text — is `fn: true`; a body
+ * link's cite has no `fn`, never `fn: false`. A file written before the flag
+ * existed stays valid: no `fn` reads as body text.
  * The pure core is exported for tools/validate-derivation.js.
  *
  * The page reading is the reader's (src/citations/talk-source.js, required
@@ -216,14 +223,16 @@ function textRefs(text, verseCount) {
   return out;
 }
 
-// One talk page -> { cites: [{ book, chapter, v, a, ec }] } in reading order.
+// One talk page -> { cites: [{ book, chapter, v, a, ec, fn? }] } in reading order.
+//   fn  true when the reference was found in one of the page's notes (a link
+//       in a note, or a note's plain text); absent for a body link, never false
 //   ctx.verseCount(book, chapter) -> the chapter's verse count (whole-chapter cites)
 function deriveTalk(html, ctx) {
   const { paraText, markerAt, links, noteText } = scan(html);
   const cites = [];
   const seen = new Set();
   // A chapter the book lacks is no cite; verses past its end are dropped.
-  const add = (r, a) => {
+  const add = (r, a, fn) => {
     const n = ctx.verseCount(r.book, r.chapter);
     if (!n) return;
     const verses = r.verses ? r.verses.filter((x) => x >= 1 && x <= n) : null;
@@ -232,14 +241,16 @@ function deriveTalk(html, ctx) {
     const key = `${a} ${r.book} ${r.chapter}:${v}`;
     if (seen.has(key)) return;
     seen.add(key);
-    cites.push({ book: r.book, chapter: r.chapter, v, a, ec: paraText[a].length });
+    const cite = { book: r.book, chapter: r.chapter, v, a, ec: paraText[a].length };
+    if (fn) cite.fn = true;
+    cites.push(cite);
   };
   const linked = {};         // 'anchor book chapter' -> Set of verses, or true (whole chapter)
   for (const l of links) {
     const a = l.note ? markerAt[l.note] : l.para;
     if (!a) continue;
     for (const r of linkRefs(l.href, l.label)) {
-      add(r, a);
+      add(r, a, Boolean(l.note));
       const k = `${a} ${r.book} ${r.chapter}`;
       if (!r.verses) linked[k] = true;
       else if (linked[k] !== true) { linked[k] = linked[k] || new Set(); r.verses.forEach((v) => linked[k].add(v)); }
@@ -253,7 +264,7 @@ function deriveTalk(html, ctx) {
     for (const r of textRefs(text, ctx.verseCount)) {
       const have = linked[`${a} ${r.book} ${r.chapter}`];
       if (have === true || (have && r.verses && r.verses.every((v) => have.has(v)))) continue;
-      add(r, a);
+      add(r, a, true);
     }
   }
   return { cites };
