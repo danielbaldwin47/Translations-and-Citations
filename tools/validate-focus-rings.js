@@ -13,6 +13,9 @@
  *     rows) and draws a visible outline;
  *   - the rule stays low-specificity (`:where`), so an override that only moves
  *     the ring needs no specificity fight;
+ *   - the ring's width and offset are defined once, as `--btx-ring-w` and
+ *     `--btx-ring-offset` on `#btx-root`, and a ring drawn without
+ *     `:focus-visible` (a keyboard-focused highlight) reads the same two;
  *   - no control turns its ring off: `outline: none` is allowed only on the two
  *     containers that take focus from a click or from code (tabindex -1);
  *   - a control that sits where an outer ring is cut off or lost (inside the
@@ -76,8 +79,21 @@ if (shared) {
   for (const kind of ['button', 'select', 'input', 'a', 'summary', "[role='button']"]) {
     check(new RegExp('[(,\\s]' + kind.replace(/[[\]]/g, '\\$&') + '[,)]').test(sel), `the shared rule covers ${kind}`);
   }
-  check(/outline:\s*2px solid var\(--btx-accent\)/.test(shared.body), 'the shared ring is 2px in the accent');
-  check(/outline-offset:\s*1px/.test(shared.body), 'the shared ring sits 1px outside the control');
+  check(/outline:\s*var\(--btx-ring-w\) solid var\(--btx-accent\)/.test(shared.body), 'the shared ring is --btx-ring-w in the accent');
+  check(/outline-offset:\s*var\(--btx-ring-offset\)/.test(shared.body), 'the shared ring sits --btx-ring-offset outside the control');
+}
+
+// ---- The ring's size, defined once ----
+const rootRule = ALL_RULES.find((r) => r.selectors.length === 1 && r.selectors[0] === '#btx-root' && /--btx-ring-w/.test(r.body));
+check(rootRule && /--btx-ring-w:\s*2px/.test(rootRule.body), '#btx-root defines --btx-ring-w: 2px');
+check(rootRule && /--btx-ring-offset:\s*1px/.test(rootRule.body), '#btx-root defines --btx-ring-offset: 1px');
+const hlRing = ALL_RULES.find((r) => r.selectors.includes('#btx-root .btx-hl.btx-hl-focus'));
+check(hlRing && /outline:\s*var\(--btx-ring-w\) solid var\(--btx-accent\)/.test(hlRing.body)
+  && /outline-offset:\s*var\(--btx-ring-offset\)/.test(hlRing.body),
+  "a keyboard-focused highlight draws the shared ring from the same two properties");
+for (const r of ALL_RULES) {
+  if (!r.selectors.some((x) => x.includes(':focus-visible'))) continue;
+  check(!/outline:\s*\d+px/.test(r.body), `${r.selectors.join(', ')} spells its ring width as var(--btx-ring-w), not a literal`);
 }
 
 // ---- No control turns its ring off ----

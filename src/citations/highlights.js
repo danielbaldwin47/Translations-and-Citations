@@ -71,7 +71,7 @@
   let activeContainer = null;
   let activeTalkId = null;
   let onCreated = null;
-  let revealer = null;      // brings a stop Tab moved to into view (attach's reveal)
+  let reveal = null;        // brings a stop Tab moved to into view (attach's option)
   let menuHost = null;      // the view the current menu lives in
   let menuEl = null;
   let menuBtn = null;
@@ -554,7 +554,7 @@
     if (i >= 0) {
       e.preventDefault();
       stops[i].focus({ preventScroll: true });
-      if (revealer && !onScreen(stops[i])) revealer(stops[i]);
+      if (reveal && !onScreen(stops[i])) reveal(stops[i]);
     } else if (!e.shiftKey && stops.length) {
       // From the last stop, the browser's own Tab leaves the talk.
       stops[stops.length - 1].focus({ preventScroll: true });
@@ -584,7 +584,7 @@
     activeContainer = container;
     activeTalkId = talkId;
     onCreated = o.onCreate || null;
-    revealer = o.reveal || null;
+    reveal = o.reveal || null;
     menuHost = o.host || container.parentNode;
     buildMenu(menuHost);
     container.addEventListener('mouseup', onSelectUp);

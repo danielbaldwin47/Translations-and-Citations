@@ -747,7 +747,7 @@ function build(core, content, inclusion) {
           const { snippet, anchor } = extractCitation(html, r.citId);
           const ec = corpusEntry.excerpt === 'fetched' ? excerptChars(html, r.citId, corpusEntry.text) : null;
           if (corpusEntry.excerpt === 'fetched' && ec === null) uncounted++;
-          const fn = Boolean(corpusEntry.footnoteFlag) && inFootnote(html, r.citId);
+          const fn = inFootnote(html, r.citId); // citeRecord keeps it only on a footnoteFlag corpus
           cites[r.citId] = citeRecord(corpusEntry, { t: r.talkId, v: r.verses || vs, sn: snippet, a: anchor, ec, fn });
         }
         count++;
