@@ -1397,6 +1397,7 @@
     citViewSource.addEventListener('click', () => onCitViewClick('source'));
     citViewVerse.addEventListener('click', () => onCitViewClick('verse'));
     resize.addEventListener('pointerdown', onResizeDown);
+    resize.addEventListener('mousedown', noSelect);
     // Show the scrollbar while scrolling, fade it ~1s after it stops.
     body.addEventListener('scroll', () => {
       onBodyScrolled();
@@ -1734,23 +1735,27 @@
     };
   }
 
-  // What the reader is on: the cited passage while it is on screen, else the
-  // first text in flow at the top of the body (below any pinned header) — to
-  // the character, since one Journal of Discourses paragraph can run for
-  // screens. -> a function reading its viewport top (null once it is gone),
-  // or null.
+  // What the reader is on: the cite's own position (talk-view's
+  // btx-cit-target: a Journal of Discourses marker, not the paragraph it
+  // tints) while its line shows (on screen, below any pinned header), else
+  // the first text in flow at the top of the body (below any pinned header)
+  // — to the character, since one Journal of Discourses paragraph can run
+  // for screens. -> a function reading its viewport top (null once it is
+  // gone), or null.
   function readingAnchor() {
     const node = viewNode();
     if (node === ui.body || !node.isConnected) return null;
     const box = ui.body.getBoundingClientRect();
     if (!(box.height > 0 && box.width > 0)) return null;
     const topOf = (n) => () => (n.isConnected ? n.getBoundingClientRect().top : null);
-    const mark = node.querySelector('.btx-cit-highlight');
+    const x = box.left + box.width / 2;
+    const mark = node.querySelector('.btx-cit-target');
     if (mark) {
       const r = mark.getBoundingClientRect();
-      if (r.bottom > box.top && r.top < box.bottom) return topOf(mark);
+      const shows = r.top >= box.top && r.top < box.bottom &&
+        !pinnedIn(document.elementFromPoint(x, r.top + 1), node);
+      if (shows) return topOf(mark);
     }
-    const x = box.left + box.width / 2;
     for (let y = box.top + 1; y < box.bottom; y += 8) {
       const hit = document.elementFromPoint(x, y);
       if (!hit || hit === node || !node.contains(hit) || pinnedIn(hit, node)) continue;
@@ -1795,8 +1800,8 @@
     // keyboard user mid-adjustment, so hand focus to the other end of the
     // stepper — which is by definition still live, since the two ends cannot
     // both be spent.
-    if (document.activeElement === ui.smaller && ui.smaller.disabled) ui.larger.focus();
-    else if (document.activeElement === ui.larger && ui.larger.disabled) ui.smaller.focus();
+    if (document.activeElement === ui.smaller && ui.smaller.disabled) ui.larger.focus({ preventScroll: true });
+    else if (document.activeElement === ui.larger && ui.larger.disabled) ui.smaller.focus({ preventScroll: true });
   }
 
   function persist(partial) {
@@ -1851,7 +1856,7 @@
     state.collapsed = c;
     applyCollapsedUI(); // an expand may bring the welcome back, which takes focus
     const target = hadFocus ? focusOnToggle(state) : null;
-    if (target) (target === 'tab' ? ui.tab : ui.collapse).focus();
+    if (target) (target === 'tab' ? ui.tab : ui.collapse).focus({ preventScroll: true });
     persist({ panelCollapsed: c });
   }
 
@@ -2163,7 +2168,7 @@
     if (shownNote === was) {
       was.replaceWith(node);
       shownNote = node;
-      focusPressedLayout(control, { preventScroll: true });
+      focusPressedLayout(control);
     }
   }
 
@@ -2189,7 +2194,7 @@
   function placeNote() {
     if (!ui) return;
     if (shownNote) {
-      if (shownNote.contains(document.activeElement)) ui.body.focus();
+      if (shownNote.contains(document.activeElement)) ui.body.focus({ preventScroll: true });
       shownNote.remove();
       shownNote = null;
     }
@@ -2428,11 +2433,11 @@
     return { group: segmented('btx-seg', label || 'Where to show it', choices), choices, press };
   }
 
-  // `opts` is focus()'s: { preventScroll } where the control replaces what
-  // the reader pressed in place, so moving focus must not move the body.
-  function focusPressedLayout(control, opts) {
+  // Like every focus the panel moves, it never scrolls: not the page, and not
+  // the body, whose one writer is writeBodyScroll.
+  function focusPressedLayout(control) {
     const pressed = control.choices.find((b) => b.getAttribute('aria-pressed') === 'true');
-    if (pressed) pressed.focus(opts);
+    if (pressed) pressed.focus({ preventScroll: true });
   }
 
   function buildBeside(card) {
@@ -2560,7 +2565,7 @@
     const talks = button('btx-link', copy.talks, () => {
       const hadFocus = document.activeElement === talks;
       onModeClick('citations');
-      if (hadFocus) ui.modeCitations.focus();
+      if (hadFocus) ui.modeCitations.focus({ preventScroll: true });
     });
     card.appendChild(talks);
     host.appendChild(card);
@@ -2971,20 +2976,38 @@
     applyWidth(widthFromEvent(e));
   }
 
-  function onResizeUp(e) {
-    document.removeEventListener('pointermove', onResizeMove);
+  // A drag selects no page text: the grip captures the pointer (every move and
+  // the release come to it, wherever the pointer is), and the browser's own
+  // mouse-down and select-start defaults are cancelled for the drag's length.
+  function noSelect(e) { e.preventDefault(); }
+
+  function endResize(e, commit) {
+    const grip = ui.resize;
+    grip.removeEventListener('pointermove', onResizeMove);
+    grip.removeEventListener('pointerup', onResizeUp);
+    grip.removeEventListener('pointercancel', onResizeCancel);
+    document.removeEventListener('selectstart', noSelect, true);
+    try { grip.releasePointerCapture(e.pointerId); } catch (_) { /* already released */ }
     ui.rootEl.classList.remove('btx-resizing');
+    if (!commit) return;
     const w = widthFromEvent(e);
     applyWidth(w);
     persist({ sidebarWidth: w });
   }
 
+  function onResizeUp(e) { endResize(e, true); }
+  function onResizeCancel(e) { endResize(e, false); }
+
   function onResizeDown(e) {
     if (e.button != null && e.button !== 0) return;
     ensureRoot();
+    const grip = ui.resize;
     ui.rootEl.classList.add('btx-resizing');
-    document.addEventListener('pointermove', onResizeMove);
-    document.addEventListener('pointerup', onResizeUp, { once: true });
+    try { grip.setPointerCapture(e.pointerId); } catch (_) { /* synthetic event */ }
+    grip.addEventListener('pointermove', onResizeMove);
+    grip.addEventListener('pointerup', onResizeUp);
+    grip.addEventListener('pointercancel', onResizeCancel);
+    document.addEventListener('selectstart', noSelect, true);
     e.preventDefault();
   }
 

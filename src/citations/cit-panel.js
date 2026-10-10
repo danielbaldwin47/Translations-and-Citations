@@ -331,15 +331,15 @@
     return nodes;
   }
 
-  // Toolbar above the list: a live filter box (speaker / title / passage) and
+  // Toolbar above the list: a live filter box (speaker / title / verse) and
   // Collapse all. The view-model decides what hides, what opens, what the
   // counts, summary and button say; this mirrors each plan onto the elements
   // and reports the user's own open/close back into the state.
   function attachTools(wrap, tools, summary, viewModel) {
     const input = el('input', 'btx-cit-filter');
     input.type = 'search';
-    input.placeholder = 'Filter talks…';
-    input.setAttribute('aria-label', 'Filter talks');
+    input.placeholder = vm().FILTER_COPY.placeholder;
+    input.setAttribute('aria-label', vm().FILTER_COPY.label);
     const collapse = el('button', 'btx-cit-toolbtn');
     collapse.type = 'button';
     tools.appendChild(input);
@@ -371,7 +371,7 @@
       collapse.hidden = !label;
       if (had && collapse.hidden) {
         const first = wrap.querySelector('.btx-cit-vgroup:not(.btx-cit-hidden) > summary');
-        (first || input).focus();
+        (first || input).focus({ preventScroll: true });
       }
     }
 
@@ -404,7 +404,7 @@
     input.addEventListener('keydown', (e) => {
       if (e.key === 'Escape' && input.value) { e.stopPropagation(); input.value = ''; applyFilter(); }
     });
-    clear.addEventListener('click', () => { input.value = ''; applyFilter(); input.focus(); });
+    clear.addEventListener('click', () => { input.value = ''; applyFilter(); input.focus({ preventScroll: true }); });
     collapse.addEventListener('click', () => {
       const plan = vm().collapseAllPlan(viewModel, state, hidden);
       applyOpen(plan.open, nodeMap(wrap));
