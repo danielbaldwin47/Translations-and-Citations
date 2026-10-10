@@ -921,6 +921,15 @@ eq(P.welcomeTakesFocus({}), false, '...nor when nothing is known');
   eq(P.focusOnToggle(w), null, 'expanding with the welcome due: nothing here, the welcome takes focus when it opens');
   P.setWelcomeSeen(w, true);
   eq(P.focusOnToggle(w), 'collapse', 'expanding after Got it: focus lands on Collapse');
+  // #102 C2: focus moves only for a keyboard activation. A mouse reopen left a
+  // focus ring on Collapse, a control the reader never asked for.
+  eq(P.focusOnToggle(w, true), 'collapse', 'expanding from the keyboard: focus lands on Collapse');
+  eq(P.focusOnToggle(w, false), null, 'expanding with the mouse: focus stays where it is, no ring left on Collapse');
+  w.collapsed = true;
+  eq(P.focusOnToggle(w, true), 'tab', 'collapsing from the keyboard: focus lands on the tab');
+  eq(P.focusOnToggle(w, false), null, 'collapsing with the mouse: no ring on the tab either');
+  eq([P.byKeyboard({ detail: 0 }), P.byKeyboard({ detail: 1 }), P.byKeyboard({ detail: 2 }), P.byKeyboard(null)], [true, false, false, true],
+    "a click with no click count is Enter or Space on the focused button; unknown counts as the keyboard, the safe side for a screen-reader user");
 }
 
 // The steps table: what the welcome says, one step at a time, each against
@@ -1536,7 +1545,7 @@ const nextSrc = (panelSrcText.match(/function onWelcomeNext\(\) \{[\s\S]*?\n {2}
 check(/WELCOME_CLICK_GUARD_MS/.test(nextSrc), 'a click just after a step change is dropped: a double click never ends the tour');
 check(/dimControls\(null\)/.test(closeSrc), 'closing the welcome undims every control');
 check(gotItSrc && !/\.focus\(/.test(gotItSrc), 'Got it and Skip move focus once: closeWelcome does it, onWelcomeDone does not again');
-check(/focusOnToggle\(state\)/.test((panelSrcText.match(/function setCollapsed\([\s\S]*?\n {2}\}\n/) || [''])[0]),
+check(/focusOnToggle\(state, keyboard\)/.test((panelSrcText.match(/function setCollapsed\([\s\S]*?\n {2}\}\n/) || [''])[0]),
   'a collapse or an expand puts focus where the pure rule says');
 check(/PANEL_HANDLED_KEYS = \[[^\]]*'welcomeSeen'/.test(panelSrcText),
   'welcomeSeen is panel-handled: a write from another context shows or hides the welcome, no re-render');

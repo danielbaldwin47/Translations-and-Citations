@@ -64,8 +64,11 @@
  *     labelFor(row, list) -> "New International Version (NIV)" | "Español — Spanish"
  *       a Bible version: name first, abbreviation in parentheses (a narrow
  *       dropdown cuts the abbreviation); a Church language: "native — English"
- *       twins in `list` told apart by description, else id edition, else
- *       order, written before the abbreviation so the cut spares it:
+ *       twins in `list` from different providers told apart by where they
+ *       come from: "World English Bible, built in (WEB)", "World English
+ *       Bible, api.bible (WEB)". Twins from the same provider, by description,
+ *       else id edition, else order (after the provider when both apply). All
+ *       written before the abbreviation so the cut spares it:
  *       "World English Bible Updated, Protestant (WEBU)", "…, 2 (WEBU)"
  *     menuFor(list, { isBible }) -> [{ label, items: [{ id, label }] }]
  *       the dropdown. Bible chapter: 'Bible versions' then 'Languages', always
@@ -306,7 +309,9 @@
   // a narrow dropdown cuts the abbreviation, not the name; a Church language
   // keeps "native name — English name". Two rows that would read the same
   // (api.bible lists World English Bible Updated three times) are told apart
-  // by api.bible's `description` ("Protestant"), else by the id's edition
+  // by where they come from when the providers differ (the bundled World
+  // English Bible beside api.bible's: "built in", "api.bible"), else by
+  // api.bible's `description` ("Protestant"), else by the id's edition
   // suffix ("…-02" -> "2"), else by their order — written after the name and
   // before the abbreviation ("World English Bible Updated, Protestant (WEBU)"),
   // so the narrow dropdown's cut takes the abbreviation before it takes what
@@ -326,19 +331,27 @@
     return labelOf(labelParts(row));
   }
 
+  const SOURCE_NAME = { bundled: 'built in', 'api.bible': 'api.bible' };
+
   function labelFor(row, list) {
     const base = baseLabel(row);
     const twins = (Array.isArray(list) ? list : []).filter((r) => r !== row && baseLabel(r) === base);
     if (!twins.length) return base;
-    const told = (extra) => labelOf(labelParts(row), extra);
+    // Twins from different providers are told apart by where they come from
+    // ("built in", "api.bible"); description, edition and order then apply
+    // only among the twins from the row's own provider.
+    const source = twins.some((r) => r.provider !== row.provider) ? SOURCE_NAME[row.provider] || String(row.provider) : '';
+    const kin = twins.filter((r) => r.provider === row.provider);
+    const told = (extra) => labelOf(labelParts(row), [source, extra].filter(Boolean).join(', '));
+    if (!kin.length) return told('');
     const desc = (r) => (typeof r.description === 'string' ? r.description.trim() : '');
-    if (desc(row) && twins.every((r) => desc(r) !== desc(row))) return told(desc(row));
+    if (desc(row) && kin.every((r) => desc(r) !== desc(row))) return told(desc(row));
     const edition = (r) => {
       const m = /-([0-9a-z]+)$/i.exec(String(r.id));
       return m ? m[1].replace(/^0+(?=.)/, '') : '';
     };
-    if (edition(row) && twins.every((r) => edition(r) !== edition(row))) return told(edition(row));
-    const n = list.filter((r) => baseLabel(r) === base).indexOf(row);
+    if (edition(row) && kin.every((r) => edition(r) !== edition(row))) return told(edition(row));
+    const n = list.filter((r) => baseLabel(r) === base && r.provider === row.provider).indexOf(row);
     return n < 0 ? base : told(String(n + 1));
   }
 

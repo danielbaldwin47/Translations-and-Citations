@@ -139,6 +139,12 @@
   transition: background 0.12s;
 }
 #btx-root .btx-cit-toolbtn:hover { background: var(--btx-border); }
+/* Collapse all with nothing to collapse: unseen, unfocusable, and still as
+   wide as its label, so the filter box beside it keeps its width. */
+#btx-root .btx-cit-toolbtn.btx-cit-held { visibility: hidden; }
+/* Nor does the box widen when a filter leaves the list too short to scroll:
+   while the list is the mounted view, the body keeps its scrollbar's gutter. */
+#btx-root .btx-body:has(> .btx-view > .btx-cit-list) { scrollbar-gutter: stable; }
 
 /* Rows / groups hidden by the filter, and chrome with nothing to say. */
 #btx-root .btx-cit-list .btx-cit-hidden,
@@ -343,6 +349,21 @@
   padding: 0 8px;
 }
 
+/* "incl. v. 27" (cit-panel.js applyMatchNotes): beside a range badge under a
+   verse query, the verse the row matched; quiet, in the talk line's ink. */
+#btx-root .btx-cit-match {
+  flex: 0 0 auto;
+  margin-left: -3px;
+  height: var(--btx-chip-h);
+  display: inline-flex;
+  align-items: center;
+  font-size: 11px;
+  line-height: 1;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  color: var(--btx-muted);
+}
+
 #btx-root .btx-cit-sub {
   font-size: calc(11.5px * var(--btx-size-scale));
   line-height: 1.45;
@@ -369,19 +390,9 @@
   overflow: hidden;
 }
 
-/* "Cited in a footnote" (cit-panel.js rowEl): a quiet line under the excerpt,
-   smaller and fainter than the talk line above it, one line and fixed in
-   height (it never joins the excerpt's reserve, so nothing shifts). */
-#btx-root .btx-cit-fn {
-  font-size: calc(10.5px * var(--btx-size-scale));
-  line-height: 1.3;
-  letter-spacing: 0.012em;
-  color: color-mix(in srgb, var(--btx-muted) 85%, transparent);
-  margin-top: 5px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
+/* "· in a footnote" (cit-panel.js subLine): part of the talk line, in its
+   size and colour, moved to the next line whole rather than split. */
+#btx-root .btx-cit-fn { white-space: nowrap; }
 
 /* A fetched excerpt (cit-panel.js "fetched excerpts"). Pending: the box holds
    invisible filler of the excerpt's length, so it is as tall as the text will
