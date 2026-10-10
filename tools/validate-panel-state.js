@@ -498,6 +498,65 @@ P.selectMode(s, 'translation');
 P.setChapter(s, { texts: [church('gil', false)], languages: ['gil'] });
 eq(P.effectiveMode(s), 'citations', 'a chapter with no key counts as a new one (the visit\'s click does not leak)');
 
+// ---- The language row (GLOSSARY: Language row) ----
+// The Translation toolbar's second row: the Church language and its switch,
+// from the arrangement's facts. Its form, the language it names (by its own
+// name, as the switch's "Show Español" does) and whether the switch is live.
+console.log('languageRow:');
+// Its name is churchText.nameFor's: the short native name everywhere one
+// language is named.
+const langRow = (facts) => {
+  const r = P.languageRow(facts);
+  return { form: r.form, id: r.id, name: r.name, enabled: r.enabled, on: r.on };
+};
+eq(langRow({ texts: [WEB, NIV], picks: ['niv'], languages: [], shown: true }),
+  { form: 'none', id: null, name: null, enabled: false, on: true }, 'no language ticked: no row (the toolbar is today\'s one row)');
+eq(P.languageRow({ texts: [], picks: [], languages: [] }).form, 'none', '...off the Bible too');
+eq(langRow({ texts: [WEB, church('spa', true)], picks: [], languages: ['spa'], shown: true }),
+  { form: 'text', id: 'church:spa', name: 'Español', enabled: true, on: true }, 'one ticked that offers the chapter: its name as plain text, the switch live');
+eq(langRow({ texts: [church('spa', true)], picks: ['church:spa'], languages: ['spa'], shown: false }),
+  { form: 'text', id: 'church:spa', name: 'Español', enabled: true, on: false }, '...switched off: the same row, the switch off and still live');
+eq(langRow({ texts: [church('spa', null)], picks: ['church:spa'], languages: ['spa'] }),
+  { form: 'text', id: 'church:spa', name: 'Español', enabled: true, on: true }, '...its check still running: the switch stays live (no grey flicker)');
+eq(langRow({ texts: [WEB, church('spa', true), church('jpn', true)], picks: ['church:jpn', 'engwebp'], languages: ['spa', 'jpn'] }),
+  { form: 'menu', id: 'church:jpn', name: '日本語', enabled: true, on: true }, 'two ticked that offer it: the dropdown, at the newest pick');
+eq(langRow({ texts: [church('spa', true), church('jpn', true)], picks: [], languages: ['spa', 'jpn'] }).id, 'church:spa',
+  '...no pick names one: the first ticked');
+eq(langRow({ texts: [church('spa', true), church('pon', false)], picks: ['church:pon'], languages: ['spa', 'pon'] }),
+  { form: 'text', id: 'church:spa', name: 'Español', enabled: true, on: true }, 'two ticked, one lacking the chapter: the one that has it, as plain text');
+eq(langRow({ texts: [church('pon', false)], picks: [], languages: ['pon'], shown: true }),
+  { form: 'text', id: 'church:pon', name: 'Mahsen en Pohnpei', enabled: false, on: true }, 'D&C 84 with only Pohnpeian: its name, the switch greyed');
+eq(langRow({ texts: [church('gil', false), church('pon', false)], picks: ['niv', 'church:pon'], languages: ['gil', 'pon'] }).id, 'church:pon',
+  'none offers it: the language nearest the front of the pick memory');
+eq(langRow({ texts: [church('gil', false), church('pon', false)], picks: [], languages: ['gil', 'pon'] }).id, 'church:gil',
+  '...else the first ticked');
+eq(langRow({ texts: [engAsked(null)], picks: [], languages: [] }),
+  { form: 'text', id: 'church:eng', name: 'English', enabled: true, on: true }, 'Spanish Alma 5, nothing ticked: English on request has the row (#119)');
+eq(langRow({ texts: [church('jpn', true), engAsked(null)], picks: [], languages: ['jpn'] }).form, 'menu',
+  'Spanish Alma 5, Japanese ticked: Japanese and English on request, a dropdown');
+
+console.log('languagePick / switchFlip / switchLabel / toolbarRows:');
+// A dropdown pick writes the pick memory, then (while off) the switch on.
+eq(P.languagePick({ on: false }, 'church:jpn'), { pick: 'church:jpn', patch: { churchLanguageShown: true } },
+  'a pick while off: the pick, and the switch on');
+eq(P.languagePick({ on: true }, 'church:jpn'), { pick: 'church:jpn', patch: null }, 'a pick while on: the pick alone');
+eq(P.switchFlip({ enabled: true, on: true }), { churchLanguageShown: false }, 'the switch on: a flip writes it off');
+eq(P.switchFlip({ enabled: true, on: false }), { churchLanguageShown: true }, 'the switch off: a flip writes it on');
+eq(P.switchFlip({ enabled: false, on: true }), null, 'the greyed switch writes nothing');
+eq(P.switchLabel('Español'), 'Show Español', 'the switch\'s name says what it does');
+eq(P.switchLabel(''), 'Show the language', '...a plain fallback without a name');
+// Which rows the toolbar shows, and which holds the A− / A+ stepper.
+eq(P.toolbarRows({ mode: 'citations', isBible: true, row: 'menu' }), { main: true, language: false, stepper: 'main' },
+  'Citations: one row, By source | By verse and the stepper');
+eq(P.toolbarRows({ mode: 'translation', isBible: true, row: 'none' }), { main: true, language: false, stepper: 'main' },
+  'John 3, no language: one row, the version dropdown and the stepper, as today');
+eq(P.toolbarRows({ mode: 'translation', isBible: true, row: 'text' }), { main: true, language: true, stepper: 'main' },
+  'John 3 with Español: the version row, then the language row');
+eq(P.toolbarRows({ mode: 'translation', isBible: false, row: 'text' }), { main: false, language: true, stepper: 'language' },
+  'Alma 5 with Español: no version row; the stepper sits on the language row');
+eq(P.toolbarRows({ mode: 'translation', isBible: false, row: 'none' }), { main: true, language: false, stepper: 'main' },
+  'Alma 5, no language: today\'s one row');
+
 // ---- selectCitationView ----
 console.log('selectCitationView:');
 s = fresh({ mode: 'citations', citationView: 'source' });
@@ -1661,6 +1720,32 @@ check(/shown: e\.churchLanguageShown !== false/.test(contentSrc),
   'content.js hands the arrangement the language switch');
 check(!/PANEL_HANDLED_KEYS = \[[^\]]*churchLanguageShown/.test(panelSrcText),
   'the language switch is not a panel-handled key');
+
+// The language row (GLOSSARY: Language row): a role="switch" button whose
+// state and name are restated in place (focus stays on it through a flip),
+// and whose writes are the orchestrator's one setLanguageShown — the panel
+// never writes the setting.
+const ensureSrc = (panelSrcText.match(/function ensureRoot\(\) \{[\s\S]*?\n {2}\}\n/) || [''])[0];
+check(/langSwitch\.setAttribute\('role', 'switch'\)/.test(ensureSrc) && /langSwitch\.type = 'button'/.test(ensureSrc),
+  'the language switch is a button with role="switch"');
+const toolbarUiSrc = (panelSrcText.match(/function applyToolbarUI\(\) \{[\s\S]*?\n {2}\}\n/) || [''])[0];
+check(/ui\.langSwitch\.setAttribute\('aria-checked', row\.on \? 'true' : 'false'\)/.test(toolbarUiSrc)
+  && /labelled\(ui\.langSwitch, switchLabel\(row\.name\)\)/.test(toolbarUiSrc),
+  'the switch says its state (aria-checked) and its name ("Show Español")');
+check(/ui\.langSwitch\.disabled = !row\.enabled/.test(toolbarUiSrc) && /setAttribute\('aria-disabled', 'true'\)/.test(toolbarUiSrc),
+  'the greyed switch is disabled and aria-disabled');
+check(!/createElement|el\('button'/.test(toolbarUiSrc), 'the language row is restated in place, never rebuilt (focus stays on the switch)');
+const switchSrc = (panelSrcText.match(/function onLanguageSwitch\(\) \{[\s\S]*?\n {2}\}\n/) || [''])[0]
+  + (panelSrcText.match(/function onLanguagePick\(id\) \{[\s\S]*?\n {2}\}\n/) || [''])[0];
+check(switchSrc && !/persist\(|SETTINGS\(\)/.test(switchSrc) && !/persist\(\{ churchLanguageShown/.test(panelSrcText),
+  'the panel never writes the language switch itself: its callbacks hand the write to content.js');
+check(/onLanguageShown: \(on\) => setLanguageShown\(on\)/.test(contentSrc) && /onLanguagePick: pickLanguage/.test(contentSrc),
+  'content.js routes the switch and the language pick to its one write');
+const pickSrc = (contentSrc.match(/async function pickLanguage\([^)]*\) \{[\s\S]*?\n {2}\}\n/) || [''])[0];
+check(/const stored = remember\(id\);[\s\S]*await stored;\s*setLanguageShown\(true\)/.test(pickSrc),
+  'a language pick while off writes the pick memory first, then the switch on');
+check(/SETTINGS\.patch\(\{ churchLanguageShown: shown \}\)/.test(contentSrc), 'setLanguageShown patches the switch through __BTX.settings');
+check(!/menuFor/.test(contentSrc) && !/menuFor/.test(panelSrcText), 'the mixed dropdown (menuFor) is gone from the panel and the orchestrator');
 
 // The off card and the not-available card: states like the setup card (never
 // an earned view), built from text nodes, their copy the pure offCopy /

@@ -320,7 +320,7 @@ eq(T.rememberTicked(['niv'], ['spa'], ['spa']), ['niv'], 'no change to the langu
 eq(T.rememberTicked(['niv'], undefined, ['spa']), ['church:spa', 'niv'], 'nothing stored before counts as none on');
 eq(T.rememberTicked(['niv'], [], ['spa', 'xx-nope']), ['church:spa', 'niv'], 'a code that is no Church language is not remembered');
 
-console.log('labelFor / menuFor:');
+console.log('labelFor:');
 const SPA_ROW = T.rowFor('spa');
 eq(T.labelFor(NIV, [NIV]), 'New International Version (NIV)', 'a Bible row reads "name (abbr)": a narrow dropdown cuts the abbreviation, not the name');
 eq(T.labelFor({ id: 'x', abbr: '', name: 'Some Version', provider: C.PROVIDER_APIBIBLE }, []), 'Some Version', 'a Bible row with no abbreviation reads its name alone');
@@ -370,24 +370,6 @@ eq(T.labelFor(WEB_API, [WEB_API, NIV]), 'World English Bible (WEB)', '...even fo
 
 const WEB_ROW = { id: 'bundled:engwebp', abbr: 'WEB', name: 'World English Bible', provider: C.PROVIDER_BUNDLED || 'bundled' };
 const JPN_ROW = T.rowFor('jpn');
-eq(T.menuFor([WEB_ROW], { isBible: true }), [
-  { label: 'Bible versions', items: [{ id: 'bundled:engwebp', label: 'World English Bible (WEB)' }] },
-], 'Bible chapter, one Bible version and no language: still headed "Bible versions"');
-eq(T.menuFor([NIV, SPA_ROW], { isBible: true }), [
-  { label: 'Bible versions', items: [{ id: 'niv', label: 'New International Version (NIV)' }] },
-  { label: 'Languages', items: [{ id: 'church:spa', label: 'Español — Spanish' }] },
-], 'Bible chapter, both kinds on offer: "Bible versions" then "Languages"');
-eq(T.menuFor([SPA_ROW], { isBible: true }), [
-  { label: 'Languages', items: [{ id: 'church:spa', label: 'Español — Spanish' }] },
-], 'Bible chapter, no Bible rows offered: "Languages" alone, no empty Bible heading');
-eq(T.menuFor([SPA_ROW, JPN_ROW], { isBible: false }), [
-  { label: null, items: [
-    { id: 'church:spa', label: 'Español — Spanish' },
-    { id: 'church:jpn', label: '日本語 — Japanese' },
-  ] },
-], 'off the Bible: language rows stay unheaded, no Bible group');
-eq(T.menuFor([]), [], 'nothing on offer: an empty menu (the select hides)');
-
 console.log("bibleMenu / languageMenu (the Translation toolbar's two rows, #150):");
 {
   const mixed = [WEB_ROW, SPA_ROW, NIV, JPN_ROW];
@@ -418,8 +400,14 @@ console.log("bibleMenu / languageMenu (the Translation toolbar's two rows, #150)
     'neither menu carries a heading: every entry is an item {id, label}');
   eq(T.bibleMenu(), [], 'no list, an empty Bible menu');
   eq(T.languageMenu(), [], '...and an empty language menu');
-  eq(T.menuFor([NIV, SPA_ROW], { isBible: true }).map((g) => g.label), ['Bible versions', 'Languages'],
-    'menuFor is untouched until the panel switches over (#154)');
+  // The mixed dropdown's cases, carried to the two menus.
+  eq(T.bibleMenu([WEB_ROW], { isBible: true }), [{ id: 'bundled:engwebp', label: 'World English Bible (WEB)' }],
+    'Bible chapter, one Bible version: a one-row Bible menu');
+  eq(T.languageMenu([SPA_ROW, JPN_ROW]), [
+    { id: 'church:spa', label: 'Español — Spanish' },
+    { id: 'church:jpn', label: '日本語 — Japanese' },
+  ], 'off the Bible: the language rows, as they read today');
+  check(typeof T.menuFor === 'undefined', 'the mixed dropdown (menuFor) is retired: the two rows read the two menus (#154)');
 }
 
 console.log('languagesToAdd:');

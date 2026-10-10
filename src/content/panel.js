@@ -12,7 +12,7 @@
  * Interface:
  *   init(handlers)                 build the DOM, adopt persisted state, wire
  *                                  controls; must be awaited before use
- *   showChapter({ key, texts, picks, languages, layout, shown, dismissed }) -> arrangement
+ *   showChapter({ key, texts, picks, languages, layout, shown, dismissed, isBible }) -> arrangement
  *                                  make the panel visible for a chapter and
  *                                  arrange it: `key` names the chapter, the
  *                                  rest are the arrangement's facts (see the
@@ -22,7 +22,7 @@
  *                                  invalidates every cached view; the same
  *                                  one again (a settings change) keeps the
  *                                  click, Citations and the talk
- *   arrange({ texts, picks, languages, layout, shown, dismissed }) -> arrangement
+ *   arrange({ texts, picks, languages, layout, shown, dismissed, isBible }) -> arrangement
  *                                  a fact about the chapter showing moved
  *                                  (the chapter check settled, a pick): the
  *                                  arrangement again, no view dropped
@@ -128,16 +128,35 @@
  *                                  verse, the setting stays columns, and a click
  *                                  on Side by side (layoutClick: 'explain')
  *                                  says what would make room (roomHint).
- *   populateTranslations(menu, selectedId)  the dropdown, from
- *                                  __BTX.churchText.menuFor; hidden when empty
+ *   languageRow(facts?)            the language row's form (the pure
+ *                                  languageRow) for `facts`, else for the
+ *                                  chapter showing
+ *   populateTranslations({ bible, selected, row, languages })
+ *                                  the Translation toolbar's two rows (GLOSSARY:
+ *                                  Language row). The main row: the Bible
+ *                                  version dropdown (`bible`, churchText.bibleMenu,
+ *                                  at `selected`; hidden when empty) beside the
+ *                                  A− / A+ stepper. The language row, whenever
+ *                                  `row` (languageRow's answer) has a form: the
+ *                                  language's name as plain text, or the
+ *                                  language dropdown (`languages`,
+ *                                  churchText.languageMenu), then its switch, a
+ *                                  role="switch" button named "Show Español"
+ *                                  (greyed and aria-disabled when no ticked
+ *                                  language has the chapter). Off the Bible the
+ *                                  stepper sits on the language row and the
+ *                                  main row goes; in Citations only the main
+ *                                  row shows (toolbarRows). The switch is
+ *                                  restated in place, so focus stays on it
+ *                                  through a flip
  *   retryWait(error, attempts)     pure: whether a rate-limited load retries by
  *                                  itself (ms to wait) or shows the error card
  *                                  (null)
  *   getRootEl()
  *
- * handlers: { renderMode(mode), onTranslationChange(id), onGear(section),
- *   onRetry, onAddLanguage(code), onLayoutChange(layout, pick), onDismissNote,
- *   onShowLanguage, askToolbarPin }.
+ * handlers: { renderMode(mode), onTranslationChange(id), onLanguagePick(id, patch),
+ *   onLanguageShown(on), onGear(section), onRetry, onAddLanguage(code),
+ *   onLayoutChange(layout, pick), onDismissNote, onShowLanguage, askToolbarPin }.
  *   `renderMode` fires whenever the panel invalidated its own body content
  *   (mode toggle, citation-layout toggle, a synced change from another
  *   context); the orchestrator answers by rendering that mode's content.
@@ -146,10 +165,14 @@
  *   options page, at a card when `section` names one ('bible' from the setup
  *   card and the key errors; 'languages' from the not-available card; none
  *   from the header's Settings button).
+ *   `onTranslationChange` is a pick in the Bible version dropdown,
+ *   `onLanguagePick` one in the language dropdown (`patch` is languagePick's:
+ *   the switch on, while it is off), `onLanguageShown` a flip of the
+ *   language row's switch.
  *   `onAddLanguage`, `onLayoutChange`, `onDismissNote` and `onShowLanguage`
  *   (the off card's Show: turn the language switch on) are the cards' and
- *   the note's picks; the panel writes no setting for them, the orchestrator
- *   does. `onLayoutChange`'s `pick` is the row the choice makes the pick, or
+ *   the note's picks; the panel writes no setting for any of these, the
+ *   orchestrator does. `onLayoutChange`'s `pick` is the row the choice makes the pick, or
  *   null (the pure layoutChoice: "In the panel" moves the page's language
  *   into the panel in the Bible version's place). `askToolbarPin()` resolves
  *   to the worker's raw GET_TOOLBAR_PIN reply, which the welcome reads
@@ -379,6 +402,83 @@
     return languages[0];
   }
 
+  // ---- The language row (GLOSSARY: Language row) -----------------------------
+  // The Translation toolbar's second row: the Church language and its switch.
+  // Pure, from the arrangement's facts (texts with their `offered` marks, the
+  // pick memory, the ticked languages, the switch):
+  //   languageRow({ texts, picks, languages, shown }) -> {
+  //     form:    'none' | 'text' | 'menu'
+  //     id:      the row it names (`church:{code}`) | null
+  //     lang:    its code | null
+  //     name:    churchText.nameFor's short native name ("Español") | null
+  //     enabled: whether the switch is live
+  //     on:      the switch (`shown`; absent = on)
+  //   }
+  // The row's languages are the Church rows that may offer the chapter
+  // (`offered` not false: one still being checked counts, so the switch
+  // doesn't flicker grey while the check runs), English on request included
+  // (#119). None at all and none ticked: no row (`none`), the toolbar is one
+  // row. One: its name as plain text (`text`). Two or more: the dropdown
+  // (`menu`), at the newest pick it offers (pickText). Ticked but none offers
+  // the chapter: `text` naming the language nearest the front of the pick
+  // memory (else the first ticked), the switch greyed — an absence reads as
+  // "not translated yet", never as a fault.
+  function languageRow(facts) {
+    const o = facts || {};
+    const ct = churchText();
+    const on = o.shown !== false;
+    const texts = Array.isArray(o.texts) ? o.texts : [];
+    const languages = Array.isArray(o.languages) ? o.languages : [];
+    const church = texts.filter((t) => t && t.provider === ct.PROVIDER);
+    const live = church.filter((t) => t.offered !== false);
+    const named = (lang, form, enabled) => {
+      const row = ct.rowFor(lang);
+      return { form, id: row ? row.id : null, lang: row ? lang : null, name: row ? ct.nameFor(row) : null, enabled, on };
+    };
+    if (live.length) {
+      const id = ct.pickText(live, o.picks);
+      const row = live.find((t) => t.id === id);
+      return named(row.lang, live.length > 1 ? 'menu' : 'text', true);
+    }
+    if (!languages.length && !church.length) return { form: 'none', id: null, lang: null, name: null, enabled: false, on };
+    const lang = languages.length ? noteLanguage(o.picks, languages) : church[0].lang;
+    return named(lang, 'text', false);
+  }
+
+  // What a pick in the language row's dropdown writes: the pick memory (as
+  // any pick does), then, while the switch is off, the switch on — a pick
+  // shows what it picked.
+  //   languagePick(row, id) -> { pick: id, patch: { churchLanguageShown: true } | null }
+  function languagePick(row, id) {
+    return { pick: id, patch: row && row.on === false ? { churchLanguageShown: true } : null };
+  }
+
+  // What a flip of the row's switch writes; the greyed switch writes nothing.
+  //   switchFlip(row) -> { churchLanguageShown } | null
+  function switchFlip(row) {
+    if (!row || !row.enabled) return null;
+    return { churchLanguageShown: row.on === false };
+  }
+
+  // The switch's accessible name: what turning it on does.
+  function switchLabel(name) {
+    return name ? `Show ${name}` : 'Show the language';
+  }
+
+  // Which toolbar rows show, and which one holds the A− / A+ stepper. The
+  // main row is today's: the version dropdown in Translation (on a Bible
+  // chapter), By source | By verse in Citations. The language row shows in
+  // Translation whenever languageRow has a form. Off the Bible the main row
+  // has nothing of its own in Translation, so with a language row the stepper
+  // moves onto it and the main row goes; with none it stays, as today.
+  //   toolbarRows({ mode, isBible, row }) -> { main, language, stepper: 'main' | 'language' }
+  //   isBible: the chapter's fact (content.js, from detect); row: languageRow's form
+  function toolbarRows(o) {
+    const language = o.mode === 'translation' && o.row !== 'none' && !!o.row;
+    const main = !language || o.isBible === true;
+    return { main, language, stepper: main ? 'main' : 'language' };
+  }
+
   // What a pick on the layout control writes (the beside card, the
   // beside-the-page line's Change, the control above a language read in the
   // panel): the split layout, and the row it makes the pick, or null. Moving
@@ -444,6 +544,9 @@
     return effectiveMode(s) !== before;
   }
 
+  // The facts the panel keeps about the chapter showing. `isBible` (the
+  // chapter is the Bible's, content.js from detect) places the toolbar's rows
+  // (toolbarRows).
   function factsOf(c) {
     return {
       texts: c.texts, picks: c.picks, languages: c.languages, layout: c.layout, dismissed: c.dismissed === true,
@@ -1313,7 +1416,7 @@
 
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = {
-      createState, arrangement, layoutChoice, arrangementOf, effectiveMode, selectMode, selectText, selectCitationView, setChapter, sameChapter,
+      createState, arrangement, languageRow, languagePick, switchFlip, switchLabel, toolbarRows, layoutChoice, arrangementOf, effectiveMode, selectMode, selectText, selectCitationView, setChapter, sameChapter,
       welcomeDue, setWelcomeSeen, welcomeTakesFocus, focusOnToggle, byKeyboard, CONTROL_NAMES, WELCOME_COPY, WELCOME_STEPS, welcomeSteps, welcomeStepView, welcomeFactsFrom, lineParts,
       CALLOUT_GEOMETRY, calloutPlacement, unionRect,
       stepFontScale, setupCopy, noteCopy, offCopy, notAvailableCopy, besideCopy, pressedLayout, layoutClick, roomHint, errorCopy, pausedLine, nearLine, retryWait, LAYOUTS, RETRY_MAX_WAIT_MS, RETRY_MAX,
@@ -1427,11 +1530,14 @@
     button.setAttribute('aria-pressed', on ? 'true' : 'false');
   }
 
-  // Two rows of chrome above the body. The header row lines up with the
-  // site's toolbar and holds what is always there: the mode control, Settings
-  // and Collapse. The toolbar row under it holds the current mode's controls —
-  // the translation dropdown, or the By source | By verse toggle — beside the
-  // text-size stepper.
+  // The chrome above the body. The header row lines up with the site's
+  // toolbar and holds what is always there: the mode control, Settings and
+  // Collapse. The toolbar under it holds up to two rows (toolbarRows): the
+  // main row, the current mode's control — the Bible version dropdown, or the
+  // By source | By verse toggle — beside the text-size stepper; and in
+  // Translation, while a Church language is ticked, the language row: its
+  // name or the language dropdown, then its switch (GLOSSARY: Language row).
+  // Off the Bible the stepper moves onto the language row.
   function ensureRoot() {
     const existing = document.getElementById('btx-root');
     if (existing && ui) return ui;
@@ -1461,7 +1567,7 @@
     // the chosen text's full label (showSelectedTitle): a narrow panel cuts
     // the closed select off mid-word.
     const select = el('select', 'btx-select');
-    select.setAttribute('aria-label', 'Translation or language');
+    select.setAttribute('aria-label', 'Bible version');
     const citViewSource = el('button', 'btx-cit-mode', 'By source');
     const citViewVerse = el('button', 'btx-cit-mode', 'By verse');
     const citModes = segmented('btx-cit-modes', 'Group citations', [citViewSource, citViewVerse]);
@@ -1470,11 +1576,30 @@
     // while stepping it. Both write the same setting the slider does.
     const smaller = labelled(el('button', 'btx-btn btx-font-step', 'A−'), 'Smaller text');
     const larger = labelled(el('button', 'btx-btn btx-font-step btx-font-larger', 'A+'), 'Larger text');
+    const main = el('div', 'btx-toolbar-row btx-toolbar-main');
+    main.appendChild(select);
+    main.appendChild(citModes);
+    main.appendChild(smaller);
+    main.appendChild(larger);
+    // The language row: the one language's name as plain text, or the
+    // language dropdown, then the switch. The switch is one node for the
+    // panel's life, restated in place (applyToolbarUI), so focus stays on it
+    // through a flip and the re-render the flip causes.
+    const langName = el('span', 'btx-lang-name');
+    const langSelect = el('select', 'btx-select btx-lang-select');
+    langSelect.setAttribute('aria-label', 'Language');
+    const langSwitch = el('button', 'btx-switch');
+    langSwitch.type = 'button';
+    langSwitch.setAttribute('role', 'switch');
+    langSwitch.setAttribute('aria-checked', 'true');
+    const langRow = el('div', 'btx-toolbar-row btx-langrow');
+    langRow.hidden = true;
+    langRow.appendChild(langName);
+    langRow.appendChild(langSelect);
+    langRow.appendChild(langSwitch);
     const toolbar = el('div', 'btx-toolbar');
-    toolbar.appendChild(select);
-    toolbar.appendChild(citModes);
-    toolbar.appendChild(smaller);
-    toolbar.appendChild(larger);
+    toolbar.appendChild(main);
+    toolbar.appendChild(langRow);
 
     const body = el('div', 'btx-body');
 
@@ -1507,6 +1632,8 @@
       selectText(state, select.value);
       if (cbs.onTranslationChange) cbs.onTranslationChange(select.value);
     });
+    langSelect.addEventListener('change', () => onLanguagePick(langSelect.value));
+    langSwitch.addEventListener('click', onLanguageSwitch);
     smaller.addEventListener('click', () => onFontStep(-1));
     larger.addEventListener('click', () => onFontStep(1));
     gear.addEventListener('click', () => cbs.onGear && cbs.onGear());
@@ -1538,7 +1665,7 @@
       'text-size': [smaller, larger],
     };
 
-    ui = { rootEl, panel, header, toolbar, select, smaller, larger, modes, modeTranslation, modeCitations, citModes, citViewSource, citViewVerse, body, tab, collapse, resize, controls };
+    ui = { rootEl, panel, header, toolbar, main, select, langRow, langName, langSelect, langSwitch, smaller, larger, modes, modeTranslation, modeCitations, citModes, citViewSource, citViewVerse, body, tab, collapse, resize, controls };
     return ui;
   }
 
@@ -1550,6 +1677,7 @@
     setPressed(ui.modeCitations, cit);
     ui.select.style.display = cit ? 'none' : '';
     ui.rootEl.setAttribute('data-btx-mode', cit ? 'citations' : 'translation');
+    applyToolbarUI();
     refreshScrollSync();
   }
 
@@ -2884,43 +3012,111 @@
     }
   }
 
-  // The translation dropdown, from __BTX.churchText.menuFor: its groups, headed
-  // or not as menuFor says. Empty, it hides — the setup card is showing. The
-  // same rows again are only re-selected, not rebuilt (the background chapter
-  // check restates them, perhaps while the reader has the select open).
-  let menuShown = null;
-  function populateTranslations(menu, selectedId) {
+  // The toolbar's rows, as content.js last fed them (populateTranslations):
+  // the Bible menu, the language row (the pure languageRow's answer) and the
+  // language menu. The switch's own flips restate `row.on` at once.
+  let toolbarFeed = { bible: [], row: languageRow(null), languages: [] };
+  let bibleShown = null;
+  let languagesShown = null;
+
+  // The toolbar's two menus (churchText.bibleMenu / languageMenu) and the
+  // language row: { bible, selected, row, languages }. An empty Bible menu
+  // hides the version dropdown (off the Bible, or the setup card). The same
+  // rows again are only re-selected, not rebuilt (the background chapter
+  // check restates them, perhaps while the reader has a select open).
+  function populateTranslations(feed) {
     ensureRoot();
-    const groups = Array.isArray(menu) ? menu : [];
-    const key = JSON.stringify(groups);
-    if (key === menuShown && ui.select.options.length) {
-      if (selectedId && ui.select.value !== selectedId) ui.select.value = selectedId;
-      showSelectedTitle();
-      return;
-    }
-    menuShown = key;
-    ui.select.textContent = '';
-    ui.select.hidden = !groups.some((g) => g.items && g.items.length);
-    for (const g of groups) {
-      let parent = ui.select;
-      if (g.label) {
-        parent = el('optgroup');
-        parent.label = g.label;
-        ui.select.appendChild(parent);
-      }
-      for (const item of g.items || []) {
-        const opt = el('option', null, item.label);
-        opt.value = item.id;
-        parent.appendChild(opt);
-      }
-    }
-    if (selectedId) ui.select.value = selectedId;
+    const f = feed || {};
+    const bible = Array.isArray(f.bible) ? f.bible : [];
+    const languages = Array.isArray(f.languages) ? f.languages : [];
+    toolbarFeed = { bible, row: f.row || languageRow(null), languages };
+    bibleShown = fillSelect(ui.select, bible, f.selected, bibleShown);
+    ui.select.hidden = !bible.length;
+    languagesShown = fillSelect(ui.langSelect, languages, toolbarFeed.row.id, languagesShown);
     showSelectedTitle();
+    applyToolbarUI();
   }
 
+  // A select's options from a menu ([{ id, label }]), rebuilt only when the
+  // rows changed; returns the key of the rows it now shows.
+  function fillSelect(select, items, selectedId, shownKey) {
+    const key = JSON.stringify(items);
+    if (key !== shownKey || !select.options.length) {
+      select.textContent = '';
+      for (const item of items) {
+        const opt = el('option', null, item.label);
+        opt.value = item.id;
+        select.appendChild(opt);
+      }
+    }
+    if (selectedId && select.value !== selectedId) select.value = selectedId;
+    return key;
+  }
+
+  // Each dropdown's tooltip is its chosen row's full label: a narrow panel
+  // cuts the closed select off mid-word.
   function showSelectedTitle() {
-    const opt = ui.select.selectedOptions && ui.select.selectedOptions[0];
-    ui.select.title = opt ? opt.textContent : '';
+    for (const select of [ui.select, ui.langSelect]) {
+      const opt = select.selectedOptions && select.selectedOptions[0];
+      select.title = opt ? opt.textContent : '';
+    }
+  }
+
+  // The toolbar's rows from the feed and the mode showing (toolbarRows): which
+  // rows show, where the stepper sits, and the language row restated in
+  // place — the switch is never rebuilt, so focus stays on it.
+  function applyToolbarUI() {
+    if (!ui) return;
+    const row = toolbarFeed.row;
+    const rows = toolbarRows({ mode: effectiveMode(state), isBible: !!(state.facts && state.facts.isBible), row: row.form });
+    ui.main.hidden = !rows.main;
+    ui.langRow.hidden = !rows.language;
+    const home = rows.stepper === 'language' ? ui.langRow : ui.main;
+    if (ui.smaller.parentNode !== home) {
+      const focused = document.activeElement;
+      home.appendChild(ui.smaller);
+      home.appendChild(ui.larger);
+      if ((focused === ui.smaller || focused === ui.larger) && document.activeElement !== focused) focused.focus({ preventScroll: true });
+    }
+    if (row.form === 'none') return;
+    const ct = churchText();
+    const menu = row.form === 'menu';
+    ui.langSelect.hidden = !menu;
+    ui.langName.hidden = menu;
+    ui.langName.textContent = row.name || '';
+    const named = row.lang ? ct.rowFor(row.lang) : null;
+    ui.langName.title = named ? ct.labelFor(named, []) : '';
+    ui.langRow.toggleAttribute('data-btx-lang-absent', !row.enabled);
+    labelled(ui.langSwitch, switchLabel(row.name));
+    ui.langSwitch.setAttribute('aria-checked', row.on ? 'true' : 'false');
+    ui.langSwitch.disabled = !row.enabled;
+    if (row.enabled) ui.langSwitch.removeAttribute('aria-disabled');
+    else ui.langSwitch.setAttribute('aria-disabled', 'true');
+  }
+
+  // A pick in the language dropdown: this visit's pick (as the version
+  // dropdown's is), and, while the switch is off, the switch on with it
+  // (languagePick). The orchestrator writes both, the pick memory first.
+  function onLanguagePick(id) {
+    showSelectedTitle();
+    const w = languagePick(toolbarFeed.row, id);
+    selectText(state, w.pick);
+    if (w.patch) {
+      toolbarFeed.row = Object.assign({}, toolbarFeed.row, { on: true });
+      applyToolbarUI();
+    }
+    if (cbs.onLanguagePick) cbs.onLanguagePick(w.pick, w.patch);
+  }
+
+  // The switch: flipped on screen at once and handed to the orchestrator,
+  // which writes the setting and re-arranges the chapter (the panel writes
+  // no setting for it). Focus stays where it is: on the switch.
+  function onLanguageSwitch() {
+    const patch = switchFlip(toolbarFeed.row);
+    if (!patch) return;
+    toolbarFeed.row = Object.assign({}, toolbarFeed.row, { on: patch.churchLanguageShown });
+    applyToolbarUI();
+    if (cbs.onLanguageShown) cbs.onLanguageShown(patch.churchLanguageShown);
   }
 
   // ---- Page reserve ----------------------------------------------------------
@@ -3181,6 +3377,7 @@
       hide,
       arrange,
       arrangement: (facts) => arrangementOf(facts ? Object.assign({}, state, { facts: factsOf(facts) }) : state),
+      languageRow: (facts) => languageRow(facts ? factsOf(facts) : state.facts),
       effectiveMode: () => effectiveMode(state),
       citationView: () => state.citationView,
       toggleCollapsed: (force) => {
