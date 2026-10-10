@@ -311,32 +311,34 @@ eq(T.rememberTicked(['niv'], [], ['spa', 'xx-nope']), ['church:spa', 'niv'], 'a 
 
 console.log('labelFor / menuFor:');
 const SPA_ROW = T.rowFor('spa');
-eq(T.labelFor(NIV, [NIV]), 'NIV — New International Version', 'an api.bible row reads "abbr — name"');
+eq(T.labelFor(NIV, [NIV]), 'New International Version (NIV)', 'a Bible row reads "name (abbr)": a narrow dropdown cuts the abbreviation, not the name');
+eq(T.labelFor({ id: 'x', abbr: '', name: 'Some Version', provider: C.PROVIDER_APIBIBLE }, []), 'Some Version', 'a Bible row with no abbreviation reads its name alone');
+eq(T.labelFor({ id: 'x', abbr: 'Some Version', name: 'Some Version', provider: C.PROVIDER_APIBIBLE }, []), 'Some Version', '...and so does one whose abbreviation is its name');
 eq(T.labelFor(SPA_ROW, [SPA_ROW]), 'Español — Spanish', 'a Church row reads "native name — English name"');
 if (ENG) eq(T.labelFor(T.rowFor('eng'), []), 'English', 'English reads once');
 const WEBU = (id, extra) => Object.assign({ id, abbr: 'WEBU', name: 'World English Bible Updated', provider: C.PROVIDER_APIBIBLE }, extra);
 const webus = [WEBU('72f4e6dc683324df-01'), WEBU('72f4e6dc683324df-02'), WEBU('72f4e6dc683324df-03')];
 eq(webus.map((r) => T.labelFor(r, webus)), [
-  'WEBU — World English Bible Updated (1)', 'WEBU — World English Bible Updated (2)', 'WEBU — World English Bible Updated (3)',
+  'World English Bible Updated (WEBU) (1)', 'World English Bible Updated (WEBU) (2)', 'World English Bible Updated (WEBU) (3)',
 ], 'identical rows saved before descriptions existed are told apart by their id edition');
 const described = [WEBU('x-01', { description: 'Ecumenical' }), WEBU('x-02', { description: 'Protestant' })];
 eq(described.map((r) => T.labelFor(r, described)), [
-  'WEBU — World English Bible Updated (Ecumenical)', 'WEBU — World English Bible Updated (Protestant)',
+  'World English Bible Updated (WEBU) (Ecumenical)', 'World English Bible Updated (WEBU) (Protestant)',
 ], "...and by api.bible's description when there is one");
 const sameDesc = [WEBU('a', { description: 'Protestant' }), WEBU('b', { description: 'Protestant' })];
 eq(sameDesc.map((r) => T.labelFor(r, sameDesc)), [
-  'WEBU — World English Bible Updated (1)', 'WEBU — World English Bible Updated (2)',
+  'World English Bible Updated (WEBU) (1)', 'World English Bible Updated (WEBU) (2)',
 ], 'rows nothing else tells apart are numbered in list order');
-eq(T.labelFor(WEBU('x-01', { description: 'Protestant' }), [NIV]), 'WEBU — World English Bible Updated',
+eq(T.labelFor(WEBU('x-01', { description: 'Protestant' }), [NIV]), 'World English Bible Updated (WEBU)',
   'a row with no twin carries no suffix, description or not');
 
 const WEB_ROW = { id: 'bundled:engwebp', abbr: 'WEB', name: 'World English Bible', provider: C.PROVIDER_BUNDLED || 'bundled' };
 const JPN_ROW = T.rowFor('jpn');
 eq(T.menuFor([WEB_ROW], { isBible: true }), [
-  { label: 'Bible versions', items: [{ id: 'bundled:engwebp', label: 'WEB — World English Bible' }] },
+  { label: 'Bible versions', items: [{ id: 'bundled:engwebp', label: 'World English Bible (WEB)' }] },
 ], 'Bible chapter, one Bible version and no language: still headed "Bible versions"');
 eq(T.menuFor([NIV, SPA_ROW], { isBible: true }), [
-  { label: 'Bible versions', items: [{ id: 'niv', label: 'NIV — New International Version' }] },
+  { label: 'Bible versions', items: [{ id: 'niv', label: 'New International Version (NIV)' }] },
   { label: 'Languages', items: [{ id: 'church:spa', label: 'Español — Spanish' }] },
 ], 'Bible chapter, both kinds on offer: "Bible versions" then "Languages"');
 eq(T.menuFor([SPA_ROW], { isBible: true }), [

@@ -61,7 +61,9 @@
  *       rememberPick for the one language it adds.
  *
  *   how does each read, and what else could be added?
- *     labelFor(row, list) -> "NIV — New International Version" | "Español — Spanish"
+ *     labelFor(row, list) -> "New International Version (NIV)" | "Español — Spanish"
+ *       a Bible version: name first, abbreviation in parentheses (a narrow
+ *       dropdown cuts the abbreviation); a Church language: "native — English"
  *       twins in `list` told apart by description, else id edition, else order
  *     menuFor(list, { isBible }) -> [{ label, items: [{ id, label }] }]
  *       the dropdown. Bible chapter: 'Bible versions' then 'Languages', always
@@ -297,12 +299,17 @@
   }
 
   // ---- How a row reads -------------------------------------------------------
-  // "NIV — New International Version", "Español — Spanish", "English". Two rows
-  // that would read the same (api.bible lists World English Bible Updated three
-  // times) are told apart by api.bible's `description` ("Protestant"), else by
-  // the id's edition suffix ("…-02" -> "(2)"), else by their order.
+  // "New International Version (NIV)", "Español — Spanish", "English". A Bible
+  // version leads with its name and the abbreviation follows in parentheses, so
+  // a narrow dropdown cuts the abbreviation, not the name; a Church language
+  // keeps "native name — English name". Two rows that would read the same
+  // (api.bible lists World English Bible Updated three times) are told apart
+  // by api.bible's `description` ("Protestant"), else by the id's edition
+  // suffix ("…-02" -> "(2)"), else by their order.
   function baseLabel(row) {
-    return row.abbr ? `${row.abbr} — ${row.name}` : String(row.name || row.id);
+    if (row.provider === PROVIDER) return row.abbr ? `${row.abbr} — ${row.name}` : String(row.name || row.id);
+    const name = String(row.name || row.abbr || row.id);
+    return row.abbr && row.abbr !== name ? `${name} (${row.abbr})` : name;
   }
 
   function labelFor(row, list) {
