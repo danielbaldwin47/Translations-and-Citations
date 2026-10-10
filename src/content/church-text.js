@@ -64,7 +64,9 @@
  *     labelFor(row, list) -> "New International Version (NIV)" | "Español — Spanish"
  *       a Bible version: name first, abbreviation in parentheses (a narrow
  *       dropdown cuts the abbreviation); a Church language: "native — English"
- *       twins in `list` told apart by description, else id edition, else order
+ *       twins in `list` told apart by description, else id edition, else
+ *       order, written before the abbreviation so the cut spares it:
+ *       "World English Bible Updated, Protestant (WEBU)", "…, 2 (WEBU)"
  *     menuFor(list, { isBible }) -> [{ label, items: [{ id, label }] }]
  *       the dropdown. Bible chapter: 'Bible versions' then 'Languages', always
  *       headed, a group only when it has rows (one Bible version alone is still
@@ -305,26 +307,39 @@
   // keeps "native name — English name". Two rows that would read the same
   // (api.bible lists World English Bible Updated three times) are told apart
   // by api.bible's `description` ("Protestant"), else by the id's edition
-  // suffix ("…-02" -> "(2)"), else by their order.
-  function baseLabel(row) {
-    if (row.provider === PROVIDER) return row.abbr ? `${row.abbr} — ${row.name}` : String(row.name || row.id);
+  // suffix ("…-02" -> "2"), else by their order — written after the name and
+  // before the abbreviation ("World English Bible Updated, Protestant (WEBU)"),
+  // so the narrow dropdown's cut takes the abbreviation before it takes what
+  // tells the twins apart.
+  function labelParts(row) {
+    if (row.provider === PROVIDER) return { name: row.abbr ? `${row.abbr} — ${row.name}` : String(row.name || row.id), abbr: '' };
     const name = String(row.name || row.abbr || row.id);
-    return row.abbr && row.abbr !== name ? `${name} (${row.abbr})` : name;
+    return { name, abbr: row.abbr && row.abbr !== name ? row.abbr : '' };
+  }
+
+  function labelOf(parts, extra) {
+    const name = extra ? `${parts.name}, ${extra}` : parts.name;
+    return parts.abbr ? `${name} (${parts.abbr})` : name;
+  }
+
+  function baseLabel(row) {
+    return labelOf(labelParts(row));
   }
 
   function labelFor(row, list) {
     const base = baseLabel(row);
     const twins = (Array.isArray(list) ? list : []).filter((r) => r !== row && baseLabel(r) === base);
     if (!twins.length) return base;
+    const told = (extra) => labelOf(labelParts(row), extra);
     const desc = (r) => (typeof r.description === 'string' ? r.description.trim() : '');
-    if (desc(row) && twins.every((r) => desc(r) !== desc(row))) return `${base} (${desc(row)})`;
+    if (desc(row) && twins.every((r) => desc(r) !== desc(row))) return told(desc(row));
     const edition = (r) => {
       const m = /-([0-9a-z]+)$/i.exec(String(r.id));
       return m ? m[1].replace(/^0+(?=.)/, '') : '';
     };
-    if (edition(row) && twins.every((r) => edition(r) !== edition(row))) return `${base} (${edition(row)})`;
+    if (edition(row) && twins.every((r) => edition(r) !== edition(row))) return told(edition(row));
     const n = list.filter((r) => baseLabel(r) === base).indexOf(row);
-    return n < 0 ? base : `${base} (${n + 1})`;
+    return n < 0 ? base : told(String(n + 1));
   }
 
   // The translation dropdown: on a Bible chapter "Bible versions" then

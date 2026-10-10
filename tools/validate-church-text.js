@@ -319,16 +319,20 @@ if (ENG) eq(T.labelFor(T.rowFor('eng'), []), 'English', 'English reads once');
 const WEBU = (id, extra) => Object.assign({ id, abbr: 'WEBU', name: 'World English Bible Updated', provider: C.PROVIDER_APIBIBLE }, extra);
 const webus = [WEBU('72f4e6dc683324df-01'), WEBU('72f4e6dc683324df-02'), WEBU('72f4e6dc683324df-03')];
 eq(webus.map((r) => T.labelFor(r, webus)), [
-  'World English Bible Updated (WEBU) (1)', 'World English Bible Updated (WEBU) (2)', 'World English Bible Updated (WEBU) (3)',
-], 'identical rows saved before descriptions existed are told apart by their id edition');
+  'World English Bible Updated, 1 (WEBU)', 'World English Bible Updated, 2 (WEBU)', 'World English Bible Updated, 3 (WEBU)',
+], 'identical rows saved before descriptions existed are told apart by their id edition, before the abbreviation: a narrow dropdown cuts the abbreviation, not what tells twins apart');
 const described = [WEBU('x-01', { description: 'Ecumenical' }), WEBU('x-02', { description: 'Protestant' })];
 eq(described.map((r) => T.labelFor(r, described)), [
-  'World English Bible Updated (WEBU) (Ecumenical)', 'World English Bible Updated (WEBU) (Protestant)',
+  'World English Bible Updated, Ecumenical (WEBU)', 'World English Bible Updated, Protestant (WEBU)',
 ], "...and by api.bible's description when there is one");
 const sameDesc = [WEBU('a', { description: 'Protestant' }), WEBU('b', { description: 'Protestant' })];
 eq(sameDesc.map((r) => T.labelFor(r, sameDesc)), [
-  'World English Bible Updated (WEBU) (1)', 'World English Bible Updated (WEBU) (2)',
+  'World English Bible Updated, 1 (WEBU)', 'World English Bible Updated, 2 (WEBU)',
 ], 'rows nothing else tells apart are numbered in list order');
+const NOABBR = (id, extra) => Object.assign({ id, abbr: '', name: 'Some Version', provider: C.PROVIDER_APIBIBLE }, extra);
+const noAbbr = [NOABBR('y-01', { description: 'Catholic' }), NOABBR('y-02')];
+eq(noAbbr.map((r) => T.labelFor(r, noAbbr)), ['Some Version, Catholic', 'Some Version, 2'],
+  'twins with no abbreviation carry the same ", disambiguator" at the end');
 eq(T.labelFor(WEBU('x-01', { description: 'Protestant' }), [NIV]), 'World English Bible Updated (WEBU)',
   'a row with no twin carries no suffix, description or not');
 
