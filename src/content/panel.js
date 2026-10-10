@@ -452,11 +452,22 @@
   // Where focus goes after a collapse or an expand (the state after it), for
   // a keyboard user whose focus was in the panel: the tab on collapse,
   // Collapse on expand — unless the expand brings the welcome back (null:
-  // the welcome takes focus when it opens).
+  // the welcome takes focus when it opens). Only a keyboard activation moves
+  // focus (`keyboard` false: a mouse click): a mouse reader left a focus ring
+  // on a control they never asked for (#102 C2).
   //   -> 'tab' | 'collapse' | null
-  function focusOnToggle(s) {
+  function focusOnToggle(s, keyboard) {
+    if (keyboard === false) return null;
     if (s.collapsed) return 'tab';
     return welcomeDue(s) ? null : 'collapse';
+  }
+
+  // Was a button's click made with the keyboard? Enter or Space on a focused
+  // button click with a click count (`detail`) of 0, a mouse click with 1 or
+  // more. What isn't known counts as the keyboard: focus moving is the safe
+  // side for a screen-reader user.
+  function byKeyboard(event) {
+    return !event || event.detail === 0 || typeof event.detail !== 'number';
   }
 
   // The controls the panel builds, by name: what a welcome step may point
@@ -1211,7 +1222,7 @@
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = {
       createState, arrangement, layoutChoice, arrangementOf, effectiveMode, selectMode, selectText, selectCitationView, setChapter, sameChapter,
-      welcomeDue, setWelcomeSeen, welcomeTakesFocus, focusOnToggle, CONTROL_NAMES, WELCOME_COPY, WELCOME_STEPS, welcomeSteps, welcomeStepView, welcomeFactsFrom, lineParts,
+      welcomeDue, setWelcomeSeen, welcomeTakesFocus, focusOnToggle, byKeyboard, CONTROL_NAMES, WELCOME_COPY, WELCOME_STEPS, welcomeSteps, welcomeStepView, welcomeFactsFrom, lineParts,
       CALLOUT_GEOMETRY, calloutPlacement, unionRect,
       stepFontScale, setupCopy, noteCopy, besideCopy, pressedLayout, layoutClick, roomHint, errorCopy, pausedLine, nearLine, retryWait, LAYOUTS, RETRY_MAX_WAIT_MS, RETRY_MAX,
       createViews, saveViewScroll, selectView, keepView, settleView, dropViews, SAME_CHAPTER_VIEWS,
@@ -1407,8 +1418,8 @@
     smaller.addEventListener('click', () => onFontStep(-1));
     larger.addEventListener('click', () => onFontStep(1));
     gear.addEventListener('click', () => cbs.onGear && cbs.onGear());
-    collapse.addEventListener('click', () => setCollapsed(true));
-    tab.addEventListener('click', () => setCollapsed(false));
+    collapse.addEventListener('click', (e) => setCollapsed(true, byKeyboard(e)));
+    tab.addEventListener('click', (e) => setCollapsed(false, byKeyboard(e)));
     modeTranslation.addEventListener('click', () => onModeClick('translation'));
     modeCitations.addEventListener('click', () => onModeClick('citations'));
     citViewSource.addEventListener('click', () => onCitViewClick('source'));
@@ -1865,13 +1876,14 @@
   // Focus follows the control across the swap: a keyboard user who collapses
   // lands on the tab, and on Collapse again when expanding. Focus elsewhere
   // (the toolbar icon, a synced change) is left where it is.
-  function setCollapsed(collapsed) {
+  // `keyboard` is false for a mouse click (focusOnToggle: no focus moves then).
+  function setCollapsed(collapsed, keyboard) {
     const c = collapsed === true;
     if (state.collapsed === c) return;
     const hadFocus = ui.rootEl.contains(document.activeElement);
     state.collapsed = c;
     applyCollapsedUI(); // an expand may bring the welcome back, which takes focus
-    const target = hadFocus ? focusOnToggle(state) : null;
+    const target = hadFocus ? focusOnToggle(state, keyboard) : null;
     if (target) (target === 'tab' ? ui.tab : ui.collapse).focus({ preventScroll: true });
     persist({ panelCollapsed: c });
   }
@@ -2475,7 +2487,7 @@
     parts.note = el('p', 'btx-card-hint');
     parts.note.setAttribute('role', 'status');
     card.node.appendChild(parts.note);
-    parts.collapse = button('btx-btn-outline btx-widen', '', () => setCollapsed(true));
+    parts.collapse = button('btx-btn-outline btx-widen', '', (e) => setCollapsed(true, byKeyboard(e)));
     card.node.appendChild(parts.collapse);
     card.parts = parts;
   }
