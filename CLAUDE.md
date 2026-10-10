@@ -181,7 +181,8 @@ source-data/               GITIGNORED build input, filled from the owner's priva
   cached list.
 - **Citations:** toggle the panel to Citations; verse → source-type group →
   talk reads inline. Also on `bofm/alma/5`, `dc-testament/dc/76`,
-  `pgp/moses/1`. In the reader, select text to highlight (click to remove).
+  `pgp/moses/1`. In the reader, select text to highlight (click to remove); by
+  keyboard, Tab to a highlight, Enter opens Remove, Enter removes.
 - **Regenerate citation data** (BYU DBs in `source-data/`):
   ```
   node tools/fetch-jod-wikisource.js            # network; only to refresh the snapshot
