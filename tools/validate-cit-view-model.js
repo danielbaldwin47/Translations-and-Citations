@@ -84,6 +84,10 @@ const SRC = { view: 'source', fullName: 'John', chapter: 3 };
 
 // --- pure helpers ---------------------------------------------------------
 console.log('Helpers:');
+deep(VM.verseRuns([3, 4, 5, 10, 11]), [[3, 4, 5], [10, 11]], 'verseRuns splits an ascending list into contiguous runs');
+deep(VM.verseRuns([24, 45, 46]), [[24], [45, 46]], 'verseRuns on a gap');
+deep(VM.verseRuns([]), [], 'verseRuns of an empty span');
+deep(VM.verseRuns(undefined), [], 'verseRuns of no span');
 deep(VM.anchorVerses([3, 4, 5, 10, 11]), [3, 10], 'anchorVerses splits contiguous ranges');
 deep(VM.anchorVerses([24, 45, 46]), [24, 45], 'anchorVerses on a gap');
 deep(VM.anchorVerses([16]), [16], 'anchorVerses of a single verse');

@@ -108,19 +108,25 @@
 
   // --- pure helpers --------------------------------------------------------
 
+  // An ascending verse list split into its contiguous runs:
+  // [3,4,5,10,11] -> [[3,4,5],[10,11]]. The one run walk: formatVerses,
+  // anchorVerses and runAt all read it.
+  function verseRuns(vs) {
+    const runs = [];
+    for (const v of vs || []) {
+      const last = runs[runs.length - 1];
+      if (last && v === last[last.length - 1] + 1) last.push(v);
+      else runs.push([v]);
+    }
+    return runs;
+  }
+
   // Collapse an ascending list of verse numbers into runs: [3..10] -> "3–10",
   // [24,45,46] -> "24, 45–46".
   function formatVerses(vs) {
-    if (!vs || !vs.length) return '';
-    const parts = [];
-    let start = vs[0], prev = vs[0];
-    for (let i = 1; i <= vs.length; i++) {
-      const cur = vs[i];
-      if (cur === prev + 1) { prev = cur; continue; }
-      parts.push(start === prev ? String(start) : `${start}–${prev}`);
-      start = cur; prev = cur;
-    }
-    return parts.join(', ');
+    return verseRuns(vs)
+      .map((r) => (r.length === 1 ? String(r[0]) : `${r[0]}–${r[r.length - 1]}`))
+      .join(', ');
   }
 
   // The index files a chapter's closing note as verse 1000 (Oliver Cowdery's
@@ -161,23 +167,14 @@
   // First verse of each contiguous range in an ascending verse list, so a cite
   // shows once per range it cites: [3,4,5,10,11] -> [3,10]; [24,45,46] -> [24,45].
   function anchorVerses(vs) {
-    const anchors = [];
-    if (!vs) return anchors;
-    for (let i = 0; i < vs.length; i++) {
-      if (i === 0 || vs[i] !== vs[i - 1] + 1) anchors.push(vs[i]);
-    }
-    return anchors;
+    return verseRuns(vs).map((r) => r[0]);
   }
 
   // The run of an ascending verse list that starts at anchor v, the verses a
   // cite is listed for under Verse v: runAt([3,4,5,10,11], 10) -> [10,11];
   // [] when v is not an anchor of vs.
   function runAt(vs, v) {
-    const i = (vs || []).indexOf(v);
-    if (i < 0 || (i > 0 && vs[i - 1] === v - 1)) return [];
-    let j = i + 1;
-    while (j < vs.length && vs[j] === vs[j - 1] + 1) j++;
-    return vs.slice(i, j);
+    return verseRuns(vs).find((r) => r[0] === v) || [];
   }
 
   // The uid of verse v's group in the by-verse layout, so the adapter can find
@@ -440,15 +437,16 @@
   // something else. The build's `fn` flag (entry.inFootnote) decides.
   const FOOTNOTE_LABEL = 'Cited in a footnote';
 
-  // rangeVerses: the verses to badge, or null for no badge. listedVerses: the
-  // verses this row stands for in its group, which a verse query matches
+  // verses.badged: the verses to badge, or null for no badge. verses.listed:
+  // the verses this row stands for in its group, which a verse query matches
   // (row.verses): the talk's verses in By source; in By verse only the runs
   // listed at this verse, so a talk citing verses 3 and 27 matches "27" under
   // Verse 27 alone, not again under Verse 3.
   // The filter haystack holds snippet text only for a bundled corpus: a
   // fetched excerpt depends on what has scrolled into view, and filtering
   // must not.
-  function rowDesc(talk, type, uidPrefix, i, rangeVerses, listedVerses) {
+  function rowDesc(talk, type, uidPrefix, i, verses) {
+    const { badged, listed } = verses;
     const entry = talk.entry;
     const s = entry.source || {};
     const where = shortLabel(s);
@@ -463,14 +461,14 @@
       citId: entry.citId,
       talkId: talkIdOf(entry),
       speaker,
-      rangeLabel: rangeVerses ? verseLabel(rangeVerses) : null,
-      rangeTitle: rangeVerses ? citesTitle(rangeVerses) : null,
+      rangeLabel: badged ? verseLabel(badged) : null,
+      rangeTitle: badged ? citesTitle(badged) : null,
       sub: [title, where].filter(Boolean).join(' · ') || null,
       snippet: excerptSource(entry, fetched),
       footnoteLabel,
-      a11yLabel: [speaker, title, where, rangeVerses && spokenVerses(rangeVerses), footnoteLabel].filter(Boolean).join(', '),
+      a11yLabel: [speaker, title, where, badged && spokenVerses(badged), footnoteLabel].filter(Boolean).join(', '),
       search: haystack.filter(Boolean).join(' ').toLowerCase(),
-      verses: listedVerses || talk.verses,
+      verses: listed,
       entry,
     };
   }
@@ -528,8 +526,10 @@
           count: talks.length,
           countClass: `btx-grp-${t.key}`,
           open: true,
-          rows: talks.map((talk, i) => rowDesc(talk, t, childUid, i, talk.verses.length > 1 ? talk.verses : null,
-            listedAt(talk, v))),
+          rows: talks.map((talk, i) => rowDesc(talk, t, childUid, i, {
+            badged: talk.verses.length > 1 ? talk.verses : null,
+            listed: listedAt(talk, v),
+          })),
         }));
       }
 
@@ -553,7 +553,7 @@
       groups.push(groupDesc({
         uid, kind: 'sourceType', key: t.key, label: t.label, title: t.note,
         count: talks.length, countClass: `btx-grp-${t.key}`,
-        rows: talks.map((talk, i) => rowDesc(talk, t, uid, i, talk.verses)),
+        rows: talks.map((talk, i) => rowDesc(talk, t, uid, i, { badged: talk.verses, listed: talk.verses })),
       }));
     }
     return groups;
@@ -824,7 +824,7 @@
   }
 
   const VM = {
-    formatVerses, verseLabel, anchorVerses, vintageLine, vintageTitle, cleanSnippet, quoteSnippet, excerptText, verseUid,
+    verseRuns, formatVerses, verseLabel, anchorVerses, vintageLine, vintageTitle, cleanSnippet, quoteSnippet, excerptText, verseUid,
     buildView, talkHeading, verseQuery,
     FILTER_COPY, initialState, filterPlan, applyPlan, collapseAllPlan, collapseLabel, allRows,
   };
