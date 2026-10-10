@@ -325,8 +325,8 @@ becomes a row of the **language row**'s dropdown (`churchText.languageMenu`,
 "Español — Spanish"), minus the page's own language and any language that
 hasn't published the chapter's collection. Bible versions have the other
 dropdown, the version row's (`churchText.bibleMenu`, Bible chapters only); a
-language named on its own is `churchText.nameFor`'s native name ("Español"). A chapter a language lacks is "not available", not an error to
-retry. In the reader, *translation* code (the `translation` view,
+language named on its own is `churchText.nameFor`'s native name ("Español").
+A chapter a language lacks is "not available", not an error to retry. In the reader, *translation* code (the `translation` view,
 `findTranslation`, `populateTranslations`, `C.SELECTION_KEY`, the pick memory — a
 most-recently-used list of row ids, newest first; a language ticked in settings or added on the setup card goes first) handles both kinds of row —
 tell them apart by `provider` (`'church'`). In settings,
