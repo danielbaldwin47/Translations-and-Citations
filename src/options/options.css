@@ -202,6 +202,8 @@ input:focus-visible, select:focus-visible { outline-offset: 1px; }
 .status.ok { color: var(--ok); }
 .status.error { color: var(--error); }
 .status.warn { color: var(--warn); }
+/* A calm notice (api.bible's paused month): body colour, nothing to fix. */
+.status.note { color: var(--fg); }
 .status.busy { color: var(--muted); }
 .status.busy::before {
   content: '';
@@ -230,6 +232,9 @@ input:focus-visible, select:focus-visible { outline-offset: 1px; }
   text-underline-offset: 2px;
 }
 .text-button:hover { text-decoration: underline; }
+/* Resting in a paused month: aria-disabled, so it keeps focus and its
+   description (the paused line) while it reads as off. */
+.text-button[aria-disabled='true'] { color: var(--muted); cursor: default; text-decoration: none; }
 
 /* ---- Check and radio rows ---- */
 /* The whole row is the target; its hover wash bleeds 8px past the text so the
@@ -254,6 +259,16 @@ input:focus-visible, select:focus-visible { outline-offset: 1px; }
 .rows { display: flex; flex-direction: column; }
 .checklist .hint { margin: 0 0 8px; }
 .hint.warn { color: var(--warn); }
+/* The api.bible setup: the numbered steps are what a new reader follows, so
+   they take the body colour; the lines around them stay hint-grey. */
+.setup p { margin: 0; }
+.setup ol { margin: 8px 0; padding-left: 22px; color: var(--fg); font-size: 14px; }
+.setup li + li { margin-top: 4px; }
+/* "How to set up api.bible": open on a fresh card, folded once a key is
+   stored. */
+.setup-steps { margin-top: 6px; }
+.setup-steps > summary { color: var(--accent); }
+.setup-steps > ol { margin-top: 4px; }
 
 /* Disclosure groups: "more free translations", the language groups. */
 details > summary {
@@ -308,6 +323,24 @@ details > summary:hover { background: var(--accent-soft); }
 .radio-group { margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--border); }
 .radio-group legend { float: left; width: 100%; }
 .radio-group legend + * { clear: both; }
+
+/* ---- About: text and links only ---- */
+.about-meta { margin: 0; color: var(--muted); font-size: 14px; }
+.about-sources { margin: 12px 0 0; padding-left: 18px; font-size: 13.5px; }
+.about-sources li + li { margin-top: 6px; }
+/* The one control: it replays the welcome, it isn't a setting. */
+.about-welcome { margin: 14px 0 0; }
+.about-links { display: flex; flex-wrap: wrap; gap: 4px 20px; margin: 14px 0 0; font-weight: 600; }
+/* "Your data": three short lists, each under a small heading; a site's
+   hostnames sit on their own muted line under what the site is for. */
+.about-data { margin: 18px 0 0; padding-top: 14px; border-top: 1px solid var(--border); }
+.about-data h3 { font-size: 15px; line-height: 1.3; margin: 0; }
+.about-data-head { font-size: 13.5px; font-weight: 600; margin: 12px 0 0; }
+.about-data-list { margin: 4px 0 0; padding-left: 18px; font-size: 13.5px; }
+.about-data-list li + li { margin-top: 4px; }
+.about-host { display: block; color: var(--muted); font-size: 12.5px; overflow-wrap: anywhere; }
+.about-policy { margin: 12px 0 0; font-size: 13.5px; }
+.about-policy a { overflow-wrap: anywhere; }
 
 @media (max-width: 480px) {
   .wrap { padding: 20px 16px 72px; }

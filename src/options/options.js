@@ -1,9 +1,16 @@
 /*
- * Options page: an autosaving editor of the stored settings, in three cards
- * whose ids are C.OPTIONS_SECTIONS — `bible` (api.bible key and which
- * translations the panel offers), `languages` (Church languages and where
- * they show), `reading` (text size, panel width, scroll sync, pages in other
- * languages).
+ * Options page: an autosaving editor of the stored settings, in cards whose
+ * ids are C.OPTIONS_SECTIONS, in page order — `languages` (Church languages
+ * and where they show: the setup that needs no key comes first, with the
+ * reader's own languages on top as "Your languages"), `bible` (api.bible key
+ * and which translations the panel offers), `reading` (text size, panel width,
+ * scroll sync),
+ * and `about` (version, pack vintage, source lines, "Your data" — what stays
+ * on this computer, what syncs, which sites, the privacy policy's address —
+ * and the support link: text, plus one button, "Show the welcome again",
+ * which writes the welcome-seen flag false and asks the worker to open
+ * Alma 5, all or nothing: a failure of either half is said on its own line,
+ * welcomeAgainError, and never joins Try again; aboutCopy).
  *
  * The form is an editor of the stored settings, not a second copy of them.
  * Every change is written as it happens, through __BTX.settings.patch (never
@@ -13,13 +20,35 @@
  * screen and not yet written (a slider mid-drag, a write waiting out its
  * debounce, a key being typed). A write that doesn't land puts its controls
  * back to what storage holds; "Try again" re-sends every failed write
- * (failedWrites), and any write that lands retires the error.
+ * (failedWrites) but the About button's, and any write that lands retires
+ * the error.
+ *
+ * A Church language ticked here also leads the pick memory (the panel's
+ * most-recently-used list, chrome.storage.local under C.SELECTION_KEY, not a
+ * setting): church text's rememberTicked computes it, rememberTicks writes it
+ * ahead of the setting, and open reader tabs adopt it through storage.onChanged.
  *
  * The api.bible key is the one exception to write-as-you-go: it is connected
  * (the worker lists its versions) on paste, on change or on Connect, and
  * saved together with the translation list only when that succeeds. Connect
  * rests while the field holds the connected key — a list costs ~39 calls of
  * a monthly quota — and "Check for new translations" refetches it on demand.
+ * Every explicit try (Connect, Enter, that button) visibly re-runs: it holds
+ * "Checking…" for checkingWait, then its answer goes through statusChange,
+ * which re-announces a repeat in the status's live region. A rejected key's
+ * line links api.bible's dashboard and sign-up (keyErrorText, linked text).
+ *
+ * A paused api.bible month (the `rate` every LIST_BIBLES reply carries,
+ * pausedUntil) never reads as a key problem. The stored key stays connected
+ * with its list: "Connected." keeps its look, the paused line sits under it
+ * in its own live region (#keyPause, pausedNote), and "Check for new
+ * translations" rests aria-disabled until the day (keyControls
+ * recheckUsable). Another key refused that month isn't saved, and its line
+ * says when to try Connect again, in the calm 'note' look (keyErrorKind).
+ *
+ * The setup steps ("How to set up api.bible") are open on a fresh card and
+ * folded when the page opens with a key stored (setupOpen); the add-later
+ * line names "Check for new translations" only while that button is usable.
  *
  * On open, the page stays hidden until the first fill, which draws the stored
  * rows plus the worker's cached list (chrome.storage.local, any age); the
@@ -45,6 +74,12 @@
 
   const C = (root.__BTX && root.__BTX.const)
     || (typeof require === 'function' ? require('../shared/constants.js') : null);
+  // The citation view-model, for the pack vintage's wording (vintageLine).
+  const VM = (root.__BTX && root.__BTX.citVM)
+    || (typeof require === 'function' ? require('../citations/cit-view-model.js') : null);
+  // The monthly-limit line, in the panel's words (pausedLine).
+  const RATE_COPY = (root.__BTX && root.__BTX.rateCopy)
+    || (typeof require === 'function' ? require('../shared/rate-copy.js') : null);
 
   // ---- Pure form core (Node-testable) ------------------------------------
 
@@ -124,9 +159,11 @@
 
   // A list from the worker's cache can predate a version the reader turned on
   // elsewhere; the stored rows ride along so the form still shows them on.
+  // The bundled World English Bible is not one of the key's versions (the
+  // settings module keeps its row on), so it never joins the checklist.
   function withStored(list, stored) {
     const ids = new Set((list || []).map((t) => t.id));
-    return (list || []).concat((stored || []).filter((t) => t && t.id && !ids.has(t.id)));
+    return (list || []).concat((stored || []).filter((t) => t && t.id && !ids.has(t.id) && t.provider !== C.PROVIDER_BUNDLED));
   }
 
   // Which versions start checked when a key connects. The stored selection
@@ -194,19 +231,63 @@
     return { partial: Object.assign({}, p.partial, partial), keys: union };
   }
 
+  // The key in the field, as if pasted cleanly: spaces, line breaks and the
+  // invisible characters a web page copies along are dropped from both ends.
+  const KEY_EDGE = /^[\s\u200b-\u200d\u2060\ufeff]+|[\s\u200b-\u200d\u2060\ufeff]+$/g;
+  function keyFromField(value) {
+    return String(value == null ? '' : value).replace(KEY_EDGE, '');
+  }
+
   // The key row's two buttons. Connect tries the key in the field; it rests
   // while the field holds the key already connected (a refresh costs ~39
   // api.bible calls) unless that key's list came back `partial`, which the
   // page asks the reader to retry. "Check for new translations" is the
   // deliberate refresh of a connected key, and stays put while that key's
   // listed versions (`listed`) are rechecked, so the focus on it isn't lost.
-  function keyControls({ field, storedKey, keyState, partial, listed }) {
+  // In a `paused` month it stays in view but rests (`recheckUsable` false:
+  // aria-disabled, so it keeps focus and its reason, the paused line); a
+  // refresh would only be refused again.
+  function keyControls({ field, storedKey, keyState, partial, listed, paused }) {
     const storedField = !!field && field === storedKey;
     const connected = storedField && keyState === 'connected';
+    const recheck = connected || (storedField && keyState === 'checking' && !!listed);
     return {
       connect: !!field && keyState !== 'checking' && !(connected && !partial),
-      recheck: connected || (storedField && keyState === 'checking' && !!listed),
+      recheck,
+      recheckUsable: recheck && !paused,
     };
+  }
+
+  // The setup steps ("How to set up api.bible") are open on a fresh card and
+  // folded once a key is stored, so the connected state leads. Decided when
+  // the page opens only: folding them under a reader who just connected would
+  // move the key row.
+  function setupOpen(storedKey) {
+    return !storedKey;
+  }
+
+  // Every explicit Connect visibly re-runs, the same key included: it shows
+  // "Checking…" for at least CHECKING_MIN_MS, so an answer api.bible gives in
+  // a few milliseconds (a wrong key's 403) can't make the click look ignored,
+  // and the line changes ("Checking…", then the answer) for a screen reader
+  // to announce. This is how long the answer still waits. An automatic try
+  // (paste, change) shows its answer at once.
+  const CHECKING_MIN_MS = 600;
+  function checkingWait({ explicit, since, now }) {
+    return explicit ? Math.max(0, CHECKING_MIN_MS - (now - since)) : 0;
+  }
+
+  // What writing `text` to a status line does, given the line `shown`. A live
+  // region is announced only when its text changes, so a line asked to be
+  // announced (`announce`) that matches what is shown is cleared, and set
+  // again once the clear has been rendered (REANNOUNCE_MS: past a frame, so
+  // Chrome's accessibility tree sees the empty line; one animation frame is
+  // not enough). An unasked repeat writes nothing, so it is never announced
+  // twice. 'set' | 'reannounce' | 'keep'.
+  const REANNOUNCE_MS = 150;
+  function statusChange({ shown, text, announce }) {
+    if (text !== shown) return 'set';
+    return announce && text ? 'reannounce' : 'keep';
   }
 
   // What an incoming settings change is allowed to repaint. `changed` is the
@@ -236,8 +317,10 @@
     return t.abbr && t.abbr !== t.name ? `${t.abbr} — ${t.name}` : (t.name || t.abbr || t.id);
   }
 
+  // The free versions' summary says what they are: on a key with none added
+  // there is nothing above it to be "more" than.
   function moreLabel(n) {
-    return `${plural(n, 'more free translation', 'more free translations')}`;
+    return n === 1 ? '1 free translation that comes with every key' : `${n} free translations that come with every key`;
   }
 
   // The key's status line once connected, from the versions turned on: their
@@ -251,36 +334,95 @@
     return `${count}: ${list.map((t) => t.abbr || t.name).join(', ')}`;
   }
 
-  // The note under "Your translations": a list the worker couldn't fully
-  // check is a guess, and says so; an empty group says how to fill it.
-  function yoursNote({ partial, yours }) {
-    if (partial) return 'Couldn’t check which translations are yours. Try Connect again later.';
+  // The note under "Your translations", as linked text (strings, and
+  // { text, href } for a link; [] is no note): a list the worker couldn't
+  // fully check is a guess, and says so; an empty group links the api.bible
+  // dashboard that fills it, and says what the free plan allows. In a paused
+  // month (`pausedUntil`, 'YYYY-MM-DD') "Check for new translations" rests,
+  // so the note sends the reader to it from that day.
+  function yoursNote({ partial, yours, pausedUntil }) {
+    if (partial) return ['Couldn’t check which translations are yours. Try Connect again later.'];
     if (!yours) {
-      return 'This key has no NIV, NKJV or other copyrighted translations yet. Add them at scripture.api.bible, '
-        + 'then choose Check for new translations — or turn on a free one below.';
+      const day = pausedUntil ? RATE_COPY.monthDay(pausedUntil) : '';
+      const then = day ? `Then, from ${day}, choose Check for new translations.` : 'Then choose Check for new translations.';
+      return [
+        'No translations are added to this key yet. On the free plan you can add up to 3, such as NIV and NKJV, in your ',
+        { text: 'api.bible dashboard', href: C.API_BIBLE_PAGES.dashboard },
+        ` (${C.API_BIBLE_ADD_BIBLES}). ${then} Or turn on one of the free translations below.`,
+      ];
     }
-    return '';
+    return [];
   }
 
-  // A failed connect, in words that say what to do. api.bible answers a
-  // wrong key with 403, which the worker reports as INVALID_KEY.
-  function keyErrorText(error) {
+  // The day a reply's month comes back, 'YYYY-MM-DD', when the month's state
+  // the worker attached to it (`rate`) is paused, else ''. A reply of any
+  // kind: a cached list on open says so as well as a refused Connect.
+  function pausedUntil(res) {
+    const rate = res && res.rate;
+    return rate && rate.state === 'paused' ? String(rate.until || '') : '';
+  }
+
+  // The connected key's second line in a paused month, under "Connected."
+  // (which keeps its look: nothing is wrong with the key): the panel's
+  // paused sentence, then why "Check for new translations" rests. [] when
+  // the month isn't paused.
+  function pausedNote(rate) {
+    if (!rate || rate.state !== 'paused') return [];
+    return [`${RATE_COPY.pausedLine(rate.until)} Your key is still connected, and the World English Bible still works.`
+      + ' You can use Check for new translations again on that day.'];
+  }
+
+  // A failed connect, as linked text, in words that say what to do. api.bible
+  // answers a wrong key with 403, which the worker reports as INVALID_KEY; a
+  // rejected key names both fixes — a miscopy, or no account yet — and links
+  // each to its api.bible page ("dashboard": the card's one name for that
+  // page). `rate` is the month's state the worker attaches to the reply: a
+  // 429 in a paused month is the monthly limit, said in the panel's words
+  // with the day it comes back (rate-copy pausedLine), then when to try this
+  // key again. Such a key isn't saved: api.bible listed nothing, so it is
+  // unchecked, and saving it would replace the connected key's translations
+  // with none. (The connected key's own refusal is pausedNote instead.)
+  const keyRejected = (error) => !!error && (error.code === C.ERR.INVALID_KEY || error.code === C.ERR.FORBIDDEN);
+  const isPausedRefusal = (error, rate) => !!error && error.code === C.ERR.RATE_LIMITED && !!rate && rate.state === 'paused';
+  function keyErrorText(error, rate) {
     const code = error && error.code;
-    if (code === C.ERR.INVALID_KEY || code === C.ERR.FORBIDDEN) {
-      return 'api.bible didn’t accept that key. Check that you copied all of it.';
+    if (keyRejected(error)) {
+      return [
+        'api.bible didn’t accept that key. Copy it again from ',
+        { text: 'your api.bible dashboard', href: C.API_BIBLE_PAGES.dashboard },
+        ', or ',
+        { text: 'create a free account', href: C.API_BIBLE_PAGES.signUp },
+        ' first.',
+      ];
     }
-    if (code === C.ERR.NETWORK) return 'Couldn’t reach api.bible. Check your connection and try again.';
-    if (code === C.ERR.RATE_LIMITED) return 'api.bible is busy. Try again in a minute.';
+    if (code === C.ERR.NETWORK) return ['Couldn’t reach api.bible. Check your connection and try again.'];
+    if (isPausedRefusal(error, rate)) {
+      const day = RATE_COPY.monthDay(rate.until);
+      return [`${RATE_COPY.pausedLine(rate.until)} Try Connect again ${day ? `on ${day}` : 'next month'}. The World English Bible still works.`];
+    }
+    if (code === C.ERR.RATE_LIMITED) return ['api.bible is busy. Try again in a minute.'];
     const detail = (error && error.message && error.message !== code ? error.message : code) || 'no answer';
-    return `Couldn’t check the key (${detail}). Try again.`;
+    return [`Couldn’t check the key (${detail}). Try again.`];
+  }
+
+  // The status line's look for keyErrorText: a paused month is a calm notice
+  // ('note': the body colour, like the panel's paused card), never the red
+  // of a key problem; everything else is 'error'.
+  function keyErrorKind(error, rate) {
+    return isPausedRefusal(error, rate) ? 'note' : 'error';
+  }
+
+  // Linked text as the words it reads (and a live region announces).
+  function plainText(parts) {
+    return (parts || []).map((part) => (typeof part === 'string' ? part : part.text)).join('');
   }
 
   // ---- Church languages ----
 
   // The checklist's languages: the table minus English, which is the page's
-  // own language (the reader runs on English pages unless told otherwise).
+  // own language.
   function offeredLanguages(table) {
-    return (table || []).filter((l) => l.code !== 'eng');
+    return (table || []).filter((l) => l.code !== C.ENGLISH_LANG);
   }
 
   // Grouped by what each language publishes, so a reader can see before
@@ -312,6 +454,49 @@
     }
     return groups;
   }
+  // The list the reader sees: "Your languages" first (exactly the enabled
+  // languages, in table order; absent when none is enabled), then the coverage
+  // groups without them. Unticking a language therefore sends it back to its
+  // own group. There is no "common" or "popular" group on purpose: no language
+  // is set above another. Each row carries its match against the search, which
+  // runs over both parts; `shown` is how many rows of a section it leaves.
+  const YOURS_LABEL = 'Your languages';
+  function languageList(langs, enabled, q) {
+    const on = new Set(enabled || []);
+    const table = langs || [];
+    const mine = table.filter((l) => on.has(l.code));
+    const sections = [];
+    if (mine.length) sections.push({ yours: true, label: YOURS_LABEL, langs: mine });
+    for (const g of languageGroups(table.filter((l) => !on.has(l.code)))) {
+      sections.push({ yours: false, label: g.label, langs: g.langs });
+    }
+    for (const section of sections) {
+      section.rows = section.langs.map((lang) => ({ lang, hit: matchesLanguage(lang, q) }));
+      section.shown = section.rows.filter((r) => r.hit).length;
+    }
+    return sections;
+  }
+  // What a tick (or untick) in the checklist does to the search and the focus.
+  // A change to the enabled set clears the search, so the reader sees where the
+  // row went, and names the language (`focus`), its new place in the list
+  // (`place`, as a section's `yours` and `label`) and the coverage group to
+  // open when it went back to one (`openGroup`: a closed group would take the
+  // focus off the checkbox; "Your languages" is always open). A change that
+  // leaves the set as it was, or touches only codes the table lacks, keeps the
+  // search and moves nothing.
+  function languageTick(langs, before, after, q) {
+    const was = new Set(before || []);
+    const now = new Set(after || []);
+    const moved = (langs || []).find((l) => was.has(l.code) !== now.has(l.code));
+    if (!moved) return { search: q, focus: null, place: null, openGroup: null };
+    const section = languageList(langs, after, '').find((s) => s.langs.indexOf(moved) >= 0);
+    return {
+      search: '',
+      focus: moved.code,
+      place: { yours: section.yours, label: section.label },
+      openGroup: section.yours ? null : section.label,
+    };
+  }
   // A group's summary reads "{label} · {count}"; this is the count. `shown`
   // is how many of the group's languages a search leaves in view.
   function groupCount(group, shown) {
@@ -330,12 +515,58 @@
     return [lang.name, lang.english, lang.code].some((f) => fold(f).indexOf(needle) >= 0);
   }
 
+  // ---- About ----
+
+  // The About card, all text: the manifest version, the pack vintage as the
+  // Citations footer words it (null when no pack or no readable vintage), the
+  // source lines, "Your data" and the support link. It has no control, so
+  // nothing here reaches the autosave.
+  //
+  // "Your data" is C.ABOUT.yourData's three lists, every line as
+  // { text, hosts } (a plain line has no hosts), then the privacy policy,
+  // whose link text is its address without the scheme.
+  function aboutCopy({ version, pack }) {
+    const D = C.ABOUT.yourData;
+    const list = (l) => ({
+      head: l.head,
+      items: l.items.map((i) => (typeof i === 'string' ? { text: i, hosts: [] } : { text: i.text, hosts: i.hosts.slice() })),
+    });
+    return {
+      version: `Version ${version}`,
+      vintage: VM.vintageLine(pack),
+      sources: [C.ABOUT.citationSource, C.ABOUT.jodSource, C.BUNDLED_BIBLE.copyright],
+      yourData: {
+        title: 'Your data',
+        lists: [D.local, D.synced, D.sites].map(list),
+        policy: { label: 'Privacy policy:', text: C.ABOUT.privacyUrl.replace(/^https:\/\//, ''), href: C.ABOUT.privacyUrl },
+      },
+      links: [{ label: 'Support', href: C.ABOUT.supportUrl }],
+    };
+  }
+
+  // The About card's one control. Its write is the synced welcome-seen flag
+  // false (GLOSSARY: Welcome); the panel's ordinary due rule then shows the
+  // welcome on the Alma 5 tab the worker opens. Not part of aboutCopy: that
+  // stays text.
+  const WELCOME_AGAIN = { label: 'Show the welcome again', patch: { welcomeSeen: false } };
+
+  // The button's own line, after a press: the flag didn't save (no tab was
+  // asked for), or it saved and the worker didn't open the tab (its reply
+  // isn't { ok: true }). Null when both halves worked. Pressing the button
+  // again is the retry, both halves in order.
+  function welcomeAgainError(o) {
+    const c = o || {};
+    if (!c.saved) return 'Couldn’t show the welcome. Try again.';
+    return c.reply && c.reply.ok === true ? null : 'Couldn’t open the welcome tab. Try again.';
+  }
+
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = {
-      isAdded, dedupeVersions, versionGroups, stableGroups, mergeVersions, listGuesses, withStored, initialChecks, pickDefaultId,
-      translationPatch, commitPatch, patchLanded, failedWrites, fillPlan, keyControls,
-      versionLabel, moreLabel, connectedText, yoursNote, keyErrorText,
-      offeredLanguages, languageGroups, groupCount, matchesLanguage,
+      WELCOME_AGAIN, welcomeAgainError, aboutCopy, isAdded, dedupeVersions, versionGroups, stableGroups, mergeVersions, listGuesses, withStored, initialChecks, pickDefaultId,
+      translationPatch, commitPatch, patchLanded, failedWrites, fillPlan, keyFromField, keyControls, setupOpen,
+      CHECKING_MIN_MS, checkingWait, REANNOUNCE_MS, statusChange,
+      versionLabel, moreLabel, connectedText, yoursNote, keyErrorText, keyErrorKind, pausedUntil, pausedNote, plainText,
+      offeredLanguages, languageGroups, languageList, languageTick, groupCount, matchesLanguage,
     };
   }
   if (typeof document === 'undefined') return; // Node: the pure core only.
@@ -343,6 +574,7 @@
   // ---- DOM shell ---------------------------------------------------------
 
   const SETTINGS = root.__BTX.settings;
+  const CHURCH = root.__BTX.churchText; // rememberTicked: the pick memory's one rule
   const CACHE = root.__BTX.cache; // the worker's version-list cache, read for the first paint
   const COMMIT_DELAY_MS = 250; // coalesces a burst of clicks or arrow-key steps into one write
   const CONNECT_DELAY_MS = 400; // after a paste or change, before the key is tried
@@ -355,7 +587,10 @@
     toggleKey: $('toggleKey'),
     connectKey: $('connectKey'),
     keyStatus: $('keyStatus'),
+    keyPause: $('keyPause'),
     recheckKey: $('recheckKey'),
+    setupSteps: $('setupSteps'),
+    addLaterCheck: $('addLaterCheck'),
     versions: $('versions'),
     yoursNote: $('yoursNote'),
     yoursRows: $('yoursRows'),
@@ -374,7 +609,15 @@
     sidebarWidth: $('sidebarWidth'),
     sidebarWidthOut: $('sidebarWidthOut'),
     scrollSync: $('scrollSync'),
-    showOnOtherLanguages: $('showOnOtherLanguages'),
+    aboutVersion: $('aboutVersion'),
+    aboutVintage: $('aboutVintage'),
+    aboutSources: $('aboutSources'),
+    aboutData: $('aboutData'),
+    aboutDataHead: $('aboutDataHead'),
+    aboutLinks: $('aboutLinks'),
+    addBiblesPath: $('addBiblesPath'),
+    welcomeAgain: $('welcomeAgain'),
+    welcomeAgainStatus: $('welcomeAgainStatus'),
   };
 
   let settings = SETTINGS.defaults();
@@ -383,14 +626,19 @@
   let listPartial = false; // did the grouping on screen have to guess (a `partial` list)?
   let shown = null; // { yours: [ids], more: [ids] } as last drawn; null = draw from scratch
   let keyState = 'none'; // 'none' | 'checking' | 'connected' | 'error'
+  let paused = null; // the month's rate state from the newest reply, while api.bible's month is paused; else null
   let connectSeq = 0; // the newest list request owns the status line
   let lastTried = ''; // the key a paste/change last tried, so a blur doesn't retry it
   let connectTimer = 0;
+  let statusShown = ''; // the key's status line as written (statusChange compares against it)
+  let statusTimer = 0; // a re-announce waiting out its clear
   let listRefresh = Promise.resolve(); // the newest refreshList, settled once its result is on screen
 
   // Keys changed on screen and not yet written. They outrank a change
   // arriving from elsewhere, so those controls are left alone.
   const dirty = new Set();
+
+  const sleep = (ms) => (ms > 0 ? new Promise((resolve) => setTimeout(resolve, ms)) : Promise.resolve());
 
   function send(message) {
     return new Promise((resolve) => {
@@ -408,11 +656,27 @@
     return n;
   }
 
+  // Fills `node` with linked text from the pure core: a string is a text
+  // node, a { text, href } part a link that opens in a new tab. The page's
+  // one link builder.
+  function linkedText(node, parts) {
+    node.replaceChildren(...parts.map((part) => {
+      if (typeof part === 'string') return document.createTextNode(part);
+      const a = el('a', null, part.text);
+      a.href = part.href;
+      a.target = '_blank';
+      a.rel = 'noopener';
+      return a;
+    }));
+    return node;
+  }
+
   // ---- Autosave ----
 
   const queued = new Set();
   let flushTimer = 0;
   let failed = null; // failedWrites(): what "Try again" sends
+  let picks = []; // the pick memory (chrome.storage.local, C.SELECTION_KEY), as last read or written here
   let savedTimer = 0;
 
   function queueCommit(keys) {
@@ -428,14 +692,40 @@
     queued.clear();
     const values = {};
     for (const f of FIELDS) if (keys.indexOf(f.key) >= 0) values[f.key] = f.read();
+    if (keys.indexOf('churchLanguages') >= 0) rememberTicks(settings.churchLanguages, values.churchLanguages);
     return write(commitPatch({ keys, values, list: listState() }), keys);
+  }
+
+  // A language ticked becomes the one shown: it leads the pick memory, which
+  // the reader's tabs adopt. Written before the setting, so a tab has the new
+  // order by the time the setting re-renders it; with no tab open, the next
+  // chapter opened reads it. The rule is church text's (the panel's setup card
+  // writes the same list through it).
+  function rememberTicks(before, after) {
+    const next = CHURCH.rememberTicked(picks, before, after);
+    if (JSON.stringify(next) === JSON.stringify(picks)) return;
+    picks = next;
+    try { chrome.storage.local.set({ [C.SELECTION_KEY]: picks }); } catch (e) { /* the tick still saves */ }
+  }
+
+  function readPicks() {
+    return new Promise((resolve) => {
+      try {
+        chrome.storage.local.get(C.SELECTION_KEY, (d) => {
+          picks = CHURCH.mruFrom(d && d[C.SELECTION_KEY]);
+          resolve();
+        });
+      } catch (e) { resolve(); }
+    });
   }
 
   // The one path to storage. `quiet` skips the "Saved" flash. A write that
   // doesn't land puts its controls back to what storage holds and joins
   // `failed`; any write that lands (or a change adopted from elsewhere)
-  // retires the error.
-  async function write(partial, keys, quiet) {
+  // retires the error. An `alone` write (an action that says its own failure,
+  // "Show the welcome again") never joins `failed`: Try again would re-send
+  // half of it.
+  async function write(partial, keys, quiet, alone) {
     let ok = true;
     if (Object.keys(partial).length) {
       let result;
@@ -447,7 +737,7 @@
     if (ok) {
       if (failed) { failed = null; hideSaveError(); }
       if (!quiet && Object.keys(partial).length) showSaved();
-    } else {
+    } else if (!alone) {
       failed = failedWrites(failed, partial, keys);
       showSaveError();
       adopt(keys);
@@ -552,16 +842,22 @@
     for (const t of yours) els.yoursRows.appendChild(versionRow(t, on.has(t.id)));
     for (const t of more) els.moreRows.appendChild(versionRow(t, on.has(t.id)));
     els.versions.hidden = !available.length;
-    const note = yoursNote({ partial: listPartial, yours: yours.length });
-    els.yoursNote.textContent = note;
-    els.yoursNote.hidden = !note;
-    els.yoursNote.classList.toggle('warn', listPartial);
+    showYoursNote();
     els.moreVersions.hidden = !more.length;
     els.moreSummary.textContent = moreLabel(more.length);
     refreshDefaultOptions(wanted);
     // A keyboard reader on a row keeps their place when the rows are rebuilt.
     const again = focused && versionInputs().find((c) => c.value === focused.value);
     if (again) again.focus({ preventScroll: true });
+  }
+
+  // The note under "Your translations", for the rows as last drawn; redrawn
+  // on its own when only the month's state moved.
+  function showYoursNote() {
+    const note = yoursNote({ partial: listPartial, yours: shown ? shown.yours.length : 0, pausedUntil: paused ? paused.until : '' });
+    linkedText(els.yoursNote, note);
+    els.yoursNote.hidden = !note.length;
+    els.yoursNote.classList.toggle('warn', listPartial);
   }
 
   // `wanted` is the id to preselect — passed in, never read back off the
@@ -586,24 +882,63 @@
     queueCommit(LIST_KEYS);
   }
 
-  function setKeyStatus(text, kind) {
-    els.keyStatus.textContent = text;
-    els.keyStatus.className = 'status' + (kind ? ' ' + kind : '');
+  // The key's status line, its one writer. `content` is a string or linked
+  // text (keyErrorText), rendered through linkedText; statusChange decides
+  // whether the live region is written at all, and re-announces a repeat
+  // asked to be announced (`announce`: the answer to an explicit Connect).
+  function setKeyStatus(content, kind, opts) {
+    const o = opts || {};
+    const parts = typeof content === 'string' ? (content ? [content] : []) : content;
+    const node = els.keyStatus;
+    node.className = 'status' + (kind ? ' ' + kind : '');
+    clearTimeout(statusTimer); // a write supersedes a re-announce still waiting
+    node.style.minHeight = '';
+    node.style.marginTop = '';
+    const change = statusChange({ shown: statusShown, text: plainText(parts), announce: !!o.announce });
+    if (change === 'keep') return;
+    if (change === 'set') { writeKeyStatus(parts); return; }
+    // Cleared for a rendered frame, then set again; the line keeps its room
+    // meanwhile, so nothing below it moves.
+    node.style.minHeight = `${node.offsetHeight}px`;
+    node.style.marginTop = getComputedStyle(node).marginTop;
+    writeKeyStatus([]);
+    statusTimer = setTimeout(() => {
+      writeKeyStatus(parts);
+      node.style.minHeight = '';
+      node.style.marginTop = '';
+    }, REANNOUNCE_MS);
   }
 
-  function showKeyState() {
-    if (keyState === 'connected') setKeyStatus(connectedText(checkedTranslations()), 'ok');
+  function writeKeyStatus(parts) {
+    linkedText(els.keyStatus, parts);
+    statusShown = plainText(parts);
+  }
+
+  function showKeyState(opts) {
+    if (keyState === 'connected') setKeyStatus(connectedText(checkedTranslations()), 'ok', opts);
     else if (keyState === 'checking') setKeyStatus('Checking…', 'busy');
     else if (keyState === 'none') setKeyStatus('', '');
+    showKeyPause();
     updateConnect();
+  }
+
+  // The connected key's paused line (pausedNote), under "Connected.": its own
+  // live region, written only when its words change, so it is heard once.
+  function showKeyPause() {
+    const parts = keyState === 'connected' ? pausedNote(paused) : [];
+    if (plainText(parts) === els.keyPause.textContent) return;
+    linkedText(els.keyPause, parts);
   }
 
   function updateConnect() {
     const c = keyControls({
-      field: els.apiKey.value.trim(), storedKey: settings.apiKey, keyState, partial: listPartial, listed: versionsLoaded,
+      field: keyFromField(els.apiKey.value), storedKey: settings.apiKey, keyState, partial: listPartial, listed: versionsLoaded, paused: !!paused,
     });
     els.connectKey.disabled = !c.connect;
     els.recheckKey.hidden = !c.recheck;
+    if (c.recheckUsable) els.recheckKey.removeAttribute('aria-disabled');
+    else els.recheckKey.setAttribute('aria-disabled', 'true');
+    els.addLaterCheck.hidden = !(c.recheck && c.recheckUsable);
   }
 
   // The worker's cached version list for the stored key, however old — the
@@ -634,9 +969,19 @@
     if (!available.length) { keyState = 'checking'; showKeyState(); }
     const res = await send({ type: C.MSG.LIST_BIBLES });
     if (seq !== connectSeq) return;
+    paused = pausedUntil(res) ? res.rate : null;
+    if (res.error && paused && available.length) {
+      // The stored key in a paused month: still connected, with its list;
+      // the paused line says why nothing refreshes.
+      keyState = 'connected';
+      showYoursNote();
+      showKeyState();
+      return;
+    }
     if (res.error) {
       keyState = 'error';
-      setKeyStatus(keyErrorText(res.error), 'error');
+      setKeyStatus(keyErrorText(res.error, res.rate), keyErrorKind(res.error, res.rate));
+      showKeyPause();
       updateConnect();
       return;
     }
@@ -654,34 +999,51 @@
   }
 
   // Try the key in the field; on success save it with the list it unlocks.
-  // `explicit` (Connect, Enter) fetches afresh — the reader may have just added
-  // a version at api.bible — where an automatic try takes the cache.
+  // `explicit` (Connect, Enter, "Check for new translations") fetches afresh —
+  // the reader may have just added a version at api.bible — where an automatic
+  // try takes the cache. An explicit try visibly re-runs: "Checking…" holds
+  // for checkingWait, then the answer is announced (`announce`).
   async function connect(explicit) {
     clearTimeout(connectTimer);
-    const key = els.apiKey.value.trim();
+    const key = keyFromField(els.apiKey.value);
     if (!key) return;
     const from = document.activeElement;
     lastTried = key;
     const seq = ++connectSeq;
     keyState = 'checking';
     showKeyState();
+    const since = Date.now();
     const res = await send({ type: C.MSG.LIST_BIBLES, key, refresh: !!explicit });
     if (seq !== connectSeq) return;
+    await sleep(checkingWait({ explicit, since, now: Date.now() }));
+    if (seq !== connectSeq) return;
     const stored = key === settings.apiKey;
+    const announce = !!explicit;
+    paused = pausedUntil(res) ? res.rate : null;
 
+    if (res.error && stored && paused && available.length) {
+      // The connected key's refresh, refused in a paused month: it stays
+      // connected with its list ("Connected." keeps its look), the paused
+      // line under it, and "Check for new translations" rests until the day.
+      keyState = 'connected';
+      showYoursNote();
+      showKeyState({ announce });
+      settleKeyFocus(from);
+      return;
+    }
     if (res.error) {
       keyState = 'error';
       // A rejected key, or a key that isn't the stored one: the list on screen
       // no longer belongs to anything. A stored key that merely couldn't be
       // reached keeps its list.
-      const rejected = res.error.code === C.ERR.INVALID_KEY || res.error.code === C.ERR.FORBIDDEN;
-      if (rejected || !stored) {
+      if (keyRejected(res.error) || !stored) {
         available = [];
         versionsLoaded = false;
         shown = null;
         renderTranslations([], '');
       }
-      setKeyStatus(keyErrorText(res.error), 'error');
+      setKeyStatus(keyErrorText(res.error, res.rate), keyErrorKind(res.error, res.rate), { announce });
+      showKeyPause();
       updateConnect();
       settleKeyFocus(from);
       return;
@@ -696,7 +1058,7 @@
     shown = null; // a new list, or one the reader asked for: grouped afresh
     keyState = 'connected';
     renderTranslations(initialChecks(available, settings.enabledTranslations, !stored, listPartial), settings.defaultTranslationId);
-    showKeyState();
+    showKeyState({ announce });
     const partial = Object.assign({ apiKey: key }, translationPatch(listState()));
     if (SETTINGS.diff(settings, Object.assign({}, settings, partial)).length) await write(partial, ['apiKey'].concat(LIST_KEYS));
     else dirty.delete('apiKey');
@@ -721,7 +1083,7 @@
   function scheduleConnect() {
     clearTimeout(connectTimer);
     connectTimer = setTimeout(() => {
-      const key = els.apiKey.value.trim();
+      const key = keyFromField(els.apiKey.value);
       if (key && key !== lastTried && !(keyState === 'connected' && key === settings.apiKey)) connect(false);
     }, CONNECT_DELAY_MS);
   }
@@ -745,45 +1107,85 @@
 
   // ---- Church languages ----
 
-  const langRows = []; // { lang, label, group }
-  const langGroups = []; // <details>
-  const groupOf = new Map(); // <details> -> { group, count }
+  // One row (label + checkbox) per language, built once; renderLanguageList
+  // moves them between sections, so a tick keeps its checkbox, its state and
+  // its focus.
+  const langRows = new Map(); // code -> { lang, label, input }
+  const openLabels = new Set(); // sections the reader has open (not while searching)
 
-  // Each group is a <details> named by its summary ("Bible · 1 language").
-  // A long label wraps; its count stays on one line with its dot, and the
-  // label's last word goes with them (a no-break space), so no line starts
-  // with the dot.
   function buildLanguageList() {
-    languageGroups(offeredLanguages(C.CHURCH_LANGUAGES)).forEach((group, i) => {
+    for (const lang of offeredLanguages(C.CHURCH_LANGUAGES)) {
+      const label = el('label', 'check');
+      const input = el('input');
+      input.type = 'checkbox';
+      input.value = lang.code;
+      const text = el('span', 'lang-name');
+      text.appendChild(nativeName(lang));
+      if (lang.name !== lang.english) text.appendChild(el('span', 'lang-en', ` — ${lang.english}`));
+      label.appendChild(input);
+      label.appendChild(text);
+      langRows.set(lang.code, { lang, label, input });
+    }
+    // Only the reader's own open and close are remembered: a search opens
+    // every section, and clearing it puts back what they had open.
+    els.churchLanguages.addEventListener('toggle', (e) => {
+      const label = e.target.dataset && e.target.dataset.label;
+      if (!label || els.langFilter.value.trim()) return;
+      if (e.target.open) openLabels.add(label); else openLabels.delete(label);
+    }, true);
+    renderLanguageList();
+  }
+
+  // Lay the list out from the pure languageList (`code` names the language to
+  // keep the focus on, else the focused checkbox keeps it): "Your languages" (the ticked
+  // rows) above the coverage groups, each section a <details> named by its
+  // summary ("Bible · 1 language"). A long label wraps; its count stays on one
+  // line with its dot, and the label's last word goes with them (a no-break
+  // space), so no line starts with the dot. Run on every tick, adopted
+  // setting and search; the checkboxes themselves are the source of the
+  // ticked set, so a tick not yet written shows where it will be.
+  function renderLanguageList(code) {
+    const q = els.langFilter.value;
+    const filtering = !!q.trim();
+    const focused = document.activeElement;
+    const focusCode = code || (focused && focused.matches && focused.matches('input[type="checkbox"]') && els.churchLanguages.contains(focused)
+      ? focused.value : null);
+    const sections = languageList(offeredLanguages(C.CHURCH_LANGUAGES), checkedLanguages(), q);
+    if (!openLabels.size && !els.churchLanguages.firstChild && sections.length) openLabels.add(sections[0].label);
+    els.churchLanguages.textContent = '';
+    let shown = 0;
+    sections.forEach((section, i) => {
       const details = el('details', 'lang-group');
-      details.open = i === 0;
+      details.dataset.label = section.label;
+      if (section.yours) details.classList.add('yours');
+      details.open = filtering || section.yours || openLabels.has(section.label);
       const summary = el('summary');
       summary.id = `langGroup${i}`;
       details.setAttribute('aria-labelledby', summary.id);
-      const text = el('span', 'summary-text', `${group.label}\u00a0`);
-      const count = el('span', 'summary-count', `· ${groupCount(group)}`);
-      text.appendChild(count);
+      const text = el('span', 'summary-text', `${section.label}\u00a0`);
+      text.appendChild(el('span', 'summary-count', `· ${groupCount(section, filtering ? section.shown : null)}`));
       summary.appendChild(text);
-      groupOf.set(details, { group, count });
       const grid = el('div', 'checklist-grid');
-      for (const lang of group.langs) {
-        const label = el('label', 'check');
-        const cb = el('input');
-        cb.type = 'checkbox';
-        cb.value = lang.code;
-        const text = el('span', 'lang-name');
-        text.appendChild(nativeName(lang));
-        if (lang.name !== lang.english) text.appendChild(el('span', 'lang-en', ` — ${lang.english}`));
-        label.appendChild(cb);
-        label.appendChild(text);
-        grid.appendChild(label);
-        langRows.push({ lang, label, group: details });
+      for (const r of section.rows) {
+        const row = langRows.get(r.lang.code);
+        row.label.hidden = !r.hit;
+        grid.appendChild(row.label);
       }
+      details.hidden = section.shown === 0;
       details.appendChild(summary);
       details.appendChild(grid);
       els.churchLanguages.appendChild(details);
-      langGroups.push(details);
+      shown += section.shown;
     });
+    els.langNoMatch.hidden = shown > 0;
+    els.langNoMatch.textContent = shown ? '' : `No language matches “${q.trim()}”.`;
+    if (focusCode && langRows.has(focusCode)) {
+      // A row that moved into a closed group would lose the focus with it:
+      // the group's summary takes it, so the reader hears where the row went.
+      const { input } = langRows.get(focusCode);
+      const group = input.closest('details');
+      (group && group.open ? input : group.querySelector('summary')).focus();
+    }
   }
 
   // A language's own name, tagged so CJK glyphs and screen-reader voices
@@ -806,8 +1208,23 @@
   function checkLanguages(codes) {
     const want = new Set(codes || []);
     for (const cb of languageInputs()) cb.checked = want.has(cb.value);
-    // A group holding a chosen language opens, so the choice is in view.
-    for (const row of langRows) if (want.has(row.lang.code)) row.group.open = true;
+    ticked = checkedLanguages();
+    renderLanguageList(); // the ticked ones move under "Your languages"
+    showLanguageSummary();
+  }
+
+  // A tick or untick by the reader: the search clears and the focus follows
+  // the language to its new place (the pure languageTick decides). `ticked`
+  // is the set the list was last laid out for, since the checkbox has already
+  // changed when its event arrives.
+  let ticked = [];
+  function onLanguageTick() {
+    const now = checkedLanguages();
+    const tick = languageTick(offeredLanguages(C.CHURCH_LANGUAGES), ticked, now, els.langFilter.value);
+    ticked = now;
+    els.langFilter.value = tick.search;
+    if (tick.openGroup) openLabels.add(tick.openGroup);
+    renderLanguageList(tick.focus);
     showLanguageSummary();
   }
 
@@ -823,36 +1240,6 @@
       if (i) s.appendChild(document.createTextNode(', '));
       s.appendChild(nativeName(l));
     });
-  }
-
-  function applyLanguageFilter() {
-    const q = els.langFilter.value;
-    const filtering = !!q.trim();
-    let shown = 0;
-    for (const details of langGroups) {
-      let n = 0;
-      for (const row of langRows) {
-        if (row.group !== details) continue;
-        const hit = matchesLanguage(row.lang, q);
-        row.label.hidden = !hit;
-        if (hit) n++;
-      }
-      details.hidden = n === 0;
-      const g = groupOf.get(details);
-      g.count.textContent = `· ${groupCount(g.group, filtering ? n : null)}`;
-      // Every group opens while searching; clearing the search puts back
-      // what the reader had open.
-      if (filtering) {
-        if (!('wasOpen' in details.dataset)) details.dataset.wasOpen = details.open ? '1' : '';
-        details.open = true;
-      } else if ('wasOpen' in details.dataset) {
-        details.open = details.dataset.wasOpen === '1' || details.querySelector('input:checked') != null;
-        delete details.dataset.wasOpen;
-      }
-      shown += n;
-    }
-    els.langNoMatch.hidden = shown > 0;
-    els.langNoMatch.textContent = shown ? '' : `No language matches “${q.trim()}”.`;
   }
 
   function readLayout() {
@@ -885,7 +1272,7 @@
   // is not here — it is built from the key, not from one control — but it
   // goes through the same dirty flag, the same write and the same fill plan.
   const FIELDS = [
-    { key: 'apiKey', node: els.apiKey, read: () => els.apiKey.value.trim(), write: (v) => { els.apiKey.value = v; } },
+    { key: 'apiKey', node: els.apiKey, read: () => keyFromField(els.apiKey.value), write: (v) => { els.apiKey.value = v; } },
     // A group of checkboxes, but one setting: its change events bubble to the
     // container, which is what writes it.
     { key: 'churchLanguages', node: els.churchLanguages, read: checkedLanguages, write: checkLanguages },
@@ -907,13 +1294,6 @@
       write: (v) => { els.sidebarWidth.value = String(v); showWidth(v); },
     },
     { key: 'scrollSync', node: els.scrollSync, read: () => els.scrollSync.checked, write: (v) => { els.scrollSync.checked = v; } },
-    // Stored as "English pages only"; asked the other way round.
-    {
-      key: 'actOnNonEngOnly',
-      node: els.showOnOtherLanguages,
-      read: () => !els.showOnOtherLanguages.checked,
-      write: (v) => { els.showOnOtherLanguages.checked = !v; },
-    },
   ];
   const FIELD_KEYS = FIELDS.map((f) => f.key);
 
@@ -937,6 +1317,47 @@
     }
   }
 
+  // ---- About ----
+
+  // Text only (aboutCopy): the running version, the vintage of the pack the
+  // reader would load (personal first, then public), the source lines, "Your
+  // data" (each list under its own heading; a site's hostnames on a muted line
+  // under what it is for), links.
+  async function renderAbout() {
+    let pack = null;
+    try { pack = (await root.__BTX.citData.loadPack()).descriptor; } catch (e) { /* no pack: no vintage line */ }
+    const copy = aboutCopy({ version: chrome.runtime.getManifest().version, pack });
+    els.aboutVersion.textContent = copy.version;
+    els.aboutVintage.textContent = copy.vintage || '';
+    els.aboutVintage.hidden = !copy.vintage;
+    els.aboutSources.replaceChildren(...copy.sources.map((line) => el('li', null, line)));
+    const data = copy.yourData;
+    els.aboutDataHead.textContent = data.title;
+    const parts = [els.aboutDataHead];
+    for (const l of data.lists) {
+      const ul = el('ul', 'about-data-list');
+      for (const item of l.items) {
+        const li = ul.appendChild(el('li', null, item.text));
+        if (item.hosts.length) li.appendChild(el('span', 'about-host', item.hosts.join(', ')));
+      }
+      parts.push(el('h4', 'about-data-head', l.head), ul);
+    }
+    parts.push(linkedText(el('p', 'about-policy'), [`${data.policy.label} `, { text: data.policy.text, href: data.policy.href }]));
+    els.aboutData.replaceChildren(...parts);
+    linkedText(els.aboutLinks, copy.links.map((l) => ({ text: l.label, href: l.href })));
+  }
+
+  // "Show the welcome again": the flag first, so the tab the worker opens finds
+  // the welcome due. All or nothing: a write that doesn't land opens nothing,
+  // and either failure is said on the button's own line (welcomeAgainError);
+  // pressing again redoes both halves.
+  async function showWelcomeAgain() {
+    els.welcomeAgainStatus.textContent = '';
+    const saved = await write(WELCOME_AGAIN.patch, [], true, true);
+    const reply = saved ? await send({ type: C.MSG.OPEN_WELCOME }) : null;
+    els.welcomeAgainStatus.textContent = welcomeAgainError({ saved, reply }) || '';
+  }
+
   // ---- Deep links ----
 
   function focusSection(section) {
@@ -946,6 +1367,7 @@
     card.classList.remove('flash');
     void card.offsetWidth; // restart the highlight
     card.classList.add('flash');
+    if (section === 'about') return; // text only: nothing to focus
     if (section !== 'bible') {
       (section === 'languages' ? els.langFilter : els.fontScale).focus({ preventScroll: true });
       return;
@@ -984,7 +1406,7 @@
   // change (and the stored key's list and status come back). Anything else
   // is a pending change, which a key adopted from elsewhere won't overwrite.
   function onKeyInput() {
-    const v = els.apiKey.value.trim();
+    const v = keyFromField(els.apiKey.value);
     if (!v && !settings.apiKey) { clearKey(); return; }
     if (v && v === settings.apiKey) {
       clearTimeout(connectTimer);
@@ -1001,6 +1423,7 @@
 
   async function init() {
     settings = await SETTINGS.get();
+    await readPicks();
     const cached = await cachedList();
 
     // Slider ranges come from the settings module, so the bounds live in one place.
@@ -1009,9 +1432,13 @@
     els.fontScale.min = String(SETTINGS.FONT_SCALE_MIN);
     els.fontScale.max = String(SETTINGS.FONT_SCALE_MAX);
     els.fontScale.step = String(SETTINGS.FONT_SCALE_STEP);
+    els.addBiblesPath.textContent = C.API_BIBLE_ADD_BIBLES;
+    els.setupSteps.open = setupOpen(settings.apiKey);
     buildLanguageList();
     showStoredList(cached);
     fillForm();
+    renderAbout();
+    els.welcomeAgain.addEventListener('click', showWelcomeAgain);
 
     for (const f of FIELDS) {
       if (f.key === 'apiKey') continue;
@@ -1020,7 +1447,7 @@
         if (f.live) f.live(f.node.value);
       });
       f.node.addEventListener('change', () => {
-        if (f.key === 'churchLanguages') showLanguageSummary();
+        if (f.key === 'churchLanguages') onLanguageTick();
         queueCommit([f.key]);
       });
     }
@@ -1029,7 +1456,7 @@
     els.apiKey.addEventListener('input', onKeyInput);
     els.apiKey.addEventListener('paste', () => setTimeout(scheduleConnect, 0));
     els.apiKey.addEventListener('change', () => {
-      if (!els.apiKey.value.trim()) clearKey();
+      if (!keyFromField(els.apiKey.value)) clearKey();
       else scheduleConnect();
     });
     // Enter is Connect, and rests with it (the connected key refetches only
@@ -1040,8 +1467,9 @@
       if (!els.connectKey.disabled) connect(true);
     });
     els.connectKey.addEventListener('click', () => connect(true));
-    // Shown (so it keeps focus) while its own recheck runs: a second press waits.
-    els.recheckKey.addEventListener('click', () => { if (keyState !== 'checking') connect(true); });
+    // Shown (so it keeps focus) while its own recheck runs: a second press
+    // waits. In a paused month it rests (aria-disabled; the paused line says why).
+    els.recheckKey.addEventListener('click', () => { if (keyState !== 'checking' && !paused) connect(true); });
     els.toggleKey.addEventListener('click', () => {
       const show = els.apiKey.type === 'password';
       els.apiKey.type = show ? 'text' : 'password';
@@ -1050,7 +1478,7 @@
 
     // Outside #churchLanguages on purpose: typing a search is not a change to
     // the language setting.
-    els.langFilter.addEventListener('input', applyLanguageFilter);
+    els.langFilter.addEventListener('input', () => renderLanguageList());
 
     // Another context (the panel, another synced machine) changed a setting ->
     // adopt it into the form. `own` writes are this page's, already on screen.
@@ -1062,6 +1490,7 @@
     });
 
     chrome.storage.onChanged.addListener((changes, area) => {
+      if (area === 'local' && changes[C.SELECTION_KEY]) picks = CHURCH.mruFrom(changes[C.SELECTION_KEY].newValue);
       const c = area === 'session' && changes[C.OPTIONS_FOCUS_KEY];
       if (c && c.newValue) takeFocusRequest();
     });

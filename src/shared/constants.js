@@ -13,12 +13,38 @@
 
   const CONST = {
     // --- API endpoints ---
-    API_BIBLE_BASE: 'https://api.scripture.api.bible/v1',
-    BIBLE_API_BASE: 'https://bible-api.com',
+    API_BIBLE_BASE: 'https://rest.api.bible/v1',
+    // api.bible usage reports (background/fums.js); a host permission.
+    FUMS_BASE: 'https://fums.api.bible',
 
     // --- Providers ---
     PROVIDER_APIBIBLE: 'api.bible',
-    PROVIDER_BIBLEAPI: 'bible-api.com',
+    PROVIDER_BUNDLED: 'bundled', // packaged with the extension: no key, no rate limit, no reporting
+
+    // --- api.bible's own pages, linked from settings (verified 2026-10-09) ---
+    // `signUp` makes the free account; `dashboard` shows the key (top right)
+    // and the Bibles on it, through the menus API_BIBLE_ADD_BIBLES names.
+    // options.html's setup steps carry the same addresses, and the page fills
+    // its add-later line from API_BIBLE_ADD_BIBLES
+    // (tools/validate-options-form.js).
+    API_BIBLE_PAGES: { signUp: 'https://api.bible/sign-up', dashboard: 'https://api.bible/team' },
+    API_BIBLE_ADD_BIBLES: 'Plan, then Edit Plan, then Edit Bible Licenses',
+
+    // --- The bundled Bible: the World English Bible (ebible.org `engwebp`) ---
+    // Its `enabledTranslations` row ({ id, abbr, name, provider }, guaranteed by
+    // __BTX.settings) and the copyright line shown under every chapter: the
+    // public-domain wording of ebible.org/engwebp/copr.htm. `dir` holds one
+    // IR file per USFM book plus index.json, written by
+    // tools/build-bible-data.js; the worker serves chapters from it.
+    BUNDLED_BIBLE: {
+      id: 'engwebp',
+      abbr: 'WEB',
+      name: 'World English Bible',
+      provider: 'bundled',
+      copyright: 'The World English Bible is in the Public Domain. That means that it is not copyrighted. '
+        + 'However, "World English Bible" is a Trademark of eBible.org.',
+      dir: 'src/bible/engwebp',
+    },
 
     // --- Message types (content <-> worker) ---
     MSG: {
@@ -26,7 +52,9 @@
       GET_CHAPTER: 'GET_CHAPTER',
       LIST_BIBLES: 'LIST_BIBLES',
       OPEN_OPTIONS: 'OPEN_OPTIONS',
+      OPEN_WELCOME: 'OPEN_WELCOME',
       TOGGLE_PANEL: 'TOGGLE_PANEL',
+      GET_TOOLBAR_PIN: 'GET_TOOLBAR_PIN',
     },
 
     // --- Error codes returned in { error: { code } } ---
@@ -43,12 +71,87 @@
     // --- chrome.storage.sync keys (settings) ---
     SETTINGS_KEY: 'btxSettings',
 
+    // --- Pick memory (chrome.storage.local, per computer; not a setting) ---
+    // The reader's picks among the panel's texts, newest first (church-text.js
+    // mruFrom / rememberPick). Two contexts write it: content.js (a pick in the
+    // panel, a language added from the setup card) and the options page (a
+    // Church language ticked); both through church text's rules, and each
+    // adopts the other's writes through chrome.storage.onChanged.
+    SELECTION_KEY: 'btxSelectedTranslation',
+
+    // --- In-product disclosures (Chrome Web Store user-data policy) ---
+    // Shown beside the action they describe, whose click is the consent:
+    // `apiBible` beside Connect on the options page and on the panel setup
+    // card's api.bible path; `churchLanguage` beside adding a Church language
+    // in both places. options.html carries the same words (checked by
+    // tools/validate-options-form.js).
+    DISCLOSURE: {
+      apiBible: 'Connecting sends the chapters you open, your key, and an anonymous usage report to API.Bible.',
+      churchLanguage: 'Fetches that language’s chapter from churchofjesuschrist.org.',
+    },
+
+    // --- The options page's About card (spec #69) ---
+    // Source lines, links and "Your data", shown as text (options.js
+    // aboutCopy). The Store description (docs/store/listing.md) carries
+    // `citationSource` word for word (tools/validate-options-form.js). The two
+    // URLs are owner decisions: the privacy policy's published address (#81)
+    // and the support channel.
+    //
+    // `yourData` (#128) is what the code stores and contacts, in plain words:
+    // a change to what is kept in chrome.storage.local or .sync, or to a host
+    // the extension fetches from, changes these lines and docs/privacy.md
+    // together. A site line is { text, hosts }: what it is for, then its full
+    // hostnames; tools/validate-manifest.js checks every manifest host is one.
+    ABOUT: {
+      citationSource: 'Citation data compiled with reference to the BYU Scripture Citation Index. '
+        + 'Not affiliated with or endorsed by BYU or The Church of Jesus Christ of Latter-day Saints.',
+      jodSource: 'Journal of Discourses text: Wikisource, public domain',
+      privacyUrl: 'https://github.com/danielbaldwin47/Translations-and-Citations/blob/main/docs/privacy.md',
+      supportUrl: 'https://github.com/danielbaldwin47/Translations-and-Citations/issues',
+      yourData: {
+        local: {
+          head: 'On this computer',
+          items: [
+            'Your highlights, and whether to keep showing the highlighting tip',
+            'api.bible chapters you’ve read, so they open faster',
+            'The list of translations your api.bible key unlocks',
+            'A random id that api.bible’s usage report uses',
+            'This computer’s own count of api.bible requests this month, and the times of the last few',
+            'The month you last saw the api.bible limit notice',
+            'The translation or language you picked last',
+          ],
+        },
+        synced: {
+          head: 'Synced through your Chrome account',
+          items: [
+            'Your settings, including your api.bible key and your languages',
+            'Anyone signed in to Chrome with this account can see your api.bible key',
+          ],
+        },
+        sites: {
+          head: 'Sites it contacts',
+          items: [
+            { text: 'Church languages and General Conference talks', hosts: ['www.churchofjesuschrist.org'] },
+            { text: 'Early conference talks', hosts: ['scriptures.byu.edu'] },
+            { text: 'Only once you connect a key: Bible chapters, your list of translations, and the usage report',
+              hosts: ['rest.api.bible', 'fums.api.bible'] },
+          ],
+        },
+      },
+    },
+
+    // --- First run ---
+    // Where a fresh install lands: Alma 5 in English, a chapter where Citations
+    // and every Church language have something to show.
+    FIRST_RUN_URL: 'https://www.churchofjesuschrist.org/study/scriptures/bofm/alma/5?lang=eng',
+
     // --- Options deep links ---
     // OPEN_OPTIONS may carry `section`, one of OPTIONS_SECTIONS (the options
     // page's card ids). The worker parks it in chrome.storage.session under
     // OPTIONS_FOCUS_KEY before opening the page; the page reads it, clears it,
-    // and scrolls that card into view.
-    OPTIONS_SECTIONS: ['bible', 'languages', 'reading'],
+    // and scrolls that card into view. The ids are stable (a deep link names
+    // one); their order here is the order of the cards on the page.
+    OPTIONS_SECTIONS: ['languages', 'bible', 'reading', 'about'], // the page's card order
     OPTIONS_FOCUS_KEY: 'btxOptionsFocus',
 
     // --- chrome.storage.local key prefixes (cache + rate limiting) ---
@@ -56,7 +159,15 @@
     CACHE_INDEX_KEY: 'btxCacheIndex',
     BIBLES_CACHE_KEY: 'btxBiblesCache',
     RATE_RECENT_KEY: 'btxRateRecent',
-    RATE_DAILY_PREFIX: 'btxRateDaily::',
+    // This browser's api.bible calls this calendar month, and whether
+    // api.bible's last answer was a 429 (background/ratelimit.js).
+    RATE_MONTH_KEY: 'btxRateMonth',
+    // The month ('YYYY-MM') the panel last showed the near-limit line, so it
+    // shows once a month (content/panel.js nearLine).
+    NEAR_LINE_KEY: 'btxNearLineMonth',
+    // The FUMS device id: created on the first successful Connect, this
+    // device only (background/fums.js).
+    FUMS_DEVICE_KEY: 'btxFumsDeviceId',
 
     // --- Cache TTLs (ms) ---
     CHAPTER_TTL_MS: 30 * 24 * 60 * 60 * 1000, // 30 days (chapters are static)
@@ -66,11 +177,21 @@
     // "Check for new translations" refreshes on demand).
     BIBLES_TTL_MS: 7 * 24 * 60 * 60 * 1000, // 7 days
     CACHE_MAX_ENTRIES: 500,
+    // api.bible's terms: a cache holds fewer than 500 verses of its text
+    // (cache.js dropKeys evicts the least recently read chapters to stay under).
+    CACHE_MAX_VERSES: 500,
 
     // --- Rate limits (api.bible) ---
     RATE_WINDOW_MS: 30 * 1000,
     RATE_WINDOW_MAX: 15, // 15 requests / 30s
-    RATE_DAILY_MAX: 5000, // 5000 requests / day
+    // The free Starter plan's calls a month. Never a cap: the count only
+    // names a state (near from RATE_MONTH_NEAR; paused once api.bible answers
+    // 429 at or past RATE_MONTH_FREE), so a paid plan is never cut short.
+    RATE_MONTH_FREE: 5000,
+    RATE_MONTH_NEAR: 4000, // about 80% of the free plan
+    // A 429 whose Retry-After is shorter than this is api.bible pacing a
+    // burst, not the month used up (ratelimit.js answerOf).
+    RATE_BURST_WAIT_MS: 60 * 60 * 1000,
 
     // --- Which translation becomes the default, in order of preference ---
     // The options page picks the first of these the reader has turned on, and
@@ -78,19 +199,6 @@
     // versions it guesses a reader added to their key when the worker's list
     // is `partial` (copyrights unknown).
     DEFAULT_ABBRS: ['NIV', 'NKJV', 'NRSV', 'ESV', 'KJV'],
-
-    // --- Public-domain translations available on bible-api.com (no key) ---
-    BIBLE_API_TRANSLATIONS: [
-      { id: 'web', abbr: 'WEB', name: 'World English Bible' },
-      { id: 'kjv', abbr: 'KJV', name: 'King James Version' },
-      { id: 'asv', abbr: 'ASV', name: 'American Standard Version (1901)' },
-      { id: 'bbe', abbr: 'BBE', name: 'Bible in Basic English' },
-      { id: 'darby', abbr: 'DARBY', name: 'Darby Bible' },
-      { id: 'dra', abbr: 'DRA', name: 'Douay-Rheims 1899 American Edition' },
-      { id: 'ylt', abbr: 'YLT', name: "Young's Literal Translation (NT only)" },
-      { id: 'oeb-us', abbr: 'OEB-US', name: 'Open English Bible, US Edition' },
-      { id: 'webbe', abbr: 'WEBBE', name: 'World English Bible, British Edition' },
-    ],
 
     // --- Church languages offered beside the page (__BTX.churchText) ---
     // The site's own `lang=` codes. `tag` is the BCP 47 tag for marking up the
@@ -106,6 +214,10 @@
     // numbers), efi kaz ben sot and the 17 "Selections from the Book of Mormon"
     // languages (a minority of chapters). Grouped by coverage, then English name
     // — which is the order the options page and the dropdown list them in.
+    // English's code: a page with no `lang` is read in it. The options
+    // checklist leaves it out (it is the page's own language), and a page
+    // read in another language offers it in the dropdown (churchText.textsFor).
+    ENGLISH_LANG: 'eng',
     CHURCH_LANGUAGES: (() => {
       const ALL = ['ot', 'nt', 'bofm', 'dc-testament', 'pgp'];
       const BIBLE_BOFM = ['ot', 'nt', 'bofm'];

@@ -1,0 +1,15 @@
+[
+  {
+    "talkId": 210002,
+    "byuOnly": {
+      "from": "William Clayton's testimony",
+      "to": "Andrew Jenson, 1887, vol. 6, 224-226"
+    },
+    "note": "BYU's copy inserts William Clayton's 1874 affidavit, quoted from Jenson's Historical Record (1887), vol. 6, 224-226. The printed Journal of Discourses 21:9-10 has only '[The affidavit was then read by Elder Smith.]', as Wikisource does. Checked 2026-10-06 against the OCR text of the archive.org scan https://archive.org/details/JoDV21 (JoD_v21_djvu.txt). The passage is left out of the text gate; nothing is added."
+  },
+  {
+    "talkId": 210034,
+    "append": "Journal of Discourses/Volume 21/Remarks by Elder Wilford Woodruff",
+    "note": "BYU's talk 210034 runs on past Orson Pratt's 'Amen.' (21:314) into 'Remarks by Elder Wilford Woodruff' (21:314-316), which the print lists as its own item ('Remarks following Elder Orson Pratt's') and Wikisource keeps as its own page. Checked 2026-10-06 against the OCR text and contents page of the archive.org scan https://archive.org/details/JoDV21 (JoD_v21_djvu.txt). The Wikisource page is appended at its pinned revision."
+  }
+]

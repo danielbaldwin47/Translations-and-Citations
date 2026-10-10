@@ -14,6 +14,12 @@
      theme.js never touches these. */
   --btx-body-pad-top: 14px;
   --btx-body-pad-x: 16px;
+  /* The keyboard-focus ring's width and its offset outside a control, read by
+     the shared :focus-visible rule below and by citations.css's focused
+     highlight; an inset override changes only the offset. Theme.js never
+     touches these. */
+  --btx-ring-w: 2px;
+  --btx-ring-offset: 1px;
   --btx-bg: #ffffff;
   --btx-header-bg: #f0f0f0;
   --btx-fg: #2a2a2a;
@@ -77,29 +83,38 @@
   box-shadow: -4px 0 18px rgba(0, 0, 0, 0.12);
 }
 
-/* ---- Drag-to-resize grip (left inner edge) ---- */
+/* ---- Drag-to-resize edge (the panel's left edge) ----
+   The grab zone is 8px wide and straddles the edge, the border line at its
+   centre (left is measured from inside the 1px border, hence -5px). A short
+   grip, centred on the edge, shows on hover and for the whole drag
+   (`.btx-resizing` on the root, set by onResizeDown, removed on pointerup or
+   pointercancel). The cursor is ew-resize on the zone only. */
 #btx-root .btx-resize {
   position: absolute;
   top: 0;
-  left: 0;
-  width: 7px;
+  left: -5px;
+  width: 8px;
   height: 100%;
   cursor: ew-resize;
   z-index: 5;
   touch-action: none;
+  user-select: none;
 }
 #btx-root .btx-resize::before {
   content: '';
   position: absolute;
-  top: 0;
-  left: 2px;
-  width: 1px;
-  height: 100%;
-  background: transparent;
-  transition: background 0.12s;
+  top: 50%;
+  left: 50%;
+  width: 4px;
+  height: 48px;
+  transform: translate(-50%, -50%);
+  border-radius: 2px;
+  background: var(--btx-accent);
+  opacity: 0;
+  transition: opacity 0.12s;
 }
 #btx-root .btx-resize:hover::before,
-#btx-root.btx-resizing .btx-resize::before { background: var(--btx-accent); }
+#btx-root.btx-resizing .btx-resize::before { opacity: 1; }
 #btx-root.btx-resizing { user-select: none; }
 
 /* ---- Chrome: two rows, fixed px ----
@@ -277,17 +292,20 @@
   font-weight: 600;
 }
 
-/* Consistent keyboard-focus ring on every interactive control in the panel. */
-#btx-root button:focus-visible,
-#btx-root select:focus-visible,
-#btx-root input:focus-visible,
-#btx-root a:focus-visible {
-  outline: 2px solid var(--btx-accent);
-  outline-offset: 1px;
+/* The one keyboard-focus ring: every interactive control in the panel gets it
+   from this rule, so a control added later shows focus without a rule of its
+   own. `:where` keeps the specificity low, so a control whose outer ring would
+   be cut off (inside an `overflow: clip` card, at the window's edge) overrides
+   only `outline-offset` (and the colour, on an accent fill) with a rule of its
+   own, and none of those has to win a specificity contest. `:focus-visible`,
+   so a mouse click shows no ring. validate-focus-rings.js holds this. */
+#btx-root :where(button, select, input, a, summary, [role='button']):focus-visible {
+  outline: var(--btx-ring-w) solid var(--btx-accent);
+  outline-offset: var(--btx-ring-offset);
 }
 /* The body scrolls, so it takes focus; its ring sits inside the panel. */
 #btx-root .btx-body:focus-visible {
-  outline: 2px solid var(--btx-accent);
+  outline: var(--btx-ring-w) solid var(--btx-accent);
   outline-offset: -2px;
 }
 
@@ -400,6 +418,8 @@
 #btx-root .btx-error .btx-state-text { color: var(--btx-fg); font-weight: 600; }
 #btx-root .btx-state-hint { margin: 0; font-size: 13px; max-width: 30em; }
 #btx-root .btx-state .btx-cta { margin-top: 4px; }
+/* A key problem's api.bible dashboard link, under its Open settings. */
+#btx-root .btx-state .btx-card-link { align-self: center; }
 /* A cached chapter arrives within a frame or two: the spinner only shows for
    a load that is actually slow, so fast ones don't flash. */
 #btx-root .btx-loading { animation: btx-appear 0.15s ease-out 0.2s both; }
@@ -480,6 +500,55 @@
 #btx-root .btx-btn-outline:disabled { opacity: 0.45; cursor: default; }
 #btx-root .btx-card-add { flex: 0 0 auto; align-self: auto; height: 34px; padding: 0 16px; }
 
+/* The note slot: one quiet line at the top of the body, above the view (the
+   no-translation line, the beside-the-page line). UI text at fixed px, like
+   the cards' hints. */
+#btx-root .btx-note {
+  margin: 0 0 12px;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--btx-muted);
+}
+#btx-root .btx-note .btx-note-link { font-size: inherit; line-height: inherit; padding: 0; }
+/* The beside-the-page line's Change: the layout control in the line's place. */
+#btx-root .btx-note-tools { display: flex; flex-wrap: wrap; }
+#btx-root .btx-note-tools .btx-seg { flex: 1 1 auto; }
+/* After a click on Side by side that has no room: why, in its own line. */
+#btx-root .btx-note-hint { flex: 1 1 100%; margin-top: 6px; }
+#btx-root .btx-note-hint[hidden] { display: none; }
+/* × keeps a 24px target (WCAG 2.5.8) without growing the line: its excess
+   height hangs into the line's leading. */
+#btx-root .btx-note-x {
+  appearance: none;
+  min-width: 24px;
+  min-height: 24px;
+  margin: -3px 0 -3px 6px;
+  padding: 0 4px;
+  vertical-align: middle;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+}
+#btx-root .btx-note-x:hover { color: var(--btx-fg); background: var(--btx-border); }
+/* The near line: its own row with the × at the end, at a roomier 28px (the
+   text it sits beside is the first verse's neighbour), and set off from the
+   chapter below by a rule. */
+#btx-root .btx-note-near {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-bottom: 16px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--btx-border);
+}
+#btx-root .btx-note-near .btx-note-text { flex: 1 1 auto; min-width: 0; }
+#btx-root .btx-note-near .btx-note-x { flex: 0 0 auto; width: 28px; height: 28px; margin: -4px -4px 0 0; padding: 0; }
+
 /* A text action that reads as a link. */
 #btx-root .btx-link {
   appearance: none;
@@ -528,6 +597,162 @@
   font-weight: 600;
 }
 
+/* ---- The welcome (panel.js: a labelled dialog over the body) ----
+   One step at a time. The layer covers the whole panel and takes no pointer
+   events: it holds the ring round the step's control (drawn over the header
+   and toolbar, which stay usable through it) and the sheet. The sheet covers
+   the body only (panel.js sets its top to the body's) and holds the step's
+   card, which points up at the ringed control. The resize grip (z 5) stays
+   above it all. UI font at fixed px, like the cards; the panel's colours.
+   The sheet scrolls on its own and wraps any word, so 280px never scrolls
+   sideways. */
+#btx-root .btx-welcome {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 4;
+  pointer-events: none;
+}
+#btx-root .btx-welcome-sheet {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding: 12px 10px 18px;
+  /* Light enough that what the first step describes shows through. */
+  background: color-mix(in srgb, var(--btx-bg) 60%, transparent);
+  pointer-events: auto;
+}
+/* The card's content box: panel.js places the card in it (calloutPlacement
+   sets the card's width and left margin). */
+#btx-root .btx-welcome-track { width: 100%; }
+
+/* The card. Its caret, aimed at the control (--btx-caret-x, from panel.js),
+   is a square turned 45° with the card's fill and its top and left borders:
+   its lower half hides the card's top border where they join. */
+#btx-root .btx-welcome-dialog {
+  --btx-callout-edge: color-mix(in srgb, var(--btx-accent) 55%, var(--btx-border));
+  position: relative;
+  box-sizing: border-box;
+  max-width: 100%;
+  padding: 14px 14px 12px;
+  border: 1px solid var(--btx-callout-edge);
+  border-radius: 10px;
+  background: var(--btx-bg);
+  color: var(--btx-fg);
+  box-shadow: 0 6px 22px rgba(0, 0, 0, 0.16);
+  font-family: var(--btx-ui-font);
+  font-size: 14px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+#btx-root .btx-welcome-dialog[data-btx-pointing] { margin-top: 6px; }
+#btx-root .btx-welcome-dialog[data-btx-pointing]::before {
+  content: '';
+  position: absolute;
+  top: -6px;
+  left: calc(var(--btx-caret-x, 50%) - 5px);
+  width: 10px;
+  height: 10px;
+  background: inherit;
+  border-top: 1px solid var(--btx-callout-edge);
+  border-left: 1px solid var(--btx-callout-edge);
+  border-radius: 2px 0 0 0;
+  transform: rotate(45deg);
+}
+/* Focus lands on the dialog itself so it is announced; it is no control, so
+   it shows no ring (its buttons, next by Tab, do). */
+#btx-root .btx-welcome-dialog:focus { outline: none; }
+
+#btx-root .btx-welcome-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 0 0 6px;
+}
+#btx-root .btx-welcome-title {
+  margin: 0;
+  font-family: inherit;         /* an h2, which the site styles */
+  letter-spacing: normal;
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.3;
+  color: var(--btx-fg);
+}
+#btx-root .btx-welcome-position {
+  flex: none;
+  color: color-mix(in srgb, var(--btx-fg) 75%, transparent);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+/* Room for three lines on every step, so the buttons below don't jump
+   from step to step. */
+#btx-root .btx-welcome-lines { min-height: 4.5em; }
+#btx-root .btx-welcome-line { margin: 0 0 6px; }
+#btx-root .btx-welcome-line:last-child { margin-bottom: 0; }
+/* A second way to do what the step says: smaller, under the line that
+   matters. */
+#btx-root .btx-welcome-tip {
+  color: color-mix(in srgb, var(--btx-fg) 80%, transparent);
+  font-size: 13px;
+  line-height: 1.45;
+}
+#btx-root .btx-welcome-icon {
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  margin: 0 2px;
+  vertical-align: -3px;
+}
+
+/* Skip at the start; Back and Next (Got it on the last step) at the end. */
+#btx-root .btx-welcome-foot {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  margin-top: 14px;
+}
+#btx-root .btx-welcome-skip,
+#btx-root .btx-welcome-back {
+  appearance: none;
+  padding: 7px 8px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: var(--btx-fg);
+  font-family: inherit;
+  font-size: 14px;
+  cursor: pointer;
+}
+#btx-root .btx-welcome-skip { text-decoration: underline; text-underline-offset: 3px; }
+#btx-root .btx-welcome-skip:hover,
+#btx-root .btx-welcome-back:hover { background: color-mix(in srgb, var(--btx-fg) 8%, transparent); }
+#btx-root .btx-welcome-skip[hidden],
+#btx-root .btx-welcome-back[hidden] { display: none; }
+#btx-root .btx-welcome-skip { margin-right: auto; }
+#btx-root .btx-welcome-next { min-width: 72px; }
+
+/* The ring round the step's control (panel.js places it); it glides to the
+   next control on a step change, not while a resize re-places it. */
+#btx-root .btx-welcome-ring {
+  position: absolute;
+  border: 3px solid var(--btx-accent);
+  border-radius: 10px;
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--btx-accent) 22%, transparent);
+}
+#btx-root .btx-welcome-ring.btx-glide { transition: left 0.22s ease, top 0.22s ease, width 0.22s ease, height 0.22s ease; }
+#btx-root .btx-welcome-ring[hidden] { display: none; }
+/* While the welcome shows, the panel's other controls dim, so the ringed
+   one is the one that stands out. They stay usable. */
+#btx-root [data-btx-dim] { opacity: 0.35; transition: opacity 0.2s; }
+
 #btx-root .btx-cta {
   appearance: none;
   border: none;
@@ -555,27 +780,42 @@
 /* ---- Collapsed tab ----
    One icon tab on the window's right edge, the same at every width. Fixed to
    the viewport at 200px: below the site's banner, header and Sign In menu,
-   above its chapter arrows and Feedback tab. */
+   above its chapter arrows and Feedback tab. 20px wide, narrower than the
+   Feedback tab's 26px (the gutter the site keeps clear beside its footnote
+   panel's text): unlike Feedback, this tab can't be dismissed, so it stays
+   the smallest thing on that edge. */
 #btx-root .btx-tab {
   display: none;
   position: fixed;
   top: 200px;
   right: 0;
-  width: 36px;
-  height: 44px;
+  width: 20px;
+  height: 32px;
   padding: 0;
   align-items: center;
   justify-content: center;
-  background: var(--btx-accent);
-  color: var(--btx-on-accent);
-  border: none;
-  border-radius: 8px 0 0 8px;
+  /* The panel's surface, not the accent: the icon is its own teal tile, which
+     the light theme's accent is almost the colour of. The edge is neutral at
+     rest: an accent edge beside the focus ring read as a double outline
+     (#102 C2); the shadow keeps the tab seen against the page. */
+  background: var(--btx-bg);
+  border: 1px solid var(--btx-border);
+  border-right: none;
+  border-radius: 6px 0 0 6px;
   cursor: pointer;
-  box-shadow: -2px 2px 8px rgba(0, 0, 0, 0.18);
-  transition: filter 0.12s;
+  box-shadow: -1px 1px 4px rgba(0, 0, 0, 0.16);
+  transition: background-color 0.12s, border-color 0.12s;
 }
-#btx-root .btx-tab:hover { filter: brightness(1.08); }
-#btx-root .btx-tab svg { display: block; }
+/* Hover says "press me": a light accent wash and the accent edge. (A
+   brightness filter on a white tab changed nothing.) */
+#btx-root .btx-tab:hover {
+  background: color-mix(in srgb, var(--btx-accent) 14%, var(--btx-bg));
+  border-color: var(--btx-accent);
+}
+/* The tab sits against the window's edge, where an outer ring would be cut off
+   on the right: the ring is inset, along the tab's own edge. */
+#btx-root .btx-tab:focus-visible { outline-offset: -2px; }
+#btx-root .btx-tab-icon { display: block; width: 16px; height: 16px; }
 
 #btx-root.btx-collapsed { width: auto; }
 #btx-root.btx-collapsed .btx-panel { display: none; }
@@ -596,4 +836,7 @@
      so the page it describes stays in view above it. */
   #btx-root[data-btx-card],
   #btx-root[data-btx-card] .btx-panel { height: auto; max-height: 60vh; }
+  /* ...but not under the welcome, whose card needs the sheet's full height. */
+  #btx-root[data-btx-card][data-btx-welcome],
+  #btx-root[data-btx-card][data-btx-welcome] .btx-panel { height: 60vh; }
 }

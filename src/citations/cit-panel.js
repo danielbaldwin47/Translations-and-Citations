@@ -30,6 +30,13 @@
  * to a list; every bit of state they read lives on the list's own elements,
  * which the view host caches and re-mounts as one piece.
  *
+ * Query-only rows (By verse; see the view-model's header) mount when a verse
+ * query first shows them (mountShownRows), never at render.
+ *
+ * Fetched excerpts (rows whose row.snippet is a fetch marker): see "fetched
+ * excerpts" below. Each such row carries data-btx-excerpt =
+ * pending | filled | missed.
+ *
  * Hooks the rest of the panel reads:
  *   .btx-cit-list[data-btx-cit-empty]   the chapter has no talks (panel.css
  *                                       hides the layout toggle then)
@@ -47,12 +54,13 @@
   const citData = () => root.__BTX.citData;
   const vm = () => root.__BTX.citVM;
   const panel = () => root.__BTX.panel;
+  const talkSource = () => root.__BTX.talkSource;
 
   // A load quicker than this shows no spinner at all, rather than a flash.
   const LOADING_DELAY_MS = 200;
   // The site may still be showing the previous chapter when the list renders
-  // (SPA navigation); verse excerpts are retried this many ms later.
-  const EXCERPT_RETRY_MS = [600, 2000];
+  // (SPA navigation); verse texts are retried this many ms later.
+  const VERSE_TEXT_RETRY_MS = [600, 2000];
 
   let describedIds = 0;
 
@@ -61,6 +69,29 @@
     if (cls) n.className = cls;
     if (text != null) n.textContent = text;
     return n;
+  }
+
+  // Hover text that is not mouse-only: `title` on the element, plus the same
+  // words as a hidden node, returned for the caller to mount beside the element
+  // (so the element's own text stays its label), which the owner (the element,
+  // or the control it sits in, whose children a screen reader doesn't visit)
+  // names in aria-describedby, after any description it already has. Existing
+  // aria-labels stay. Null (nothing to mount) when there is no text.
+  function titled(node, text, owner) {
+    if (!text) return null;
+    owner = owner || node;
+    node.title = text;
+    const desc = el('span', 'btx-cit-desc', text);
+    describedBy(owner, desc, 'btx-cit-desc');
+    return desc;
+  }
+
+  // Give `desc` a fresh id (`prefix`-N) and name it in `owner`'s
+  // aria-describedby, after any description the owner already has.
+  function describedBy(owner, desc, prefix) {
+    desc.id = `${prefix}-${++describedIds}`;
+    const had = owner.getAttribute('aria-describedby');
+    owner.setAttribute('aria-describedby', had ? `${had} ${desc.id}` : desc.id);
   }
 
   // The list the panel has mounted right now (the body holds one view at a time).
@@ -77,16 +108,35 @@
     // One line, cut with an ellipsis (the pinned headers' stated heights
     // count on it); the tooltip carries the whole label.
     const text = el('span', 'btx-cit-label-text', group.label);
-    text.title = group.label;
+    if (!group.title) text.title = group.label; // a noted header's hover is its note, on the whole row
     label.appendChild(text);
     if (group.kind === 'verse') {
-      const excerpt = el('span', 'btx-cit-excerpt');
-      excerpt.dataset.btxVerse = String(group.verse);
-      label.appendChild(excerpt);
+      const verseLine = el('span', 'btx-cit-verse-text');
+      verseLine.dataset.btxVerse = String(group.verse);
+      label.appendChild(verseLine);
     }
     sum.appendChild(label);
     sum.appendChild(el('span', 'btx-cit-count' + (group.countClass ? ' ' + group.countClass : ''), String(group.count)));
     return sum;
+  }
+
+  // A group's <details> gets its header; a source-type header explains the
+  // source on hover (group.title). The header is the focusable control, so it
+  // owns the description, which sits in the <details> beside it.
+  function mountHead(node, cls, group) {
+    const sum = summaryRow(cls, group);
+    node.appendChild(sum);
+    const desc = titled(sum, group.title);
+    if (desc) node.appendChild(desc);
+  }
+
+  // The talk line: the title, then " · " and where it was given, dimmer
+  // (citations.css), so the title reads without parsing it from its place.
+  function subLine(row) {
+    const sub = el('div', 'btx-cit-sub');
+    if (row.talkTitle) sub.appendChild(el('span', 'btx-cit-title', row.talkTitle));
+    if (row.where) sub.appendChild(el('span', 'btx-cit-where', (row.talkTitle ? ' · ' : '') + row.where));
+    return sub;
   }
 
   function rowEl(row, onOpen) {
@@ -97,18 +147,168 @@
     node.setAttribute('aria-label', row.a11yLabel);
     const head = el('div', 'btx-cit-head');
     head.appendChild(el('span', 'btx-cit-speaker', row.speaker));
-    if (row.rangeLabel) head.appendChild(el('span', 'btx-cit-range', row.rangeLabel));
+    if (row.rangeLabel) {
+      const range = el('span', 'btx-cit-range', row.rangeLabel);
+      head.appendChild(range);
+      const desc = titled(range, row.rangeTitle, node);
+      if (desc) node.appendChild(desc);
+    }
     node.appendChild(head);
-    if (row.sub) node.appendChild(el('div', 'btx-cit-sub', row.sub));
-    if (row.snippet) {
-      const snippet = el('div', 'btx-cit-snippet', row.snippet);
-      snippet.id = `btx-cit-snippet-${++describedIds}`;
-      node.setAttribute('aria-describedby', snippet.id);
+    if (row.talkTitle || row.where) node.appendChild(subLine(row));
+    if (row.snippet && row.snippet.text) {
+      const snippet = el('div', 'btx-cit-snippet', row.snippet.text);
+      describedBy(node, snippet, 'btx-cit-snippet');
       node.appendChild(snippet);
+    } else if (row.snippet && row.snippet.fetch) {
+      node.appendChild(reserveSlot(row.snippet.chars));
+      node.dataset.btxExcerpt = 'pending';
     }
     const open = () => onOpen(row, node);
     node.addEventListener('click', open);
     node.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); } });
+    return node;
+  }
+
+
+  // --- fetched excerpts ------------------------------------------------------
+  // A row of a fetched corpus (row.snippet.fetch) reserves its excerpt's
+  // space at once and fills it when it comes into view. The reserve is the
+  // excerpt's own box (.btx-cit-snippet: font, line height, three-line clamp)
+  // holding invisible filler of the excerpt's character count, painted as one
+  // faint bar per line: the browser wraps it as it will wrap the text, so the
+  // reserve follows font size and panel width with no measuring, and the row
+  // does not move when the text lands. No count: the clamp's three lines.
+  //
+  // Which rows fetch: an IntersectionObserver rooted on the panel body, its
+  // margin half the body's height, so a row starts its fetch when it comes
+  // within half a screen of view inside an open group (a closed group's rows
+  // never intersect). Each row asks the talk source once, with a claim that
+  // says where the row is now; the talk source's slot policy decides which
+  // waiting fetch a free slot goes to. The observer and every row's state
+  // are held by the observer's own callback, not by the list, so the view
+  // host's re-mount keeps them; a detached list's rows count as gone.
+  const FILLER = 'the word was with god and all things were made by him in the beginning of the ' +
+    'light that shines in darkness which comprehended it not there was a man sent from ';
+  const FULL_RESERVE_CHARS = 600; // more than three lines at the widest panel
+  const FADE_MS = 240;            // citations.css .btx-cit-arrive
+  const MISS_MS = 160;            // citations.css .btx-cit-miss
+
+  function fillerText(chars) {
+    const n = chars > 0 ? chars : FULL_RESERVE_CHARS;
+    let t = '';
+    while (t.length < n) t += FILLER;
+    return t.slice(0, n);
+  }
+
+  function reserveSlot(chars) {
+    const slot = el('div', 'btx-cit-snippet btx-cit-pending');
+    const filler = el('span', 'btx-cit-filler', fillerText(chars));
+    filler.setAttribute('aria-hidden', 'true');
+    slot.appendChild(filler);
+    return slot;
+  }
+
+  // list element -> its watch state, so rows mounted after render (a verse
+  // query's query-only rows) join the same observer.
+  const watches = new WeakMap();
+
+  function watchExcerpts(wrap, rowsByNode) {
+    if (!rowsByNode.size) return;
+    const had = watches.get(wrap);
+    if (had) {
+      for (const [node, row] of rowsByNode) { had.rows.set(node, row); had.observer.observe(node); }
+      return;
+    }
+    const body = wrap.closest('.btx-body');
+    if (!body) return;
+    const st = { body, rows: rowsByNode, inBand: new Set(), asked: new WeakSet(), observer: null, band: -1 };
+    watches.set(wrap, st);
+    observeRows(st);
+  }
+
+  // (Re)build the observer at half the body's current height: the band is
+  // fixed when an observer is made, so one made while the panel body had
+  // another height (collapsed, a resized window) is replaced on its next
+  // report.
+  const BAND_SLACK_PX = 8;
+  function observeRows(st) {
+    if (st.observer) st.observer.disconnect();
+    st.inBand.clear();
+    st.band = Math.round(st.body.clientHeight / 2);
+    st.observer = new IntersectionObserver((records) => {
+      for (const r of records) {
+        if (r.isIntersecting) st.inBand.add(r.target); else st.inBand.delete(r.target);
+        if (r.isIntersecting && !st.asked.has(r.target)) {
+          st.asked.add(r.target);
+          fetchExcerpt(st, r.target, st.rows.get(r.target));
+        }
+      }
+      talkSource().reschedule();
+      if (Math.abs(Math.round(st.body.clientHeight / 2) - st.band) > BAND_SLACK_PX) observeRows(st);
+    }, { root: st.body, rootMargin: `${st.band}px 0px` });
+    for (const node of st.rows.keys()) {
+      if (node.dataset.btxExcerpt === 'pending') st.observer.observe(node);
+    }
+  }
+
+  // Where a row is for the slot policy: on screen, in the look-ahead band, or
+  // gone (scrolled away, or its list no longer shown), and how far from the
+  // top of the visible area.
+  function claimFor(st, node) {
+    return {
+      where() {
+        if (!node.isConnected || !st.inBand.has(node)) return { zone: 'gone', top: 0 };
+        const b = st.body.getBoundingClientRect();
+        const r = node.getBoundingClientRect();
+        const onScreen = r.bottom > b.top && r.top < b.bottom;
+        return { zone: onScreen ? 'visible' : 'ahead', top: r.top - b.top };
+      },
+    };
+  }
+
+  async function fetchExcerpt(st, node, row) {
+    let raw = null;
+    try { raw = await talkSource().excerpt({ entry: row.entry, source: row.entry.source }, claimFor(st, node)); }
+    catch (e) { raw = null; }
+    st.observer.unobserve(node);
+    st.inBand.delete(node);
+    const slot = node.querySelector('.btx-cit-pending');
+    if (!slot) return;
+    const text = vm().excerptText(raw);
+    if (text) fillSlot(node, slot, text);
+    else dropSlot(node, slot);
+  }
+
+  // The text replaces the filler and fades in once. The fade class comes off
+  // on a timer, not animationend (opening a talk mid-fade cancels the
+  // animation), so a list re-mounted from the view host does not replay it;
+  // a row filled while its list was off screen never fades.
+  function fillSlot(node, slot, text) {
+    slot.textContent = text;
+    slot.classList.remove('btx-cit-pending');
+    describedBy(node, slot, 'btx-cit-snippet');
+    node.dataset.btxExcerpt = 'filled';
+    if (!node.isConnected) return;
+    slot.classList.add('btx-cit-arrive');
+    setTimeout(() => slot.classList.remove('btx-cit-arrive'), FADE_MS + 60);
+  }
+
+  // A miss or failure gives the reserve back with a short ease, and the row
+  // keeps its reference line; no per-row error.
+  function dropSlot(node, slot) {
+    node.dataset.btxExcerpt = 'missed';
+    if (!node.isConnected) { slot.remove(); return; }
+    slot.style.height = slot.getBoundingClientRect().height + 'px';
+    slot.getBoundingClientRect(); // commit the start height before easing from it
+    slot.classList.add('btx-cit-miss');
+    slot.addEventListener('transitionend', () => slot.remove(), { once: true });
+    setTimeout(() => slot.remove(), MISS_MS + 240);
+  }
+
+  // A row element, noted in `pending` (node -> row) when its excerpt is fetched.
+  function rowNode(row, onOpen, pending) {
+    const node = rowEl(row, onOpen);
+    if (node.dataset.btxExcerpt === 'pending') pending.set(node, row);
     return node;
   }
 
@@ -122,24 +322,28 @@
   // One top-level group: a <details> per verse (by-verse) or per source type
   // (by-source). Nested source-type groups are <details> too; by-source rows
   // hang in a plain container instead.
-  function groupEl(group, onOpen) {
+  function groupEl(group, onOpen, pending) {
     const node = el('details', groupClass('btx-cit-vgroup', group));
     node.dataset.btxUid = group.uid;
-    node.appendChild(summaryRow('btx-cit-vhead', group));
+    mountHead(node, 'btx-cit-vhead', group);
     node.open = group.open;
     if (group.focus) node.classList.add('btx-cit-focus');
+    if (group.queryOnly) node.classList.add('btx-cit-hidden');
 
     for (const child of group.children) {
       const cnode = el('details', groupClass('btx-cit-cgroup', child));
       cnode.dataset.btxUid = child.uid;
-      cnode.appendChild(summaryRow('btx-cit-chead', child));
+      mountHead(cnode, 'btx-cit-chead', child);
       cnode.open = child.open;
-      for (const row of child.rows) cnode.appendChild(rowEl(row, onOpen));
+      if (child.queryOnly) cnode.classList.add('btx-cit-hidden');
+      // Query-only rows mount when a verse query first shows them
+      // (mountShownRows): a chapter like D&C 76 holds thousands.
+      for (const row of child.rows) if (!row.queryOnly) cnode.appendChild(rowNode(row, onOpen, pending));
       node.appendChild(cnode);
     }
     if (group.rows.length) {
       const cgroup = el('div', 'btx-cit-cgroup');
-      for (const row of group.rows) cgroup.appendChild(rowEl(row, onOpen));
+      for (const row of group.rows) cgroup.appendChild(rowNode(row, onOpen, pending));
       node.appendChild(cgroup);
     }
     return node;
@@ -153,17 +357,67 @@
     return nodes;
   }
 
-  // Toolbar above the list: a live filter box (speaker / title / passage) and
+  // Toolbar above the list: a live filter box (speaker / title / verse) and
   // Collapse all. The view-model decides what hides, what opens, what the
   // counts, summary and button say; this mirrors each plan onto the elements
   // and reports the user's own open/close back into the state.
-  function attachTools(wrap, tools, summary, viewModel) {
+  // Mount the query-only rows a plan shows that are not in the list yet, each
+  // in its descriptor's place among its group's rows (newest first).
+  function mountShownRows(wrap, viewModel, plan, mountRow) {
+    let nodes = null;
+    for (const g of viewModel.groups) {
+      for (const c of g.children) {
+        if (!c.rows.some((r) => r.queryOnly && !plan.hidden[r.uid])) continue;
+        nodes = nodes || nodeMap(wrap);
+        const cnode = nodes.get(c.uid);
+        if (!cnode) continue;
+        let next = null; // the mounted row after the one being placed
+        for (let i = c.rows.length - 1; i >= 0; i--) {
+          const r = c.rows[i];
+          let n = nodes.get(r.uid);
+          if (!n && !plan.hidden[r.uid]) {
+            n = mountRow(r);
+            cnode.insertBefore(n, next);
+            nodes.set(r.uid, n);
+          }
+          if (n) next = n;
+        }
+      }
+    }
+  }
+
+  // A By source row that matched a verse query only through a range says
+  // which verse beside its badge (plan.matchNotes), in words and in its name.
+  function applyMatchNotes(wrap, plan, rowsByUid, nodes) {
+    for (const n of wrap.querySelectorAll('.btx-cit-match')) {
+      const node = n.closest('.btx-cit');
+      if (node && plan.matchNotes[node.dataset.btxUid]) continue;
+      n.remove();
+      const row = node && rowsByUid.get(node.dataset.btxUid);
+      if (row) node.setAttribute('aria-label', row.a11yLabel);
+    }
+    for (const uid of Object.keys(plan.matchNotes)) {
+      const node = nodes.get(uid);
+      const range = node && node.querySelector('.btx-cit-range');
+      if (!range) continue;
+      let note = node.querySelector('.btx-cit-match');
+      if (!note) {
+        note = el('span', 'btx-cit-match');
+        range.after(note);
+      }
+      note.textContent = plan.matchNotes[uid].text;
+      node.setAttribute('aria-label', plan.matchNotes[uid].a11yLabel);
+    }
+  }
+
+  function attachTools(wrap, tools, summary, viewModel, mountRow) {
     const input = el('input', 'btx-cit-filter');
     input.type = 'search';
-    input.placeholder = 'Filter talks…';
-    input.setAttribute('aria-label', 'Filter talks');
-    const collapse = el('button', 'btx-cit-toolbtn');
+    input.placeholder = vm().FILTER_COPY.placeholder;
+    input.setAttribute('aria-label', vm().FILTER_COPY.label);
+    const collapse = el('button', 'btx-cit-toolbtn btx-cit-collapse', vm().FILTER_COPY.collapse);
     collapse.type = 'button';
+    const rowsByUid = new Map(vm().allRows(viewModel).map((r) => [r.uid, r]));
     tools.appendChild(input);
     tools.appendChild(collapse);
 
@@ -185,21 +439,24 @@
       }
     }
 
-    // The button hides when there is nothing to collapse; focus on it would
-    // fall to the page, so it moves to the first group header instead.
+    // The button hides when there is nothing to collapse, keeping its slot so
+    // the filter box beside it never changes width under the caret. Focus on
+    // it would fall to the page, so it moves to the first group header instead.
     function showCollapse(label) {
       const had = document.activeElement === collapse;
       if (label) collapse.textContent = label;
-      collapse.hidden = !label;
-      if (had && collapse.hidden) {
+      collapse.classList.toggle('btx-cit-held', !label);
+      if (had && !label) {
         const first = wrap.querySelector('.btx-cit-vgroup:not(.btx-cit-hidden) > summary');
-        (first || input).focus();
+        (first || input).focus({ preventScroll: true });
       }
     }
 
     function applyFilter() {
       const plan = vm().filterPlan(viewModel, input.value, state);
+      mountShownRows(wrap, viewModel, plan, mountRow);
       const nodes = nodeMap(wrap);
+      applyMatchNotes(wrap, plan, rowsByUid, nodes);
       for (const uid of Object.keys(plan.hidden)) {
         const node = nodes.get(uid);
         if (node) node.classList.toggle('btx-cit-hidden', plan.hidden[uid]);
@@ -226,7 +483,7 @@
     input.addEventListener('keydown', (e) => {
       if (e.key === 'Escape' && input.value) { e.stopPropagation(); input.value = ''; applyFilter(); }
     });
-    clear.addEventListener('click', () => { input.value = ''; applyFilter(); input.focus(); });
+    clear.addEventListener('click', () => { input.value = ''; applyFilter(); input.focus({ preventScroll: true }); });
     collapse.addEventListener('click', () => {
       const plan = vm().collapseAllPlan(viewModel, state, hidden);
       applyOpen(plan.open, nodeMap(wrap));
@@ -278,7 +535,7 @@
     node.classList.add('btx-cit-last');
   }
 
-  // --- verse excerpts (read-only, from the site's page) ----------------------
+  // --- verse text (read-only, from the site's page) -------------------------
 
   // The verse's words without its number, pilcrow or study-note markers.
   function verseText(p) {
@@ -290,26 +547,26 @@
     return text.replace(/\s+/g, ' ').trim().replace(/^\d+\s*/, '').replace(/^¶\s*/, '');
   }
 
-  // Fill the empty excerpt slots, if the page is showing this list's chapter.
-  // Returns false when it isn't (yet), so the caller can try again later.
-  function fillExcerpts(wrap) {
-    if ('btxExcerpts' in wrap.dataset) return true;
+  // Fill the empty verse-text slots, if the page is showing this list's
+  // chapter. Returns false when it isn't (yet), so the caller can try again later.
+  function fillVerseTexts(wrap) {
+    if ('btxVerseTexts' in wrap.dataset) return true;
     const article = document.querySelector('article[data-uri]');
     const uri = (article && article.getAttribute('data-uri')) || '';
     if (!uri.endsWith(`/${wrap.dataset.btxSlug}/${wrap.dataset.btxChapter}`)) return false;
     let any = false;
-    for (const slot of wrap.querySelectorAll('.btx-cit-excerpt')) {
+    for (const slot of wrap.querySelectorAll('.btx-cit-verse-text')) {
       const p = document.getElementById('p' + slot.dataset.btxVerse);
       if (p && article.contains(p)) slot.textContent = verseText(p);
       if (slot.textContent) any = true;
     }
-    if (any) wrap.dataset.btxExcerpts = '';
+    if (any) wrap.dataset.btxVerseTexts = '';
     return true;
   }
 
-  function scheduleExcerpts(wrap) {
-    if (fillExcerpts(wrap)) return;
-    for (const ms of EXCERPT_RETRY_MS) setTimeout(() => fillExcerpts(wrap), ms);
+  function scheduleVerseTexts(wrap) {
+    if (fillVerseTexts(wrap)) return;
+    for (const ms of VERSE_TEXT_RETRY_MS) setTimeout(() => fillVerseTexts(wrap), ms);
   }
 
   // --- render ---------------------------------------------------------------
@@ -331,6 +588,7 @@
     const viewModel = vm().buildView(data, opts);
 
     const wrap = el('div', 'btx-cit-list');
+    const pending = new Map(); // row element -> row, for fetched excerpts
     wrap.dataset.btxLayout = viewModel.layout;
     wrap.dataset.btxSlug = slug;
     wrap.dataset.btxChapter = String(chapter);
@@ -352,16 +610,31 @@
       if (viewModel.showTools) {
         const tools = el('div', 'btx-cit-tools');
         wrap.appendChild(tools);
-        noRes = attachTools(wrap, tools, summary, viewModel);
+        // A row mounted after render (a verse query's query-only row) joins
+        // the excerpt watch at once; the list is in the panel by then.
+        const mountRow = (row) => {
+          const later = new Map();
+          const node = rowNode(row, onOpen, later);
+          watchExcerpts(wrap, later);
+          return node;
+        };
+        noRes = attachTools(wrap, tools, summary, viewModel, mountRow);
       }
-      for (const group of viewModel.groups) wrap.appendChild(groupEl(group, onOpen));
+      for (const group of viewModel.groups) wrap.appendChild(groupEl(group, onOpen, pending));
       if (noRes) wrap.appendChild(noRes);
       keepClosedHeaderInView(wrap);
+    }
+    if (viewModel.footer) {
+      const footer = el('p', 'btx-cit-footer', viewModel.footer);
+      wrap.appendChild(footer);
+      const desc = titled(footer, viewModel.footerTitle);
+      if (desc) wrap.appendChild(desc);
     }
 
     host.textContent = '';
     host.appendChild(wrap);
-    if (viewModel.layout === 'verse' && !viewModel.empty) scheduleExcerpts(wrap);
+    watchExcerpts(wrap, pending);
+    if (viewModel.layout === 'verse' && !viewModel.empty) scheduleVerseTexts(wrap);
     const focusEl = viewModel.focusUid && wrap.querySelector(`[data-btx-uid="${CSS.escape(viewModel.focusUid)}"]`);
     // Where the focus verse lands is the panel's rule, not ours — the same one
     // the talk reader gets, so the list arrives with context above it too.
@@ -379,7 +652,7 @@
   function markVerse(v) {
     const wrap = mountedList();
     if (!wrap || wrap.dataset.btxLayout !== 'verse') return null;
-    fillExcerpts(wrap);
+    fillVerseTexts(wrap);
     const uid = vm().verseUid(v);
     for (const n of wrap.querySelectorAll('.btx-cit-focus')) {
       if (n.dataset.btxUid !== uid) n.classList.remove('btx-cit-focus');

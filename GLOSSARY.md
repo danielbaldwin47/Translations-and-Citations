@@ -48,14 +48,22 @@ one talk.
 _Avoid_: source, sermon
 
 **Corpus**:
-Single-letter provenance tag on a talk: `G` modern General Conference
-(1971–present, fetched live), `E` early GC (1942–70), `J` Journal of
-Discourses, `T` Teachings of the Prophet Joseph Smith (E/J/T are bundled).
+Single-letter provenance tag on a talk (`sources.json` `c`): `G` modern
+General Conference (1971–present), `E` early GC (1942–70), `J` Journal of
+Discourses, `T` Teachings of the Prophet Joseph Smith. The pack descriptor
+lists the corpora a pack holds and states each one's source type, text
+source, scroll-target rule, excerpt kind and inclusion rule; a corpus it does
+not list does not exist in the panel (the public pack lists no `T`).
 
 **Source type**:
-The panel's grouping of corpora: "General Conference" (G+E), "Journal of
-Discourses" (J), "Teachings of the Prophet Joseph Smith" (T). A
-**source-type group** is the collapsible panel section for one of these.
+The panel's grouping of corpora, named by each corpus's `sourceType` in the
+pack descriptor and ordered as the descriptor first names them: "General
+Conference" (G+E), "Journal of Discourses" (J), "Teachings of the Prophet
+Joseph Smith" (T, personal pack only). A **source-type group** is the
+collapsible panel section for one of these. Its header's hover text is the
+**source note**, the corpus entry's `sourceNote` ("Sermons by early Church
+leaders, published 1854–1886"): one per source type, the same on each of its
+corpora.
 _Avoid_: source (bare — say source type, talk, or BYU DBs depending on which you mean)
 
 **BYU DBs**:
@@ -68,24 +76,37 @@ One generated per-book JSON file, `src/citations/data/citations/{slug}.json`,
 holding that book's cites and a chapter→verse→citId index.
 
 **Bundled talk / live talk**:
-A bundled talk ships offline as `talks/{talkId}.html.gz` (corpora E/J/T); a
-live talk (corpus G) is fetched from the Church site when opened.
+Which one a talk is follows its corpus's `text` in the pack descriptor. A
+bundled talk (`text: 'bundled'`) ships offline in the pack as
+`talks/{talkId}.html.gz`; a live talk is fetched when the reader acts, from
+the Church site (`live-church`) or from BYU (`live-byu`).
 
 **Talk source**:
 The seam (`__BTX.talkSource`, `src/citations/talk-source.js`) that answers one
 question for the reader: given a cite, hand back displayable talk HTML plus a
 way to locate that cite's **scroll target** in the rendered result. It owns the
-**corpus plan** — the per-corpus table of where the HTML comes from (live vs
-bundled) and what the scroll target is (paragraph anchor / citation span / body
-passage), with the paragraph holding the cite's snippet as every corpus's
-fallback.
+**corpus plan** — for one corpus, where the HTML comes from (live vs bundled)
+and what the scroll target is (paragraph anchor / citation span / body
+passage), read from the pack descriptor by the pure `corpusPlan`, with the
+footnote locator and then the paragraph holding the cite's snippet as
+fallbacks. A corpus the descriptor lacks has no plan.
 _Avoid_: source (bare — that still means a source type or the BYU DBs); always say talk source
 
 **Scroll target**:
 The element in a rendered talk the reader scrolls to and marks for a cite:
-the paragraph anchor (live GC), the citation span (bundled E/J), or the body
-passage (STPJS) — else the paragraph that contains the cite's snippet (most
-2020s GC cites carry no paragraph anchor).
+the paragraph anchor (live GC), the citation span (E, J), or the body
+passage (STPJS). A J cite the Wikisource build could not place targets its
+printed page's anchor instead. A live GC cite with no anchor (most from 2020 on) goes to the
+paragraph the **footnote locator** names; else, for a corpus that still
+bundles a snippet, the paragraph that contains it.
+
+**Footnote locator**:
+The rule (`talkSource.locateParagraph`) that places an unanchored modern cite
+from the talk's own scripture links, read in the fetched HTML: a footnote's
+link sits at the paragraph holding that note's first marker, a body link at
+its own paragraph; the cite takes the k-th link with its exact book, chapter
+and verses (k = its **refRank**, by cite id among the talk's cites of that
+reference). Joseph Smith Translation links never match.
 
 **Snippet**:
 The excerpt a bundled corpus cuts at build time, shown under a citation row.
@@ -99,6 +120,18 @@ on screen inside a source-type group the reader opened. While the fetch is
 pending the row reserves the excerpt's size from a per-cite character count.
 _Avoid_: preview, teaser
 
+**Footnote cite**:
+A cite in a note of its talk whose excerpt cannot explain it: the note points
+the reader to the verse ("See", "see also", "compare", or a note with words
+beyond its references), and the paragraph the note hangs off neither quotes
+the verse nor shares its distinctive words. The shard marks it `fn: true`. A
+cite in a note that fails this is a plain cite, most often a bare reference
+naming the source of the paragraph's quotation. The rule and its thresholds
+live in `tools/footnote-cite.js`; the build applies it to BYU's cites, the
+derivation run to derived cites at fetch time. The reader shows nothing for
+it: a row label ("· in a footnote") was tried and dropped as clutter.
+_Avoid_: footnote flag (the shard's `fn` marks a footnote cite), note cite
+
 **Body passage**:
 In STPJS talks, the sentence(s) the footnote annotates — the text around the
 matching `footRef` marker, not the footnote's reference line. STPJS snippets
@@ -109,8 +142,9 @@ A run of consecutive verses covered by one cite (e.g. vv. 3–5).
 
 **Anchor verse**:
 The first verse of each contiguous range a cite covers. In the by-verse layout
-a talk appears once per anchor verse, not under every verse in the range.
-Verse 1000 is a chapter's closing note (JS—H 1), shown as "Note".
+a talk appears once per anchor verse, not under every verse in the range,
+until a verse query: then the queried verse's group holds every talk whose
+cites take it in. Verse 1000 is a chapter's closing note (JS—H 1), shown as "Note".
 
 **uniqueTotal**:
 The count of distinct cites in a chapter. It only decides the empty state; the
@@ -121,34 +155,133 @@ distinct talks.
 
 **Mode**:
 The user's preferred panel feature: Translation or Citations. Stored as the
-`panelMode` setting, owned by the panel.
+`panelMode` setting, owned by the panel. A click on either saves it, on any
+chapter, Bible chapters included, and every later chapter opens on it (the
+**arrangement** decides what that mode shows there). The default is
+Citations: a fresh install, and any missing or unreadable stored value, opens
+on it.
 
 **Translatable** (of a chapter):
-Some enabled text offers it: an enabled api.bible translation on a Bible
-chapter, or an enabled Church language that publishes its volume. `content.js`
-decides it from `churchText.textsFor`; the panel only reads the flag
-(`showChapter({ key, translatable })`).
+Some enabled text offers *this chapter*: on a Bible chapter always (the
+bundled World English Bible is always enabled), elsewhere an enabled Church
+language (or English, on a page read in another language, once the reader
+chose it) the **chapter check** found the chapter in. Publishing the volume is
+not enough (a language can lack a chapter of a volume it publishes). The
+**arrangement** reads it from each text's `offered` mark (`null` while the
+check has not asked that language).
+
+**Chapter check**:
+Whether an enabled Church language has the chapter, learned by fetching it
+(`churchText.load`) before the panel decides what to show. It walks the texts
+in pick order and fetches only as far as its question needs; a language whose
+volume lacks the chapter is excluded with no fetch, and a Bible row needs none.
+"Found" and "not available" are remembered per language and chapter for the
+tab, so a mode click, a settings change or a resize never fetches again. A
+check that fails (network) is remembered for the chapter as `failed`: it
+offers the panel's text, whose error card has Try again, but never the page.
+While it runs the arrangement answers Translation's loading state wherever an
+unchecked language stands before the pick. It also runs, in either mode, for
+the **page split**'s language (`pageNext`); that walk never holds up the panel
+body. Once the Translation tab settles, the languages it hasn't reached are
+checked in the background, so dropdown rows lacking the chapter drop out; a
+pick of a row still being checked waits for it in the loading state.
+The decision over its results is the pure `churchText.chapterOffer` (its one
+walk, `firstOffered`, is the arrangement's too); the fetching loops are
+`content.js`'s `runCheck` and `checkRest`.
+
+**Arrangement**:
+The one pure rule for what the panel body shows (`arrangement` in the
+panel's pure core). Inputs: the chapter's texts, each marked offered or not
+(`chapterOffer`), the pick memory, the enabled Church languages, the split
+layout, whether the **no-translation line** is dismissed, the stored **mode**,
+this visit's mode click and this visit's dropdown pick. Answer: the effective
+mode, the body (Citations, loading, the **setup card**, the **beside card**, or
+a text), the text the Translation tab is about, the page's language (the
+**page split**'s, in either mode, or none), the note (`no-translation`,
+`beside-page`, `missing-chapter` or none, with the language it names), the
+mode a click saves, and `chooses`: a row on request (English on a page read in
+another language) the Translation tab shows, which the reader thereby chose
+and `content.js` adds to the pick memory. With Translation stored:
+- a text offers the chapter: the latest pick that does (the beside card when
+  that text is the page's language; a Bible version beside a page's language
+  carries the beside-the-page line; when this visit's dropdown pick lacks the
+  chapter, the text shown in its place carries the missing-chapter line, "No
+  Pohnpeian translation for Doctrine and Covenants 84.");
+- a language not yet checked stands before it: the loading state;
+- nothing offers it and no Church language is on: the setup card;
+- nothing offers it and languages are on: Citations with the **no-translation
+  line**, unless the reader clicked Translation on this visit, which shows the
+  setup card.
+`content.js` describes the chapter to it wherever an input moves
+(`panel.showChapter`, `panel.arrange`) and applies the answer.
+
+**No-translation line**:
+The one quiet line above the Citations list when the stored mode is
+Translation, Church languages are on and none offers the chapter: "No
+Kiribati translation for Doctrine and Covenants 76. **Add a language** ×".
+It names the enabled Church language nearest the front of the pick memory,
+else the first enabled one. "Add a language" is a Translation click on this
+visit (the **setup card**); × sets the synced `noTranslationLineDismissed`
+setting, so it never shows again on any computer. It never shows with
+Citations stored, on a Bible chapter (the **bundled Bible** always offers
+one), or once dismissed. The **arrangement** answers it (`note`); the panel's
+note slot renders it, above the mounted view and never inside it.
+
+**Welcome**:
+A new reader's tour of the panel, laid over the panel's body as a labelled
+dialog, one **step** at a time (`WELCOME_STEPS` and `welcomeStepView` in the
+panel's pure core): Citations, Translation, Settings, then how to hide the
+panel and bring it back. Each step is a card under the header control it
+names (`CONTROL_NAMES`), its caret aimed at it, and that control ringed
+(`calloutPlacement`) while the others dim. The last step leads with the tab
+collapsing leaves on the window's edge; as smaller tips it names the toolbar
+icon in words with its picture drawn inline, and how to pin it only while it
+isn't pinned. It shows on any panel shown while the synced
+`welcomeSeen` setting is false (`welcomeDue`), so it greets on every chapter
+until **Got it** (the last step) or **Skip**, which write the setting true.
+Collapsing hides it without counting as seen; an expand resumes at the same
+step. Install leaves the setting false
+and opens Alma 5; an update writes it true, so updates never greet; "Show the
+welcome again" writes it false. The page beside the panel stays usable while
+it shows.
 
 **Effective mode**:
-The mode actually showing. Equals the mode on a translatable chapter; on any
-other the panel opens on Citations. The Translation | Citations control always
-shows: Translation there sets a per-visit **override** that shows the **setup
-card**, without rewriting the stored preference — unless the chapter becomes
-translatable under it (a language added from the card), which commits
-`panelMode: 'translation'`. The next chapter or a Citations click clears the
-override. The pure rule is `effectiveMode` / `selectMode` / `setChapter`;
-`panel.effectiveMode()` is the one source of truth.
+The mode actually showing: the **arrangement**'s mode. It differs from the
+stored mode only on a chapter nothing offers while Church languages are on
+(Citations under a stored Translation). `panel.effectiveMode()` is the one
+source of truth.
 
 **Setup card**:
-Translation mode's body on an untranslatable chapter: add a Church language
-(select + Add), or set up api.bible translations (opens settings at the
-`bible` card via `OPEN_OPTIONS {section}`), or go to the talks that cite the
-chapter.
+Translation mode's body when nothing offers the chapter and no Church
+language is on, or the reader clicked Translation on this visit: add a Church
+language (select + Add; the chapter then shows in it at once), or, on the
+Bible, set up api.bible for more translations (opens settings at the `bible`
+card via `OPEN_OPTIONS {section}`), or go to the talks that cite the chapter.
 
 **Beside card**:
-Translation mode's body while the page split shows: where the text is (by the
-layout that actually fits), the split-layout control, and "Collapse panel for
-wider columns" when collapsing would make room (`pageSplit.collapseFits`).
+Translation mode's body while the text the tab is about is the page split's
+language: where the text is (by the
+layout that actually fits), the split-layout control (its pressed segment is
+the layout the page shows; the setting stays what the reader chose), and
+"Collapse panel for wider columns" when collapsing would make room
+(`pageSplit.collapseFits`).
+Its one-line form is the **beside-the-page line**, above a Bible version shown
+in the panel while a Church language holds the page: "Español is beside the
+page text · **Change**" (the language named as the dropdown leads its row).
+Change swaps the line for the same split-layout control, in its place. "In the
+panel" there moves the language into the panel in the Bible version's place:
+the split layout becomes `panel` and the language goes to the front of the
+pick memory, so the dropdown selects it (`layoutChoice` in the panel's pure
+core). Picking that language in the dropdown shows the full card instead. The
+**arrangement** answers the line (`note: 'beside-page'`); the panel's note slot
+renders it.
+
+**Bundled Bible**:
+The World English Bible (ebible.org `engwebp`), shipped as IR files under
+`src/bible/engwebp/` and served by the worker as provider `bundled`: no key,
+rate limit or usage report. Its `enabledTranslations` row is guaranteed by the
+settings normalizer and is the default translation while no api.bible version
+is on. Its text is never edited (the condition of the name).
 
 **Church language**:
 A language the Church publishes the standard works in, offered beside the
@@ -158,19 +291,42 @@ becomes a row in the translation dropdown after the api.bible versions, minus
 the page's own language and any language that hasn't published the chapter's
 collection. A chapter a language lacks is "not available", not an error to
 retry. In the reader, *translation* code (the `translation` view,
-`findTranslation`, `populateTranslations`, `btxSelectedTranslation` — a
-most-recently-used list of row ids, newest first) handles both kinds of row —
+`findTranslation`, `populateTranslations`, `C.SELECTION_KEY`, the pick memory — a
+most-recently-used list of row ids, newest first; a language ticked in settings or added on the setup card goes first) handles both kinds of row —
 tell them apart by `provider` (`'church'`). In settings,
 the options page and the worker, *translation* (`enabledTranslations`,
-`defaultTranslationId`) still means api.bible versions only.
+`defaultTranslationId`) means a Bible version: api.bible's, or the bundled
+World English Bible.
 
 **Page split**:
 A Church-language chapter set into the site's own reading column, each block
-paired with the English element of the same id (`__BTX.pageSplit`,
-ADR-0007). It shows while the panel is in Translation mode with a Church
-language picked, and the panel body shows the **beside card**. The alternative
-to showing the text in the panel.
+paired with the page's element of the same id (`__BTX.pageSplit`,
+ADR-0007). A page read in another language (`?lang=spa`) offers English as a
+Church language, unticked and on request (`churchText.textsFor`,
+`onRequest`): the reader didn't add it, so it is neither fetched nor the
+page's language until they choose it — a dropdown pick, or opening
+Translation where the tab shows it (the arrangement's `chooses`, remembered
+in the pick memory). Chosen, the same rules set English into the Spanish
+page. It is independent of the mode: it shows, in Translation and
+Citations alike, while the **split layout** is columns or interlinear and the
+**arrangement** names a page's language (`churchText.pageLanguage`): the
+first Church language in the pick memory that offers the chapter; with none,
+the text the Translation tab selects, only when that is a Church language. So
+John 3 with no pick and Español on shows no split (the tab selects the Bible),
+while Alma 5 splits in Español. A Bible version never holds the page, so on
+John 3 NIV can show in the panel with Español on the page. A language whose
+chapter check failed never holds it. The next chapter keeps the language if
+it offers it, else the next pick that does, else no split. Taking it off the
+page is "In the panel" on the **beside card** or its beside-the-page line. The alternative to showing the
+text in the panel.
 _Avoid_: overlay (that's its mechanism, not the feature)
+
+**Reading layer**:
+Everything the extension writes into the site's reader, owned by
+`__BTX.pageSplit` (ADR-0007): the fit (while the panel is open, the site's
+reading column fits the visible reading area, in every mode, split or not)
+and the **page split** (while the **arrangement** names a page's language).
+_Avoid_: overlay
 
 **Split layout**:
 How the page split arranges a pair — the `churchLanguageLayout` setting:
@@ -263,8 +419,8 @@ open-state and data-derived label rule of Citations mode lives there;
 `cit-panel` only builds elements from what it returns (display-ready
 snippets with their quote marks, the no-results line and the summary
 included), and owns nothing beyond fixed chrome (the loading line, the filter
-placeholder, the Clear filter label) and the verse excerpts it reads from the
-page.
+placeholder, the Clear filter label) and the verse text it reads from the
+page (each verse's own words under its header; not an excerpt).
 _Avoid_: renderer, formatter
 
 **Descriptor**:
@@ -301,8 +457,8 @@ One user preference in the synced `btxSettings` object (`chrome.storage.sync`)
 — api key, enabled translations, citation layout, panel mode, panel width,
 collapsed, … Owned end-to-end by `__BTX.settings`: schema, defaults,
 normalization, reads, writes and change events. The panel's own state
-(`panelMode`, `panelCollapsed`, `citationView`, `sidebarWidth`) is settings
-too: in the reader only `__BTX.panel` writes it, and the panel adopts any
+(`panelMode`, `panelCollapsed`, `citationView`, `sidebarWidth`, `welcomeSeen`)
+is settings too: in the reader only `__BTX.panel` writes it, and the panel adopts any
 external write (the options page edits `sidebarWidth`; `citationView`'s only
 editor is the panel's toggle).
 What stays per-machine in `chrome.storage.local` (selected translation,
@@ -352,7 +508,10 @@ _Avoid_: personal-only feature, restricted content
 
 **Pack descriptor**:
 A data pack's statement of what it holds — which corpora it indexes, which it
-bundles, which carry snippets — that the reader's corpus plan follows.
+bundles, which carry snippets — that the reader's corpus plan follows. The
+`pack` field of the pack's `index.json`, written by the build per pack mode:
+flavor, pack vintage, base stamp, derived conferences, and per corpus its
+`sourceType`, `sourceNote`, `text`, `target`, `excerpt` and `inclusion`.
 _Avoid_: pack manifest (manifest means the extension's), flavor flag
 
 **Rights evidence**:
@@ -362,8 +521,11 @@ public release. One element, one piece of evidence.
 _Avoid_: clearance, legal basis
 
 **Reading destination**:
-The external URL a citation row opens when the talk is not read inline — the
-Church page, BYU's viewer, or a scan.
+Where a cite's talk is read on the web, per corpus plan: the Church page at
+the paragraph (live-church), BYU's viewer at the citation span (live-byu), or
+the source's own URL (a bundled corpus that has one: the Journal of
+Discourses' Wikisource permalink). The reader header's external link and the
+talk error state open it (`talkSource.readingDestination`).
 _Avoid_: link-out target, external link
 
 **References-only**:
@@ -404,8 +566,14 @@ _Avoid_: bridge run, scrape
 
 **Store zip**:
 The upload package for the Chrome Web Store, made from the committed tree
-alone, so nothing gitignored can ship.
+alone, so nothing gitignored can ship, plus the Store stamp.
 _Avoid_: bundle, release build
+
+**Store stamp**:
+The one file the Store zip holds in place of the committed one: it tells the
+pack probe to ask the public pack alone, so the Store build requests no
+personal pack it lacks. Not a flavor (ADR-0008).
+_Avoid_: build flag, release marker
 
 **Derived cite**:
 A cite whose provenance is the Church's talk page. Every conference newer than

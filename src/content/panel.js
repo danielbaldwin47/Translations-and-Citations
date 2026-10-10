@@ -1,8 +1,8 @@
 /*
  * The side panel — a deep module that owns everything panel-shaped: its DOM,
- * its state (mode, citation layout, collapsed, width, translatable, the
- * visit's Translation override), the persistence of that state through
- * __BTX.settings, scroll-sync, and drag-to-resize. It is also the *view
+ * its state (mode, citation layout, collapsed, width, this visit's mode
+ * click and dropdown pick), the arrangement (what its body shows), the persistence of that
+ * state through __BTX.settings, scroll-sync, and drag-to-resize. It is also the *view
  * host*: callers ask for a named view and the panel decides whether to
  * rebuild it or re-mount the one it cached, and it is the only writer of the
  * body's scroll position. The orchestrator supplies chapter context and
@@ -12,22 +12,50 @@
  * Interface:
  *   init(handlers)                 build the DOM, adopt persisted state, wire
  *                                  controls; must be awaited before use
- *   showChapter({ key, translatable })  make the panel visible for a
- *                                  chapter. `key` names the chapter;
- *                                  `translatable` is false when no text
- *                                  offers it. Another chapter invalidates
- *                                  every cached view; the same one again (a
- *                                  settings change) keeps Citations and the
- *                                  talk and the visit's Translation override,
- *                                  and persists panelMode 'translation' once
- *                                  it becomes translatable under the override
+ *   showChapter({ key, texts, picks, languages, layout, dismissed }) -> arrangement
+ *                                  make the panel visible for a chapter and
+ *                                  arrange it: `key` names the chapter, the
+ *                                  rest are the arrangement's facts (see the
+ *                                  pure arrangement). Another chapter starts
+ *                                  a new visit (its mode click and dropdown
+ *                                  pick go) and
+ *                                  invalidates every cached view; the same
+ *                                  one again (a settings change) keeps the
+ *                                  click, Citations and the talk
+ *   arrange({ texts, picks, languages, layout, dismissed }) -> arrangement
+ *                                  a fact about the chapter showing moved
+ *                                  (the chapter check settled, a pick): the
+ *                                  arrangement again, no view dropped
+ *   arrangement(facts?)            the current answer: { mode, body, text,
+ *                                  saves, note, noteLang, page, pageNext };
+ *                                  the orchestrator applies `body` and `note`
+ *                                  to the panel and `page` to the page split.
+ *                                  With `facts`, the answer they would give
+ *                                  this visit, nothing stored (a question
+ *                                  asked while the chapter check runs)
+ *   setNote({ kind, row, chapter, layout } | null)
+ *                                  the note slot: one quiet line at the top of
+ *                                  the body, above the mounted view (copy: the
+ *                                  pure noteCopy; `row` is the language's
+ *                                  churchText row). It shows while the view it
+ *                                  belongs to is mounted (the no-translation
+ *                                  line: Citations; the beside-the-page and
+ *                                  missing-chapter lines: Translation) and
+ *                                  goes with any other; a
+ *                                  line coming or going keeps the reader's
+ *                                  place. Its buttons: Add a language = a
+ *                                  Translation click, × = onDismissNote,
+ *                                  Change = the layout control in the line's
+ *                                  place, pressing `layout` (the same line
+ *                                  again re-presses it in place)
  *   hide()
  *   toggleCollapsed(force)         collapse to the edge tab or expand — flip,
  *                                  or `force` true/false like classList.toggle
  *                                  (the toolbar icon); persisted like the
  *                                  header's Collapse button
- *   effectiveMode()                'translation' | 'citations' — see the pure
- *                                  effectiveMode for the rule
+ *   effectiveMode()                'translation' | 'citations': the
+ *                                  arrangement's mode, the one source of
+ *                                  truth for the mode showing
  *   citationView()                 'source' | 'verse'
  *   showView({ name, key, cache, render })  mount the named view; see the view
  *                                  host section below. Returns render's result.
@@ -52,8 +80,8 @@
  *                                      a select plus Add), set up api.bible
  *                                      (`bible` 'nokey' | 'noversions' | null),
  *                                      or see the talks
- *                                    { kind:'error', code, name, chapter, church, alternatives, remote, retryAfterMs }
- *                                    { kind:'content', blocks, copyright, lang, dir, besideLink }
+ *                                    { kind:'error', code, name, chapter, church, alternatives, others, remote, retryAfterMs, rate }
+ *                                    { kind:'content', blocks, copyright, lang, dir, besideLink, rate }
  *                                    { kind:'beside', name, layout, effective, collapseFits }  the text
  *                                      is split into the page (__BTX.pageSplit);
  *                                      the card sets where it shows (LAYOUTS)
@@ -64,10 +92,29 @@
  *                                  isn't English — CJK glyphs and hyphenation
  *                                  depend on it; `dir` 'rtl' for Arabic, …;
  *                                  `besideLink` puts the same layout control
- *                                  above the text, the way back into the page)
- *   updateBeside({ layout, effective, collapseFits })  restate a mounted beside card in place
- *                                  (no-op otherwise): the reader picked another
- *                                  in-page layout, or the split fit another
+ *                                  above the text, the way back into the page;
+ *                                  `rate` is the month's api.bible state on an
+ *                                  api.bible chapter, see isPaused: paused
+ *                                  turns a RATE_LIMITED card into the paused
+ *                                  line, pausedLine, its hint naming what
+ *                                  comes back that day and what still works
+ *                                  (pausedHint over `name` and `others`:
+ *                                  { bundled, church } the dropdown offers
+ *                                  without api.bible, `apiBible` how many
+ *                                  api.bible rows it has); near puts the near line
+ *                                  above a chapter's text once a month,
+ *                                  nearLine)
+ *   updateBeside({ layout, effective, collapseFits })  restate the layout
+ *                                  control in place: the reader picked another
+ *                                  in-page layout, or the split fit another.
+ *                                  Reaches the mounted beside card and the open
+ *                                  Change control of the beside-the-page line.
+ *                                  The pressed segment is the layout the page
+ *                                  shows (pressedLayout), not the setting: with
+ *                                  columns wanted and no room it is Under each
+ *                                  verse, the setting stays columns, and a click
+ *                                  on Side by side (layoutClick: 'explain')
+ *                                  says what would make room (roomHint).
  *   populateTranslations(menu, selectedId)  the dropdown, from
  *                                  __BTX.churchText.menuFor; hidden when empty
  *   retryWait(error, attempts)     pure: whether a rate-limited load retries by
@@ -76,16 +123,22 @@
  *   getRootEl()
  *
  * handlers: { renderMode(mode), onTranslationChange(id), onGear(section),
- *   onRetry, onAddLanguage(code), onLayoutChange(layout) }.
+ *   onRetry, onAddLanguage(code), onLayoutChange(layout, pick), onDismissNote,
+ *   askToolbarPin }.
  *   `renderMode` fires whenever the panel invalidated its own body content
  *   (mode toggle, citation-layout toggle, a synced change from another
  *   context); the orchestrator answers by rendering that mode's content.
- *   After showChapter() the orchestrator renders the current effectiveMode()
- *   itself — showChapter never fires events. `onGear(section)` opens the
+ *   After showChapter() the orchestrator renders what the arrangement
+ *   answered itself — showChapter and arrange never fire events. `onGear(section)` opens the
  *   options page, at a card when `section` names one ('bible' from the setup
  *   card and the key errors; none from the header's Settings button).
- *   `onAddLanguage` and `onLayoutChange` are the cards' picks; the panel
- *   writes no setting for them, the orchestrator does.
+ *   `onAddLanguage`, `onLayoutChange` and `onDismissNote` are the cards' and
+ *   the note's picks; the panel writes no setting for them, the orchestrator
+ *   does. `onLayoutChange`'s `pick` is the row the choice makes the pick, or
+ *   null (the pure layoutChoice: "In the panel" moves the page's language
+ *   into the panel in the Bible version's place). `askToolbarPin()` resolves
+ *   to the worker's raw GET_TOOLBAR_PIN reply, which the welcome reads
+ *   through welcomeFactsFrom before it opens.
  *
  * Body scroll has exactly one owner and one writer. Each view either *owns* its
  * position (Citations, the talk reader: restored on the way back to where it
@@ -113,15 +166,45 @@
  * who wants none of it turns the `scrollSync` setting off: then the page never
  * moves the body at all — no tracking and no re-alignment either.
  *
+ * The welcome (GLOSSARY: Welcome) is the panel's too: a labelled dialog laid
+ * over the body on any panel shown while the synced `welcomeSeen` flag is
+ * false (the pure welcomeDue; collapsing hides it without counting as seen).
+ * Its content is the pure steps table (WELCOME_STEPS: each step's title, its
+ * lines and the CONTROL_NAMES control it points at; welcomeSteps drops the
+ * lines whose facts don't hold), shown one step at a time (welcomeStepView:
+ * the step, "2 of 4", and which of Skip / Back / Next / Got it it carries).
+ * The step's card sits under its control, caret aimed at it, and the
+ * control is ringed; a control not showing gets a plain card. Placement is
+ * the pure calloutPlacement over rects measured inside the layer, redone on
+ * any resize of the panel, its chrome or its controls. While it shows, the
+ * body under it is inert (out of Tab's and Esc's reach). It takes focus as it
+ * opens only in the tab in front (welcomeTakesFocus: not in each background
+ * tab "Show the welcome again" reaches), and an expand that brings it back
+ * leaves focus to it (focusOnToggle) at the step the reader had reached.
+ * Only Got it (the last step) or Skip closes it: either writes the flag true
+ * and focuses the panel's first control. Esc stops at the layer, so the talk
+ * reader never sees it.
+ *
  * The panel's top: 0, except while the site's header band, laid out for the
  * full window while the panel was away, runs under the open panel — then the
  * panel starts below the band until it fits again (panelTop, --btx-top).
+ * Meanwhile a cap in the panel's header colour fills the strip above it,
+ * beneath the band's overflowing controls (paintTopCap, #89).
  *
  * IIFE -> __BTX.panel (ADR-0002). The pure state core below is also exported
  * for Node (tools/validate-panel-state.js); the DOM shell is skipped there.
  */
 (function (root) {
   'use strict';
+
+  const C = (root.__BTX && root.__BTX.const)
+    || (typeof require === 'function' ? require('../shared/constants.js') : null);
+  // __BTX.churchText, whose walks the arrangement shares (loaded before this
+  // file in the manifest; required in Node).
+  const churchText = () => (root.__BTX && root.__BTX.churchText) || require('./church-text.js');
+  // The monthly-limit lines, shared with the options page (loaded before this
+  // file in the manifest; required in Node).
+  const RATE_COPY = (root.__BTX && root.__BTX.rateCopy) || require('../shared/rate-copy.js');
 
   // ---- Pure state core (Node-testable) -----------------------------------
   // The panel's state machine, free of DOM: which mode is effective and what
@@ -130,38 +213,157 @@
 
   function createState(init) {
     return {
-      mode: init.mode === 'citations' ? 'citations' : 'translation',
+      mode: init.mode === 'translation' ? 'translation' : 'citations', // agrees with the settings default
       citationView: init.citationView === 'verse' ? 'verse' : 'source',
       collapsed: init.collapsed === true,
-      translatable: true,
-      override: false,
-      chapter: null,
+      chapter: null, // the key of the chapter showing
+      facts: null, // what content.js last said about it (setChapter / arrange)
+      click: null, // this visit's mode click: cleared by the next chapter
+      picked: null, // this visit's dropdown pick (a row id): cleared by the next chapter
+      welcomeSeen: init.welcomeSeen === true, // the synced flag: Got it was pressed
     };
   }
 
-  // `mode` is the stored preference; what shows is the effective mode. A
-  // chapter with no text to show beside it (no api.bible translation or Church
-  // language offers it) shows citations and leaves the preference untouched
-  // for the next chapter that has one. `override` is the reader asking for
-  // Translation anyway on this visit — the setup card — and it outranks the
-  // rest until the chapter changes or Citations is clicked.
-  function effectiveMode(s) {
-    if (s.override) return 'translation';
-    return s.translatable ? s.mode : 'citations';
+  // ---- The arrangement --------------------------------------------------------
+  // The one rule for what the panel shows (GLOSSARY: Arrangement). Pure:
+  //   arrangement({ texts, picks, languages, layout, dismissed, mode, click, picked }) -> {
+  //     mode:  'translation' | 'citations'   the effective mode
+  //     body:  'citations' | 'loading' | 'setup' | 'beside' | 'text'
+  //     text:  row id | null    the row the Translation tab is about ('beside', 'text')
+  //     saves: 'translation' | 'citations' | null   what the click writes to panelMode
+  //     note:  'no-translation' | 'beside-page' | 'missing-chapter' | null   the one quiet line above the body
+  //     noteLang: Church code | null     the language the line names
+  //     page:  Church row id | null      the page split's language, in either mode
+  //     pageNext: lang | null            a language the check must ask before `page` is known
+  //     chooses: row id | null           a row on request the Translation tab shows,
+  //                                      so the reader chose it: remember it (pick memory)
+  //   }
+  // Inputs, from content.js except the last three (the panel's own state):
+  //   texts      the rows that may sit beside this chapter, each with
+  //              `offered` true | false | null (chapterOffer's texts; null =
+  //              the chapter check hasn't asked yet). Not an array: nothing is
+  //              known yet, as if the check were asking.
+  //   picks      the pick memory, newest first (plus the default row id)
+  //   languages  the enabled Church language codes
+  //   layout     churchLanguageLayout: a Church row shows as the beside card
+  //              unless it is 'panel'
+  //   dismissed  the reader pressed × on the no-translation line (a synced
+  //              setting, noTranslationLineDismissed)
+  //   mode       the stored panelMode
+  //   click      this visit's mode click, or null
+  //   picked     this visit's dropdown pick (a row id), or null
+  // A click is saved on any chapter. Stored Citations shows Citations. Stored
+  // Translation walks the texts with churchText.firstOffered (the walk the
+  // chapter check makes): the first one offered shows; one not yet checked
+  // before it means the loading state (so Citations never paints first, then
+  // switches). When this visit's dropdown pick lacks the chapter, the text
+  // shown in its place carries the missing-chapter line. With nothing
+  // offered, the setup card when no Church language is on or the reader
+  // clicked Translation on this visit, else Citations with the
+  // no-translation line (note) unless it was dismissed. The page's
+  // language is churchText.pageLanguage, whatever the mode; the text it
+  // names shows as the beside card ('beside' means text === page), any other
+  // text in the panel (NIV beside Español on the page), with the
+  // beside-the-page line naming the page's language. A row on request
+  // (churchText.textsFor: English on a page read in another language) is
+  // never the page's language until chosen; the Translation tab showing it
+  // chooses it (`chooses`), so it takes the page at once, as a pick would.
+  function arrangement(input) {
+    const o = input || {};
+    const click = o.click === 'translation' || o.click === 'citations' ? o.click : null;
+    const stored = o.mode === 'translation' ? 'translation' : 'citations';
+    const mode = click || stored;
+    const saves = click && click !== stored ? click : null;
+    const ct = churchText();
+    const walk = mode === 'translation' && Array.isArray(o.texts) ? ct.firstOffered(o.texts, o.picks) : null;
+    // A row on request (English on a page read in another language) the
+    // Translation tab shows is chosen by that: it counts as the newest pick
+    // here, and `chooses` asks the caller to remember it.
+    const picks = Array.isArray(o.picks) ? o.picks : [];
+    const chooses = walk && walk.row && walk.row.onRequest && picks.indexOf(walk.row.id) < 0 ? walk.row.id : null;
+    // The page's language is the same in either mode (the split stays on the
+    // page in Citations).
+    const page = ct.pageLanguage({ texts: o.texts, picks: chooses ? [chooses].concat(picks) : picks, layout: o.layout });
+    const show = (m, body, text, note, noteLang) => ({
+      mode: m, body, text: text || null, saves, note: note || null, noteLang: noteLang || null,
+      page: page.id, pageNext: page.next, chooses,
+    });
+    if (mode !== 'translation') return show('citations', 'citations');
+    if (!walk || walk.next) return show('translation', 'loading');
+    const row = walk.row;
+    if (row) {
+      // This visit's dropdown pick lacks the chapter: the line says so above
+      // the text shown in its place.
+      const missed = o.texts.find((t) => t.id === o.picked && t.offered === false && t.provider === ct.PROVIDER);
+      const body = row.id === page.id ? 'beside' : 'text';
+      if (missed) return show('translation', body, row.id, 'missing-chapter', missed.lang);
+      // The text the tab is about holds the page: the beside card says so.
+      if (body === 'beside') return show('translation', body, row.id);
+      // A Bible version in the panel while a language holds the page: the
+      // line says where the language went (Bible rows never hold the page).
+      if (page.id && row.provider !== ct.PROVIDER) {
+        return show('translation', body, row.id, 'beside-page', page.id.slice(ct.ID_PREFIX.length));
+      }
+      return show('translation', body, row.id);
+    }
+    const anyLanguage = Array.isArray(o.languages) && o.languages.length > 0;
+    if (!anyLanguage || click === 'translation') return show('translation', 'setup');
+    if (o.dismissed === true) return show('citations', 'citations');
+    return show('citations', 'citations', null, 'no-translation', noteLanguage(o.picks, o.languages));
   }
 
-  // A mode-segment click. True when the effective mode changed (content must
-  // re-render). On a translatable chapter a click is the preference; on one
-  // that isn't, Translation sets the override instead, so the stored
-  // preference is never rewritten by a visit. Citations always clears it.
+  // The language the no-translation line names: the enabled Church language
+  // nearest the front of the pick memory (so it speaks about the text the
+  // reader expected), else the first enabled one. Pick ids are `church:{code}`.
+  function noteLanguage(picks, languages) {
+    const prefix = churchText().ID_PREFIX;
+    for (const id of Array.isArray(picks) ? picks : []) {
+      if (typeof id !== 'string' || !id.startsWith(prefix)) continue;
+      const code = id.slice(prefix.length);
+      if (languages.includes(code)) return code;
+    }
+    return languages[0];
+  }
+
+  // What a pick on the layout control writes (the beside card, the
+  // beside-the-page line's Change, the control above a language read in the
+  // panel): the split layout, and the row it makes the pick, or null. Moving
+  // the page's language into the panel makes it the text the Translation tab
+  // shows, in the place of the Bible version beside it (the dropdown then
+  // selects it); every other pick leaves the pick memory alone.
+  //   layoutChoice(arrangement, layout) -> row id | null   the row the pick makes the pick
+  function layoutChoice(a, layout) {
+    const page = a && a.page;
+    return layout === 'panel' && page ? page : null;
+  }
+
+  // The arrangement of the panel's state: its stored mode and this visit's
+  // click over what content.js last said about the chapter.
+  function arrangementOf(s) {
+    return arrangement(Object.assign({}, s.facts, { mode: s.mode, click: s.click, picked: s.picked }));
+  }
+
+  // The mode showing: the arrangement's. panel.effectiveMode() reads it.
+  function effectiveMode(s) {
+    return arrangementOf(s).mode;
+  }
+
+  // A mode-segment click: this visit's click, saved as the stored mode (the
+  // caller persists `mode` when it moved). True when the effective mode
+  // changed (content must re-render).
   function selectMode(s, m) {
     if (m !== 'citations' && m !== 'translation') return false;
     const before = effectiveMode(s);
-    if (m === before) return false;
-    if (m === 'citations') s.override = false;
-    if (s.translatable) s.mode = m;
-    else if (m === 'translation') s.override = true;
-    return effectiveMode(s) !== before;
+    s.click = m;
+    const a = arrangementOf(s);
+    if (a.saves) s.mode = a.saves;
+    return a.mode !== before;
+  }
+
+  // A dropdown pick: this visit's, so a pick lacking the chapter is said
+  // (the arrangement's missing-chapter line) rather than silently replaced.
+  function selectText(s, id) {
+    s.picked = typeof id === 'string' && id ? id : null;
   }
 
   // A citation-layout click. Only acts while citations are showing.
@@ -173,33 +375,32 @@
     return true;
   }
 
-  // A chapter was shown: a new one, or the same one again after a settings
-  // change (`key` tells them apart). A new chapter drops the override. The
-  // same one keeps it — and once that chapter becomes translatable under it (a
-  // language added from the setup card, Bible translations connected in
-  // settings), the reader's request for Translation is answered, so it
-  // becomes the preference: mode 'translation', override cleared. The caller
-  // persists `mode` when it moved. True when the effective mode flipped.
+  // A chapter was shown: a new one, or the same one again (a settings change,
+  // the chapter check settling, a pick) — `key` tells them apart. `chapter`
+  // is { key, texts, picks, languages, layout }: the arrangement's facts. A
+  // new chapter (or one with no key) starts a new visit, so this visit's
+  // click goes; the same one keeps it. True when the effective mode flipped.
   function setChapter(s, chapter) {
     const c = chapter || {};
     const before = effectiveMode(s);
     const key = c.key == null ? null : String(c.key);
-    if (key === null || key !== s.chapter) s.override = false;
+    if (key === null || key !== s.chapter) Object.assign(s, { click: null, picked: null });
     s.chapter = key;
-    s.translatable = c.translatable !== false;
-    if (s.override && s.translatable) {
-      s.mode = 'translation';
-      s.override = false;
-    }
+    s.facts = factsOf(c);
     return effectiveMode(s) !== before;
   }
 
+  function factsOf(c) {
+    return { texts: c.texts, picks: c.picks, languages: c.languages, layout: c.layout, dismissed: c.dismissed === true };
+  }
+
   // Whether showing `chapter` leaves every cached view valid: the same chapter
-  // again (a settings change re-renders it) with the same translatability. The
-  // talk and the citation list then keep their filter, open groups and scroll.
+  // again (a settings change re-renders it, the chapter check settles it). The
+  // views depend on the chapter, not on which texts offer it, so the talk and
+  // the citation list keep their filter, open groups and scroll.
   function sameChapter(s, chapter) {
     const c = chapter || {};
-    return c.key != null && String(c.key) === s.chapter && (c.translatable !== false) === s.translatable;
+    return c.key != null && String(c.key) === s.chapter;
   }
 
   // A text-size step (the header's A− / A+ buttons), along the grid the
@@ -220,6 +421,192 @@
     return next === scale ? null : next;
   }
 
+  // ---- The welcome (GLOSSARY: Welcome) ----------------------------------------
+  // When the welcome shows over the panel's body: on any panel shown while
+  // the synced `welcomeSeen` flag is false — every chapter until Got it, so a
+  // tab closed without it greets again. A collapsed panel shows no welcome,
+  // and collapsing doesn't count as seen: expanding brings it back.
+  function welcomeDue(s) {
+    return s.welcomeSeen !== true && s.chapter !== null && s.collapsed !== true;
+  }
+
+  // The flag moved: Got it (true), "Show the welcome again" or another
+  // computer's write (either way). True when it changed; the caller persists
+  // a change it made.
+  function setWelcomeSeen(s, seen) {
+    const v = seen === true;
+    if (s.welcomeSeen === v) return false;
+    s.welcomeSeen = v;
+    return true;
+  }
+
+  // Whether the welcome takes focus as it opens: only in the tab the reader
+  // is looking at (`hidden` false, its window `focused`). Every open tab
+  // shows the welcome when "Show the welcome again" writes the flag, and a
+  // tab can load behind another; those leave focus where it is.
+  function welcomeTakesFocus(page) {
+    const p = page || {};
+    return p.hidden === false && p.focused === true;
+  }
+
+  // Where focus goes after a collapse or an expand (the state after it), for
+  // a keyboard user whose focus was in the panel: the tab on collapse,
+  // Collapse on expand — unless the expand brings the welcome back (null:
+  // the welcome takes focus when it opens). Only a keyboard activation moves
+  // focus (`keyboard` false: a mouse click): a mouse reader left a focus ring
+  // on a control they never asked for (#102 C2).
+  //   -> 'tab' | 'collapse' | null
+  function focusOnToggle(s, keyboard) {
+    if (keyboard === false) return null;
+    if (s.collapsed) return 'tab';
+    return welcomeDue(s) ? null : 'collapse';
+  }
+
+  // Was a button's click made with the keyboard? Enter or Space on a focused
+  // button click with a click count (`detail`) of 0, a mouse click with 1 or
+  // more. What isn't known counts as the keyboard: focus moving is the safe
+  // side for a screen-reader user.
+  function byKeyboard(event) {
+    return !event || event.detail === 0 || typeof event.detail !== 'number';
+  }
+
+  // The controls the panel builds, by name: what a welcome step may point
+  // at. The DOM shell maps each name to its node(s) (controlNodes), and
+  // validate-panel-state holds the steps table to this list.
+  //   translation-tab / citations-tab   the header's mode segments
+  //   settings / collapse               the header's icon buttons
+  //   translation-select                the toolbar's version dropdown
+  //   citation-layout                   the toolbar's By source | By verse
+  //   text-size                         the toolbar's A− / A+ (two buttons)
+  const CONTROL_NAMES = ['translation-tab', 'citations-tab', 'settings', 'collapse', 'translation-select', 'citation-layout', 'text-size'];
+
+  // What the welcome says, one step at a time. Each step: `id`, the
+  // `control` it points at (a CONTROL_NAMES name; only controls that show in
+  // every mode, so no step ever points at nothing), its `title` and its
+  // `lines`: plain sentences for a broad audience, many reading English as a
+  // second language — no idioms, and each control called by the name it
+  // shows or announces. A line may carry `when`, facts it needs, all of which
+  // must match (welcomeSteps), and `tip`: a second way to do what the step
+  // says, drawn smaller under the line that matters. `{icon}` in a line marks where the extension's
+  // icon is drawn inline (lineParts), always beside its name in words: the
+  // toolbar icon is the browser's, not the panel's. In tour order: what the
+  // panel opens on first, and last the way to hide it and get it back. The
+  // copy is spec A's model: the panel opens on Citations, and a language you
+  // add reads on the page whatever the panel shows (verse by verse: beside
+  // or under each, as the room allows); a Bible version only on the Bible.
+  const WELCOME_COPY = { title: 'Welcome to Translations & Citations', back: 'Back', next: 'Next', skip: 'Skip', gotIt: 'Got it' };
+  const WELCOME_STEPS = [
+    { id: 'citations', control: 'citations-tab', title: WELCOME_COPY.title, lines: [
+      { text: 'Citations shows the talks and sermons that quote each verse of this chapter. Open one to read it right here.' },
+    ] },
+    { id: 'translation', control: 'translation-tab', title: 'Translation', lines: [
+      { text: 'Read scripture in another language, like Spanish or Japanese, or the Bible in another version.' },
+      { text: 'A language you add appears on the page with the English, verse by verse.' },
+    ] },
+    { id: 'settings', control: 'settings', title: 'Settings', lines: [
+      { text: 'Add languages and Bible versions, and change the text size.' },
+    ] },
+    { id: 'hide', control: 'collapse', title: 'Hide the panel', lines: [
+      { text: 'The Collapse button hides the panel and leaves a small tab at the window’s edge. Click the tab to bring it back.' },
+      { text: 'You can also click the Translations & Citations icon {icon} at the top right of Chrome.', tip: true },
+      { text: 'Don’t see it? Click the puzzle-piece icon there, then the pin next to Translations & Citations.', tip: true, when: { pinned: false } },
+    ] },
+  ];
+
+  // The steps as the welcome shows them, given what the panel knows
+  // (`facts`, e.g. { pinned }): a line with `when` stays only when every fact
+  // it names is known and matches — unsure, the welcome says nothing.
+  function welcomeSteps(facts, table) {
+    const f = facts || {};
+    const holds = (when) => !when || Object.keys(when).every((k) => f[k] === when[k]);
+    return (table || WELCOME_STEPS).map((s) => Object.assign({}, s, { lines: s.lines.filter((l) => holds(l.when)) }));
+  }
+
+  // Step `index` of `steps` as the card draws it: the step, where it is in
+  // the tour (`position` "2 of 4"), and which buttons it carries — Back from
+  // the second step, Skip until the last, whose Next is Got it. An index out
+  // of range is held to the tour's ends.
+  function welcomeStepView(steps, index) {
+    const count = steps.length;
+    const i = Math.max(0, Math.min(count - 1, Number.isInteger(index) ? index : 0));
+    const last = i === count - 1;
+    return {
+      step: steps[i],
+      index: i,
+      position: `${i + 1} of ${count}`,
+      back: i > 0,
+      skip: !last,
+      next: last ? WELCOME_COPY.gotIt : WELCOME_COPY.next,
+      last,
+    };
+  }
+
+  // The facts the steps' `when` lines read, from the worker's answer to
+  // GET_TOOLBAR_PIN. `pinned` is true only when the worker said the icon is on
+  // the toolbar: any other reply (null, an error, no reply, an old Chrome)
+  // counts as not pinned, so the pinning line shows.
+  function welcomeFactsFrom(reply) {
+    return { pinned: !!reply && reply.isOnToolbar === true };
+  }
+
+  // A line's text as parts to render: strings, and { icon: true } where the
+  // extension's icon is drawn.
+  function lineParts(line) {
+    const out = [];
+    String(line.text).split('{icon}').forEach((t, i) => {
+      if (i) out.push({ icon: true });
+      if (t) out.push(t);
+    });
+    return out;
+  }
+
+  // Where the step's card is drawn: under the control it names, its caret
+  // aimed at the control's centre, and a ring round the control. Inputs in
+  // the welcome layer's coordinates (the panel's box): `control` the
+  // control's measured rect (null, or a box of no size — a control not
+  // showing — gives a plain card across the area: no caret, no ring), `area`
+  // the content box the card sits in ({left, width}), `panel` ({width,
+  // height}). Out, whole pixels: `card` {left (relative to the area), width},
+  // `caret` (x within the card, or null), `ring` (a rect, or null). The card
+  // is the area's width up to `cardMax`, centred under the control and kept
+  // inside the area; the caret stays `caretInset` in from the card's
+  // corners; the ring sits `ringPad` out from the control and stops at the
+  // panel's edges.
+  const CALLOUT_GEOMETRY = { cardMax: 300, caretInset: 14, ringPad: 4 };
+  function calloutPlacement({ control, area, panel }) {
+    const g = CALLOUT_GEOMETRY;
+    const areaW = Math.round(area.width);
+    if (!control || !(control.width > 0) || !(control.height > 0)) {
+      return { card: { left: 0, width: areaW }, caret: null, ring: null };
+    }
+    const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+    const cx = control.left + control.width / 2;
+    const width = Math.min(areaW, g.cardMax);
+    const left = clamp(Math.round(cx - width / 2), Math.round(area.left), Math.round(area.left) + areaW - width);
+    const caret = clamp(Math.round(cx - left), g.caretInset, width - g.caretInset);
+    const x0 = Math.max(0, Math.round(control.left - g.ringPad));
+    const y0 = Math.max(0, Math.round(control.top - g.ringPad));
+    const x1 = Math.min(Math.round(panel.width), Math.round(control.left + control.width + g.ringPad));
+    const y1 = Math.min(Math.round(panel.height), Math.round(control.top + control.height + g.ringPad));
+    return {
+      card: { left: left - Math.round(area.left), width },
+      caret,
+      ring: { left: x0, top: y0, width: x1 - x0, height: y1 - y0 },
+    };
+  }
+
+  // One box round several (the A− / A+ stepper is two buttons); a node not
+  // showing (no size) adds nothing. Null when nothing shows.
+  function unionRect(rects) {
+    const shown = rects.filter((r) => r && r.width > 0 && r.height > 0);
+    if (!shown.length) return null;
+    const left = Math.min(...shown.map((r) => r.left));
+    const top = Math.min(...shown.map((r) => r.top));
+    const right = Math.max(...shown.map((r) => r.left + r.width));
+    const bottom = Math.max(...shown.map((r) => r.top + r.height));
+    return { left, top, width: right - left, height: bottom - top };
+  }
+
   // ---- Pure translation-state copy (Node-testable) ------------------------
   // What each Translation-mode card and error says, and which action it
   // offers. `chapter` is the chapter as the reader names it ("Psalm 23"),
@@ -227,7 +614,8 @@
 
   // The setup card, for a chapter no enabled text offers. `bible` is null off
   // the Bible, else what the api.bible path is missing: 'nokey' (no key yet)
-  // or 'noversions' (none turned on).
+  // or 'noversions' (none turned on). The World English Bible ships with the
+  // extension, so on the Bible api.bible offers *more* translations.
   function setupCopy(o) {
     const chapter = (o && o.chapter) || 'this chapter';
     const bible = o && o.bible;
@@ -236,10 +624,55 @@
       languages: 'Choose a Church language…',
       add: 'Add',
       languagesHint: 'Published by the Church. No key needed.',
-      bible: !bible ? null : bible === 'noversions'
-        ? { text: 'No Bible translations are turned on yet.', button: 'Choose Bible translations' }
-        : { text: 'Bible translations such as NIV and NKJV need a free api.bible key.', button: 'Set up Bible translations' },
+      // The in-product disclosures (C.DISCLOSURE), beside the action they consent to.
+      languagesDisclosure: C.DISCLOSURE.churchLanguage,
+      bible: !bible ? null : Object.assign(bible === 'noversions'
+        ? { text: 'Turn on more Bible translations from your api.bible key.', button: 'Choose Bible translations' }
+        : { text: 'More Bible translations, such as NIV and NKJV, need a free api.bible key.', button: 'Set up more translations' },
+      { disclosure: C.DISCLOSURE.apiBible }),
       talks: `See the talks that cite ${chapter}`,
+    };
+  }
+
+  // The one quiet line above the body (the arrangement's `note`). `note` is
+  // { kind, row, chapter }: the kind the arrangement answered, the language's
+  // row ({ abbr: its own name, name: its English name }) and the chapter as
+  // a sentence names it ("Doctrine and Covenants 76").
+  //   -> { view, language, text, actions: [{ id, label, title? }] } or null
+  // `view` is the named view the line sits above: it is shown only while that
+  // view is mounted. `language` is the name the line uses. The actions' ids
+  // are the shell's verbs: 'add' opens the setup card for this visit,
+  // 'dismiss' is the ×, 'change' opens the layout control in the line's place.
+  // Kinds, each naming the language its own way:
+  //   'no-translation'  above Citations: nothing offers the chapter ("Kiribati")
+  //   'missing-chapter' above Translation: this visit's dropdown pick lacks
+  //                     the chapter ("Pohnpeian"); no buttons
+  //   'beside-page'     above a Bible version in the panel: the language
+  //                     holding the page, as the dropdown leads its row ("Español")
+  function noteCopy(note) {
+    const kind = note && note.kind;
+    const row = (note && note.row) || {};
+    if (kind === 'beside-page') {
+      const language = row.abbr || row.name || '';
+      return {
+        view: 'translation',
+        language,
+        text: `${language || 'A language'} is beside the page text ·`,
+        actions: [{ id: 'change', label: 'Change' }],
+      };
+    }
+    if (kind !== 'no-translation' && kind !== 'missing-chapter') return null;
+    const language = row.name || '';
+    const text = language && note.chapter ? `No ${language} translation for ${note.chapter}.` : 'No translation for this chapter.';
+    if (kind === 'missing-chapter') return { view: 'translation', language, text, actions: [] };
+    return {
+      view: 'citations',
+      language,
+      text,
+      actions: [
+        { id: 'add', label: 'Add a language' },
+        { id: 'dismiss', label: '×', title: 'Dismiss for good' },
+      ],
     };
   }
 
@@ -251,24 +684,63 @@
   // the reader's setting ('columns' | 'interlinear'); `effective` is what the
   // page split could actually lay out (null until it has mounted), and
   // `collapseFits` whether collapsing the panel would give columns room.
+  // `pressed` is the segment the layout control shows pressed: the layout the
+  // page shows, so control, status and page agree (pressedLayout).
   // `collapse` is the label of the card's collapse button, null when it isn't
   // offered. Beside the page, collapsing is offered only where it delivers
   // columns: it widens columns already there, or makes room for them. In the
   // narrow window's bottom sheet (`sheet`) nothing can make room for columns,
-  // so there is no room note, and the sheet covering the page is what
-  // collapsing fixes: it is always offered, as "Hide panel".
+  // so there is no room note until the reader clicks Side by side (`nudged`),
+  // and the sheet covering the page is what collapsing fixes: it is always
+  // offered, as "Hide panel".
   function besideCopy(o) {
     const c = o || {};
     const name = c.name || 'The translation';
     const layout = c.layout === 'interlinear' ? 'interlinear' : 'columns';
     const shown = c.effective === 'columns' || c.effective === 'interlinear' ? c.effective : layout;
     const status = shown === 'columns' ? `${name} is shown side by side.` : `${name} is shown under each verse.`;
-    if (c.sheet === true) return { status, note: '', collapse: 'Hide panel' };
+    const pressed = pressedLayout(layout, c.effective);
+    if (c.sheet === true) {
+      return { status, note: c.nudged === true ? roomHint({ layout, effective: shown, collapseFits: false }) : '', collapse: 'Hide panel', pressed };
+    }
     return {
       status,
-      note: layout === 'columns' && shown === 'interlinear' ? 'Not enough room for side by side.' : '',
+      note: roomHint({ layout, effective: shown, collapseFits: c.collapseFits }),
       collapse: layout === 'columns' && (shown === 'columns' || c.collapseFits === true) ? 'Collapse panel for wider columns' : null,
+      pressed,
     };
+  }
+
+  // The layout the control shows pressed: the one the page is laid out in.
+  // Columns wanted but not fitting is shown as Under each verse while the
+  // setting stays columns, so side by side returns by itself when room does.
+  // `effective` is null until the split has measured; "In the panel" has no
+  // split to fit.
+  function pressedLayout(layout, effective) {
+    if (layout !== 'columns' && layout !== 'interlinear') return layout;
+    return effective === 'columns' || effective === 'interlinear' ? effective : layout;
+  }
+
+  // What a click on layout `value` does, given the reader's setting `layout`
+  // and the split's `effective` layout: 'write' the setting, 'explain' (the
+  // setting already is `value` but the page can't show it: say what would
+  // make room, change nothing), or 'none'. Compared with the setting, never
+  // with the pressed segment: Under each verse is pressed while columns are
+  // wanted, and picking it is still a change of preference.
+  function layoutClick(o) {
+    const c = o || {};
+    if (c.value !== c.layout) return 'write';
+    return pressedLayout(c.layout, c.effective) !== c.value ? 'explain' : 'none';
+  }
+
+  // Why Side by side isn't shown, in a line: collapsing the panel would give
+  // columns room (the owner's wording), or there is no room to be had. Empty
+  // where columns fit or weren't asked for. `sheet` is the bottom sheet:
+  // collapsing can't help there.
+  function roomHint(o) {
+    const c = o || {};
+    if (c.layout !== 'columns' || c.effective !== 'interlinear') return '';
+    return c.collapseFits === true && c.sheet !== true ? 'Collapse the panel for side by side.' : 'Not enough room for side by side.';
   }
 
   // A rate-limited chapter load: wait and retry by itself, or stop? Only a
@@ -276,65 +748,127 @@
   // api.bible 429 whose Retry-After is at most RETRY_MAX_WAIT_MS — and only
   // RETRY_MAX times in a row for one chapter and version (`attempts` is how
   // many automatic retries already ran). A 429 with no Retry-After, a longer
-  // one, the daily cap, or a wait that keeps coming back stops at the error
-  // card: every retry spends the reader's api.bible allowance.
+  // one, a paused month (`rate`, below), or a wait that keeps coming back
+  // stops at the error card: every retry spends the reader's api.bible
+  // allowance.
   //   -> ms to wait before the retry, or null for the error card
   const RETRY_MAX_WAIT_MS = 60000;
   const RETRY_MAX = 3;
 
   function retryWait(error, attempts) {
     const e = error || {};
-    if (e.code !== 'RATE_LIMITED') return null;
+    if (e.code !== 'RATE_LIMITED' || isPaused(e.rate)) return null;
     const ms = Number(e.retryAfterMs);
     if (!(ms > 0) || ms > RETRY_MAX_WAIT_MS) return null;
     if (!((Number(attempts) || 0) < RETRY_MAX)) return null;
     return Math.max(1000, Math.ceil(ms));
   }
 
+  // The month's rate state the worker attaches to every api.bible chapter
+  // answer (background/ratelimit.js rateState), carried on the Translation
+  // states as `rate`: { state: 'ok' | 'near' | 'paused', month: 'YYYY-MM',
+  // until?: 'YYYY-MM-DD' }. Paused = api.bible refused at or past the free
+  // plan's monthly limit; its line names the day it comes back.
+  function isPaused(rate) {
+    return !!rate && rate.state === 'paused';
+  }
+
+  // The paused line (spec #101's copy, "Back on {Month D}") and the near line
+  // (once per calendar month above an api.bible chapter; `seenMonth` is the
+  // 'YYYY-MM' it was last shown, kept in chrome.storage.local under
+  // C.NEAR_LINE_KEY). One copy, shared with the options page:
+  // src/shared/rate-copy.js.
+  const pausedLine = RATE_COPY.pausedLine;
+  const nearLine = RATE_COPY.nearLine;
+
+  // The panel's dropdown, as the cards name it: it has no visible label, so
+  // a card says where it is rather than "above".
+  const MENU = 'from the menu at the top of the panel';
+
+  // A paused month's hint: what comes back on the paused line's day (`name`,
+  // and the reader's other api.bible translations when the dropdown has more:
+  // `others.apiBible` counts its api.bible rows), then only what the dropdown
+  // offers that doesn't need api.bible (`others`: { bundled, church } — the
+  // World English Bible is offered, how many Church languages are). Every
+  // api.bible translation is paused with the month, and the cache is too
+  // small to promise chapters already read.
+  function pausedHint(name, others) {
+    const o = others || {};
+    const n = String(name || 'this translation');
+    const who = n.charAt(0).toUpperCase() + n.slice(1);
+    const back = Number(o.apiBible) > 1
+      ? `${who} and your other api.bible translations come back on that day.`
+      : `${who} comes back on that day.`;
+    const church = Number(o.church) > 0 ? Number(o.church) : 0;
+    const langs = church === 1 ? 'your Church language' : 'your Church languages';
+    let now = '';
+    if (o.bundled && church) now = `The World English Bible and ${langs} still work. Choose one ${MENU}.`;
+    else if (o.bundled) now = `The World English Bible still works. Choose it ${MENU}.`;
+    else if (church === 1) now = `Your Church language still works. Choose it ${MENU}.`;
+    else if (church) now = `Your Church languages still work. Choose one ${MENU}.`;
+    return now ? `${back} ${now}` : back;
+  }
+
   // A chapter that failed to load. `code` is a C.ERR code; `church` says it
   // came from the Church's site rather than api.bible; `alternatives` that the
-  // dropdown offers something else to pick. A RATE_LIMITED error that reaches
-  // the card (retryWait said stop) is api.bible refusing the key (`remote`),
-  // the local daily cap (no wait, or one past RETRY_MAX_WAIT_MS), or a short
-  // wait that kept recurring. action: 'settings' | 'retry' | null.
+  // dropdown offers something else to pick; `others` what it offers that
+  // doesn't need api.bible (pausedHint); `rate` the month's rate state. A
+  // RATE_LIMITED error that reaches the card (retryWait said stop) is
+  // api.bible refusing: the month used up (`rate` paused: the paused line,
+  // in the api.bible text's place) or the key's allowance for now (`remote`);
+  // or the local burst window's wait kept recurring (the "allowance" card
+  // also names the monthly limit: this computer's count can't see the same
+  // key used on another).
+  // action: 'settings' | 'retry' | null; `link` (a key problem): { text, href },
+  // api.bible's dashboard, beside Open settings.
   function errorCopy(o) {
     const e = o || {};
     const name = e.name || 'this translation';
     const chapter = e.chapter || 'this chapter';
     const other = e.church ? 'language' : 'translation';
+    const dashboard = { text: 'Open your api.bible dashboard', href: C.API_BIBLE_PAGES.dashboard };
     switch (e.code) {
       case 'NO_KEY':
         return { message: 'Bible translations need an api.bible key.', hint: '', action: 'settings' };
       case 'INVALID_KEY':
-        return { message: 'api.bible didn’t accept your key.', hint: 'Check that you copied all of it.', action: 'settings' };
-      case 'FORBIDDEN':
         return {
-          message: `${name} isn’t included with your api.bible key.`,
-          hint: e.alternatives ? 'Add it at scripture.api.bible, or choose another translation above.' : 'Add it at scripture.api.bible.',
+          message: 'api.bible didn’t accept your key.',
+          hint: 'Copy it again from your api.bible dashboard and paste it in settings, or create a free account first.',
           action: 'settings',
+          link: dashboard,
         };
+      case 'FORBIDDEN': {
+        const add = `Add it in your api.bible dashboard: ${C.API_BIBLE_ADD_BIBLES}.`;
+        return {
+          message: `${name} isn’t on your api.bible key yet.`,
+          hint: e.alternatives ? `${add} Or choose another translation ${MENU}.` : add,
+          action: 'settings',
+          link: dashboard,
+        };
+      }
       case 'NOT_FOUND':
         return {
           message: e.church ? `${chapter} isn’t available in ${name}.` : `${name} doesn’t include ${chapter}.`,
-          hint: e.alternatives ? `Choose another ${other} above.` : '',
+          hint: e.alternatives ? `Choose another ${other} ${MENU}.` : '',
           action: null,
         };
       case 'RATE_LIMITED':
+        if (isPaused(e.rate)) {
+          return {
+            message: pausedLine(e.rate.until),
+            hint: pausedHint(e.name, e.others),
+            action: null,
+          };
+        }
         if (e.remote) {
           return {
             message: 'Your api.bible key has used its allowance for now.',
-            hint: 'Chapters you’ve already read still open. Try again later.',
+            hint: 'Chapters you read recently still open. Try again later. '
+              + 'If you use this key on another computer too, api.bible’s monthly limit may be used up.',
             action: 'retry',
           };
         }
-        if (e.retryAfterMs > 0 && e.retryAfterMs <= RETRY_MAX_WAIT_MS) {
-          return { message: 'api.bible is busy.', hint: 'Try again in a minute.', action: 'retry' };
-        }
-        return {
-          message: 'You’ve used today’s api.bible allowance.',
-          hint: 'Chapters you’ve already read still open. Others will load again tomorrow.',
-          action: null,
-        };
+        return { message: 'api.bible is busy.', hint: 'Try again in a minute.', action: 'retry' };
       case 'NETWORK':
         return {
           message: e.church ? 'Couldn’t reach churchofjesuschrist.org.' : 'Couldn’t reach api.bible.',
@@ -668,14 +1202,33 @@
     return Math.max(0, Math.round(Number(o.bottom) || 0));
   }
 
+  // The packaged icon file for the extension icon drawn at `size` px: twice
+  // the size, so it stays sharp at 2x density (16 -> icons/icon-32.png). The
+  // manifest lists each such file as web-accessible (validate-manifest).
+  function iconFile(size) {
+    return `icons/icon-${size * 2}.png`;
+  }
+
+  // How a width drag ends. The panel follows the pointer during the drag; a
+  // release (commit) keeps and saves where it ended, a cancel (pointercancel)
+  // puts back the width the drag began at and saves nothing.
+  //   from    the panel's width at pointer-down, px
+  //   at      the width under the pointer at the end, px
+  //   -> { width, save }
+  function resizeEnd({ from, at, commit }) {
+    return commit ? { width: at, save: true } : { width: from, save: false };
+  }
+
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = {
-      createState, effectiveMode, selectMode, selectCitationView, setChapter, sameChapter,
-      stepFontScale, setupCopy, besideCopy, errorCopy, retryWait, LAYOUTS, RETRY_MAX_WAIT_MS, RETRY_MAX,
+      createState, arrangement, layoutChoice, arrangementOf, effectiveMode, selectMode, selectText, selectCitationView, setChapter, sameChapter,
+      welcomeDue, setWelcomeSeen, welcomeTakesFocus, focusOnToggle, byKeyboard, CONTROL_NAMES, WELCOME_COPY, WELCOME_STEPS, welcomeSteps, welcomeStepView, welcomeFactsFrom, lineParts,
+      CALLOUT_GEOMETRY, calloutPlacement, unionRect,
+      stepFontScale, setupCopy, noteCopy, besideCopy, pressedLayout, layoutClick, roomHint, errorCopy, pausedLine, nearLine, retryWait, LAYOUTS, RETRY_MAX_WAIT_MS, RETRY_MAX,
       createViews, saveViewScroll, selectView, keepView, settleView, dropViews, SAME_CHAPTER_VIEWS,
       viewRestoresScroll, wantsScrollSync,
       scrollStep, easeRamp, floorStep, carryScroll, realignmentDone, isForeignScroll,
-      revealTop, keptScrollTop, panelTop,
+      revealTop, keptScrollTop, panelTop, resizeEnd, iconFile,
       SCROLL_TAU_MS, SCROLL_RAMP_MS, SCROLL_MIN_STEP_PX, SCROLL_LIMITS,
       SCROLL_REVEAL_FRACTION, SCROLL_REVEAL_CLEAR_PX,
     };
@@ -703,7 +1256,7 @@
   // The settings this panel handles by itself when they change. Exposed as
   // panel.HANDLED_KEYS so the orchestrator can skip its full re-render for a
   // change touching only these — one list, no mirror to drift.
-  const PANEL_HANDLED_KEYS = ['sidebarWidth', 'fontScale', 'citationView', 'panelMode', 'panelCollapsed', 'scrollSync'];
+  const PANEL_HANDLED_KEYS = ['sidebarWidth', 'fontScale', 'citationView', 'panelMode', 'panelCollapsed', 'scrollSync', 'welcomeSeen'];
 
   let ui = null; // refs once built
   const cbs = {}; // event handlers set by init()
@@ -742,7 +1295,6 @@
       ['path', { d: 'M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z' }],
     ],
     collapse: PANEL_FRAME.concat([['path', { d: 'm8 9 3 3-3 3' }]]), // chevron toward the edge
-    expand: PANEL_FRAME.concat([['path', { d: 'm10 15-3-3 3-3' }]]), // chevron out of it
   };
 
   function svgNode(tag, attrs) {
@@ -845,7 +1397,7 @@
 
     // The collapsed panel: one icon tab on the window's right edge.
     const tab = labelled(el('button', 'btx-tab'), 'Show Translations & Citations');
-    tab.appendChild(icon('expand', 20));
+    tab.appendChild(extensionIcon('btx-tab-icon', 16));
 
     rootEl.appendChild(panel);
     rootEl.appendChild(tab);
@@ -860,18 +1412,20 @@
     // Wire controls.
     select.addEventListener('change', () => {
       showSelectedTitle();
+      selectText(state, select.value);
       if (cbs.onTranslationChange) cbs.onTranslationChange(select.value);
     });
     smaller.addEventListener('click', () => onFontStep(-1));
     larger.addEventListener('click', () => onFontStep(1));
     gear.addEventListener('click', () => cbs.onGear && cbs.onGear());
-    collapse.addEventListener('click', () => setCollapsed(true));
-    tab.addEventListener('click', () => setCollapsed(false));
+    collapse.addEventListener('click', (e) => setCollapsed(true, byKeyboard(e)));
+    tab.addEventListener('click', (e) => setCollapsed(false, byKeyboard(e)));
     modeTranslation.addEventListener('click', () => onModeClick('translation'));
     modeCitations.addEventListener('click', () => onModeClick('citations'));
     citViewSource.addEventListener('click', () => onCitViewClick('source'));
     citViewVerse.addEventListener('click', () => onCitViewClick('verse'));
     resize.addEventListener('pointerdown', onResizeDown);
+    resize.addEventListener('mousedown', noSelect);
     // Show the scrollbar while scrolling, fade it ~1s after it stops.
     body.addEventListener('scroll', () => {
       onBodyScrolled();
@@ -880,7 +1434,19 @@
       scrollFadeTimer = setTimeout(() => body.classList.remove('btx-scrolling'), 1000);
     }, { passive: true });
 
-    ui = { rootEl, panel, header, toolbar, select, smaller, larger, modes, modeTranslation, modeCitations, citModes, citViewSource, citViewVerse, body, tab, collapse, resize };
+    // Each of CONTROL_NAMES to the node(s) it names: what a welcome step
+    // points at (controlNodes).
+    const controls = {
+      'translation-tab': [modeTranslation],
+      'citations-tab': [modeCitations],
+      settings: [gear],
+      collapse: [collapse],
+      'translation-select': [select],
+      'citation-layout': [citModes],
+      'text-size': [smaller, larger],
+    };
+
+    ui = { rootEl, panel, header, toolbar, select, smaller, larger, modes, modeTranslation, modeCitations, citModes, citViewSource, citViewVerse, body, tab, collapse, resize, controls };
     return ui;
   }
 
@@ -905,6 +1471,259 @@
     ui.rootEl.classList.toggle('btx-collapsed', state.collapsed);
     refreshScrollSync();
     updatePageReserve();
+    applyWelcomeUI();
+  }
+
+  // ---- The welcome -----------------------------------------------------------
+  // A layer over the body (header and toolbar stay in view and usable), shown
+  // while welcomeDue says so. It is a labelled dialog *within* the panel, not
+  // a modal: the page beside it stays fully usable, and only Got it or Skip
+  // close it — a click elsewhere, a scroll or Esc leave it up. One step shows
+  // at a time (welcomeStepView): a card under the control the step names,
+  // that control ringed; Back and Next walk the steps. The step reached
+  // outlives a collapse (welcomeStep), so an expand picks up where the reader
+  // was. The body under it is inert meanwhile. Focus moves into it when it
+  // appears in the tab in front (welcomeTakesFocus), and to the panel's first
+  // control once it is done.
+  let welcome = null; // { layer, sheet, track, card, ring, …, steps, view, observer, frame } while it shows
+  let welcomeFacts = welcomeFactsFrom(null); // what the worker last said (is the icon pinned?)
+  let welcomeAsking = false;
+  let welcomeStep = 0; // the step reached; back to the first once the welcome is done
+
+  function applyWelcomeUI() {
+    if (!ui) return;
+    const want = visible && welcomeDue(state);
+    if (want && !welcome) askThenOpenWelcome();
+    else if (!want && welcome) closeWelcome();
+  }
+
+  // The pinning line needs the worker's answer, so the welcome opens once it
+  // has come (a round trip to the worker, not a wait on the reader). Asked
+  // afresh each time the welcome opens: "Show the welcome again" after a pin
+  // sees the pin. By then the welcome may no longer be due; it is re-checked.
+  function askThenOpenWelcome() {
+    if (welcomeAsking) return;
+    welcomeAsking = true;
+    Promise.resolve()
+      .then(() => (cbs.askToolbarPin ? cbs.askToolbarPin() : null))
+      .catch(() => null)
+      .then((reply) => {
+        welcomeAsking = false;
+        welcomeFacts = welcomeFactsFrom(reply);
+        if (ui && !welcome && visible && welcomeDue(state)) openWelcome();
+      });
+  }
+
+  // The layer covers the whole panel but takes no pointer events: it holds
+  // the ring drawn round the step's control (header and toolbar stay usable
+  // through it) and the sheet, which covers the body only and holds the
+  // card. The card is built once and filled per step (fillStep), so a button
+  // keeps focus while the reader walks the steps. The dialog is named by the
+  // step's title and described by its lines; the step's text is a polite
+  // live region, so each new step is read out once.
+  function buildWelcome() {
+    const layer = el('div', 'btx-welcome');
+    const ring = el('div', 'btx-welcome-ring');
+    ring.setAttribute('aria-hidden', 'true');
+    ring.hidden = true;
+    layer.appendChild(ring);
+    const sheet = el('div', 'btx-welcome-sheet');
+    const track = el('div', 'btx-welcome-track');
+    const card = el('div', 'btx-welcome-dialog');
+    card.setAttribute('role', 'dialog');
+    card.setAttribute('aria-labelledby', 'btx-welcome-title');
+    card.setAttribute('aria-describedby', 'btx-welcome-lines');
+    card.tabIndex = -1;
+    const content = el('div', 'btx-welcome-step');
+    content.setAttribute('aria-live', 'polite');
+    const head = el('div', 'btx-welcome-head');
+    const title = el('h2', 'btx-welcome-title');
+    title.id = 'btx-welcome-title';
+    const position = el('span', 'btx-welcome-position');
+    head.append(title, position);
+    const lines = el('div', 'btx-welcome-lines');
+    lines.id = 'btx-welcome-lines';
+    content.append(head, lines);
+    const foot = el('div', 'btx-welcome-foot');
+    const skip = el('button', 'btx-welcome-skip', WELCOME_COPY.skip);
+    const back = el('button', 'btx-welcome-back', WELCOME_COPY.back);
+    const next = el('button', 'btx-cta btx-welcome-next');
+    for (const b of [skip, back, next]) b.type = 'button';
+    skip.addEventListener('click', onWelcomeDone);
+    back.addEventListener('click', () => showStep(welcomeStep - 1));
+    next.addEventListener('click', onWelcomeNext);
+    foot.append(skip, back, next);
+    card.append(content, foot);
+    track.appendChild(card);
+    sheet.appendChild(track);
+    layer.appendChild(sheet);
+    // Esc is not Got it, and must not reach the talk reader's Back either.
+    layer.addEventListener('keydown', (e) => { if (e.key === 'Escape') e.stopPropagation(); });
+    return { layer, sheet, track, card, ring, title, position, lines, skip, back, next, steps: welcomeSteps(welcomeFacts), view: null, shownAt: 0 };
+  }
+
+  // Next, or Got it on the last step. A click that lands just after the
+  // step changed is the second half of a double click (Next turns into Got
+  // it in place, and the card may move under the pointer): it is dropped,
+  // so a double click never ends the tour for good.
+  const WELCOME_CLICK_GUARD_MS = 350;
+  function onWelcomeNext() {
+    if (performance.now() - welcome.shownAt < WELCOME_CLICK_GUARD_MS) return;
+    if (welcome.view.last) onWelcomeDone();
+    else showStep(welcomeStep + 1);
+  }
+
+  // Fill the card with step `i` (held to the tour's ends): its text, its
+  // buttons, and which controls dim (all but the step's own, so the ringed
+  // one stands out). Back on the first step is hidden, so focus that sat on
+  // it moves to Next and never drops to the page.
+  function fillStep(i) {
+    const w = welcome;
+    const v = welcomeStepView(w.steps, i);
+    const backHadFocus = document.activeElement === w.back;
+    welcomeStep = v.index;
+    w.view = v;
+    w.shownAt = performance.now();
+    w.title.textContent = v.step.title;
+    w.position.textContent = v.position;
+    w.lines.replaceChildren(...v.step.lines.map((line) => {
+      const p = el('p', line.tip ? 'btx-welcome-line btx-welcome-tip' : 'btx-welcome-line');
+      for (const part of lineParts(line)) p.appendChild(typeof part === 'string' ? document.createTextNode(part) : extensionIcon('btx-welcome-icon', 16));
+      return p;
+    }));
+    w.back.hidden = !v.back;
+    w.skip.hidden = !v.skip;
+    w.next.textContent = v.next;
+    w.card.setAttribute('data-btx-step', v.step.id);
+    dimControls(v.step.control);
+    if (backHadFocus && !v.back) w.next.focus({ preventScroll: true });
+  }
+
+  // A step change: fill, then glide the ring to its new control (a resize
+  // places it at once).
+  function showStep(i) {
+    const w = welcome;
+    fillStep(i);
+    if (!w.ring.hidden) {
+      w.ring.classList.add('btx-glide');
+      clearTimeout(w.glide);
+      w.glide = setTimeout(() => w.ring.classList.remove('btx-glide'), 260);
+    }
+    placeWelcome();
+  }
+
+  // Every control the welcome may point at, dimmed but the one `keep`
+  // names (null: none dimmed).
+  function dimControls(keep) {
+    for (const name of CONTROL_NAMES) {
+      for (const node of controlNodes(name)) node.toggleAttribute('data-btx-dim', keep !== null && name !== keep);
+    }
+  }
+
+  // The extension's own toolbar icon, drawn beside its name in words: a
+  // picture of what to look for, so its alt text is empty (the name is
+  // already read out). The file is iconFile's, twice the drawn size.
+  function extensionIcon(cls, size) {
+    const img = el('img', cls);
+    img.alt = '';
+    img.width = size;
+    img.height = size;
+    try { img.src = chrome.runtime.getURL(iconFile(size)); } catch (e) { /* extension reloaded: the name in words stands */ }
+    return img;
+  }
+
+  // Measure, then place: the sheet starts where the body does (below
+  // whichever chrome rows show); the card and ring go where
+  // calloutPlacement puts them for the step's control, in the layer's
+  // coordinates. A control not showing gets a plain card and no ring.
+  function placeWelcome() {
+    if (!welcome || !welcome.view) return;
+    const { layer, sheet, track, card, ring, view } = welcome;
+    sheet.style.top = `${ui.body.offsetTop}px`;
+    const base = layer.getBoundingClientRect();
+    const rel = (r) => ({ left: r.left - base.left, top: r.top - base.top, width: r.width, height: r.height });
+    const control = unionRect(controlNodes(view.step.control).map((n) => rel(n.getBoundingClientRect())));
+    const area = { left: track.getBoundingClientRect().left - base.left, width: track.clientWidth };
+    const p = calloutPlacement({ control, area, panel: { width: base.width, height: base.height } });
+    card.style.marginLeft = `${p.card.left}px`;
+    card.style.width = `${p.card.width}px`;
+    card.toggleAttribute('data-btx-pointing', p.caret !== null);
+    if (p.caret !== null) card.style.setProperty('--btx-caret-x', `${p.caret}px`);
+    ring.hidden = !p.ring;
+    if (!p.ring) return;
+    ring.style.left = `${p.ring.left}px`;
+    ring.style.top = `${p.ring.top}px`;
+    ring.style.width = `${p.ring.width}px`;
+    ring.style.height = `${p.ring.height}px`;
+  }
+
+  // Re-place once per frame on any size change the placement reads: the
+  // panel (a drag), the chrome rows and their controls, the body's top and
+  // the track's width (a scrollbar appearing in the sheet).
+  function schedulePlaceWelcome() {
+    if (!welcome || welcome.frame) return;
+    welcome.frame = requestAnimationFrame(() => { if (welcome) { welcome.frame = 0; placeWelcome(); } });
+  }
+
+  // Filled before it is in the page, so the live region doesn't read the
+  // first step out on top of the dialog's own announcement. Focus goes to
+  // Next, not to the dialog: the dialog's name and description are read on
+  // the way in, and the first Tab stop is never Skip, which ends the tour.
+  function openWelcome() {
+    welcome = Object.assign(buildWelcome(), { observer: null, frame: 0, glide: 0 });
+    fillStep(welcomeStep);
+    ui.rootEl.setAttribute('data-btx-welcome', '');
+    ui.panel.appendChild(welcome.layer);
+    if (typeof ResizeObserver === 'function') {
+      const observer = new ResizeObserver(schedulePlaceWelcome);
+      for (const node of [ui.panel, ui.header, ui.toolbar, ui.body, welcome.track]) observer.observe(node);
+      for (const name of CONTROL_NAMES) for (const node of controlNodes(name)) observer.observe(node);
+      welcome.observer = observer;
+    }
+    // What the sheet covers is out of reach while it shows: Tab from the
+    // card never lands on a row or talk control the reader can't see, and
+    // Esc never reaches a talk open under it.
+    ui.body.inert = true;
+    placeWelcome();
+    if (welcomeTakesFocus({ hidden: document.hidden, focused: document.hasFocus() })) {
+      welcome.next.focus({ preventScroll: true });
+    }
+  }
+
+  // Collapse, hide, or the welcome done (here or on another computer). Focus
+  // inside it goes to the panel's first control rather than to the page's
+  // top.
+  function closeWelcome() {
+    const { layer, observer, frame, glide } = welcome;
+    const hadFocus = layer.contains(document.activeElement);
+    welcome = null;
+    if (observer) observer.disconnect();
+    if (frame) cancelAnimationFrame(frame);
+    clearTimeout(glide);
+    if (state.welcomeSeen) welcomeStep = 0;
+    layer.remove();
+    dimControls(null);
+    ui.rootEl.removeAttribute('data-btx-welcome');
+    ui.body.inert = false;
+    if (hadFocus && visible && !state.collapsed) firstControl().focus({ preventScroll: true });
+  }
+
+  function firstControl() {
+    return ui.controls['translation-tab'][0];
+  }
+
+  // Got it, or Skip: the welcome is seen, and starts from its first step if
+  // "Show the welcome again" brings it back. Closing moves focus
+  // (closeWelcome): the button had it.
+  function onWelcomeDone() {
+    if (setWelcomeSeen(state, true)) persist({ welcomeSeen: true });
+    applyWelcomeUI();
+  }
+
+  // The nodes a CONTROL_NAMES name stands for (empty for an unknown name or
+  // before the panel is built): what a welcome step points at.
+  function controlNodes(name) {
+    return (ui && ui.controls[name]) ? ui.controls[name].slice() : [];
   }
 
   // The reader's text-size multiplier. It is a *second* variable rather than a
@@ -943,23 +1762,27 @@
     };
   }
 
-  // What the reader is on: the cited passage while it is on screen, else the
-  // first text in flow at the top of the body (below any pinned header) — to
-  // the character, since one Journal of Discourses paragraph can run for
-  // screens. -> a function reading its viewport top (null once it is gone),
-  // or null.
+  // What the reader is on: the cite's own position (talk-view's
+  // btx-cit-target: a Journal of Discourses marker, not the paragraph it
+  // tints) while its line shows (on screen, below any pinned header), else
+  // the first text in flow at the top of the body (below any pinned header)
+  // — to the character, since one Journal of Discourses paragraph can run
+  // for screens. -> a function reading its viewport top (null once it is
+  // gone), or null.
   function readingAnchor() {
     const node = viewNode();
     if (node === ui.body || !node.isConnected) return null;
     const box = ui.body.getBoundingClientRect();
     if (!(box.height > 0 && box.width > 0)) return null;
     const topOf = (n) => () => (n.isConnected ? n.getBoundingClientRect().top : null);
-    const mark = node.querySelector('.btx-cit-highlight');
+    const x = box.left + box.width / 2;
+    const mark = node.querySelector('.btx-cit-target');
     if (mark) {
       const r = mark.getBoundingClientRect();
-      if (r.bottom > box.top && r.top < box.bottom) return topOf(mark);
+      const shows = r.top >= box.top && r.top < box.bottom &&
+        !pinnedIn(document.elementFromPoint(x, r.top + 1), node);
+      if (shows) return topOf(mark);
     }
-    const x = box.left + box.width / 2;
     for (let y = box.top + 1; y < box.bottom; y += 8) {
       const hit = document.elementFromPoint(x, y);
       if (!hit || hit === node || !node.contains(hit) || pinnedIn(hit, node)) continue;
@@ -1004,8 +1827,8 @@
     // keyboard user mid-adjustment, so hand focus to the other end of the
     // stepper — which is by definition still live, since the two ends cannot
     // both be spent.
-    if (document.activeElement === ui.smaller && ui.smaller.disabled) ui.larger.focus();
-    else if (document.activeElement === ui.larger && ui.larger.disabled) ui.smaller.focus();
+    if (document.activeElement === ui.smaller && ui.smaller.disabled) ui.larger.focus({ preventScroll: true });
+    else if (document.activeElement === ui.larger && ui.larger.disabled) ui.smaller.focus({ preventScroll: true });
   }
 
   function persist(partial) {
@@ -1018,13 +1841,14 @@
 
   // ---- User actions --------------------------------------------------------
 
-  // A click that only sets the visit's override leaves the stored preference
-  // as it was, so it writes nothing.
+  // A click is saved on any chapter (the arrangement's `saves`); one that
+  // repeats the stored mode writes nothing.
   function onModeClick(m) {
     const preferred = state.mode;
-    if (!selectMode(state, m)) return;
-    applyModeUI();
+    const changed = selectMode(state, m);
     if (state.mode !== preferred) persist({ panelMode: state.mode });
+    if (!changed) return;
+    applyModeUI();
     requestRender();
   }
 
@@ -1052,13 +1876,15 @@
   // Focus follows the control across the swap: a keyboard user who collapses
   // lands on the tab, and on Collapse again when expanding. Focus elsewhere
   // (the toolbar icon, a synced change) is left where it is.
-  function setCollapsed(collapsed) {
+  // `keyboard` is false for a mouse click (focusOnToggle: no focus moves then).
+  function setCollapsed(collapsed, keyboard) {
     const c = collapsed === true;
     if (state.collapsed === c) return;
     const hadFocus = ui.rootEl.contains(document.activeElement);
     state.collapsed = c;
-    applyCollapsedUI();
-    if (hadFocus) (c ? ui.tab : ui.collapse).focus();
+    applyCollapsedUI(); // an expand may bring the welcome back, which takes focus
+    const target = hadFocus ? focusOnToggle(state, keyboard) : null;
+    if (target) (target === 'tab' ? ui.tab : ui.collapse).focus({ preventScroll: true });
     persist({ panelCollapsed: c });
   }
 
@@ -1097,6 +1923,8 @@
     if (changed.includes('sidebarWidth')) applyWidth(next.sidebarWidth);
     if (changed.includes('fontScale')) applyFontScale(next.fontScale);
     if (own) return;
+    // Got it on another computer, or "Show the welcome again".
+    if (changed.includes('welcomeSeen') && setWelcomeSeen(state, next.welcomeSeen)) applyWelcomeUI();
     // When the same write also moved a key the panel doesn't handle, the
     // orchestrator's own settings subscriber will do a full re-render — firing
     // renderMode too would race two renders into the same body.
@@ -1110,6 +1938,7 @@
     if (changed.includes('panelMode') && next.panelMode !== state.mode) {
       const before = effectiveMode(state);
       state.mode = next.panelMode;
+      state.click = null; // the reader chose elsewhere: this visit's click is spent
       applyModeUI();
       if (effectiveMode(state) !== before) contentStale = true;
     }
@@ -1134,7 +1963,7 @@
     ensureRoot();
     await migrateLegacyLocal();
     const s = await SETTINGS().get();
-    state = createState({ mode: s.panelMode, citationView: s.citationView, collapsed: s.panelCollapsed });
+    state = createState({ mode: s.panelMode, citationView: s.citationView, collapsed: s.panelCollapsed, welcomeSeen: s.welcomeSeen });
     scrollSync = s.scrollSync; // before applyModeUI: it asserts the sync predicate
     applyWidth(s.sidebarWidth);
     applyFontScale(s.fontScale);
@@ -1153,13 +1982,21 @@
     dropViews(views, sameChapter(state, ctx) ? SAME_CHAPTER_VIEWS : null);
     visible = true;
     ui.rootEl.style.display = '';
-    const preferred = state.mode;
     setChapter(state, ctx);
     applyModeUI();
-    // The setup card's request for Translation, answered: now the preference.
-    if (state.mode !== preferred) persist({ panelMode: state.mode });
     updatePageReserve();
+    applyWelcomeUI();
     scheduleTopChecks(); // the site may re-lay its header out after navigating
+    return arrangementOf(state);
+  }
+
+  // An input of the chapter showing moved (the chapter check settled, a pick,
+  // the split layout): the arrangement again, with no view dropped.
+  function arrange(facts) {
+    ensureRoot();
+    setChapter(state, Object.assign({}, facts, { key: state.chapter }));
+    applyModeUI();
+    return arrangementOf(state);
   }
 
   function hide() {
@@ -1168,6 +2005,7 @@
     ui.rootEl.style.display = 'none';
     refreshScrollSync(); // `visible` just moved — one of the predicate's inputs
     updatePageReserve();
+    applyWelcomeUI();
   }
 
   // ---- The body's scroll position -------------------------------------------
@@ -1302,6 +2140,129 @@
     ui.body.textContent = '';
     ui.body.appendChild(entry.node);
     setCard(null); // a card belongs to the view that drew it
+    placeNote();
+  }
+
+  // ---- The note slot ----------------------------------------------------------
+  // One quiet line at the top of the body, above the mounted view (never inside
+  // it: a view re-renders and re-mounts from its cache, a line must not). The
+  // orchestrator names the arrangement's note (setNote); the line shows while
+  // the view it belongs to (noteCopy's `view`) is the one mounted, and goes
+  // with any other. Its buttons are the panel's own verbs: Add a language is a
+  // Translation click on this visit, × asks the orchestrator to dismiss,
+  // Change swaps the line for the layout control (the beside card's) in the
+  // same place, open until the line goes.
+  // { key, copy, node, layout, control }: what the orchestrator last named;
+  // `control` is the layout control once Change opened it.
+  let note = null;
+  let shownNote = null; // the line's node while it is on the body
+
+  function buildNote(copy) {
+    const node = el('p', 'btx-note');
+    node.appendChild(el('span', 'btx-note-text', copy.text));
+    for (const a of copy.actions) {
+      node.appendChild(document.createTextNode(' '));
+      const b = button(a.id === 'dismiss' ? 'btx-note-x' : 'btx-link btx-note-link', a.label, () => onNoteAction(a.id));
+      if (a.title) labelled(b, a.title);
+      node.appendChild(b);
+    }
+    return node;
+  }
+
+  function onNoteAction(id) {
+    if (id === 'add') onModeClick('translation');
+    else if (id === 'dismiss' && cbs.onDismissNote) cbs.onDismissNote();
+    else if (id === 'change') openNoteLayouts();
+  }
+
+  // Change: the layout control in the line's place, no new row. Focus goes
+  // to its pressed choice, where the keyboard user's Change was; the body
+  // stays where it is (setBodyScroll is its one writer, so focus() must not
+  // scroll it).
+  function openNoteLayouts() {
+    if (!note || note.control) return;
+    const control = layoutControl(() => note.layout, `Where to show ${note.language}`, {
+      effective: () => splitFit.effective,
+      explain: () => { note.nudged = true; pressNote(); },
+    });
+    const node = el('div', 'btx-note btx-note-tools');
+    node.appendChild(control.group);
+    const hint = el('span', 'btx-note-hint');
+    hint.setAttribute('role', 'status');
+    node.appendChild(hint);
+    const was = note.node;
+    Object.assign(note, { node, control, hint });
+    pressNote();
+    if (shownNote === was) {
+      was.replaceWith(node);
+      shownNote = node;
+      focusPressedLayout(control);
+    }
+  }
+
+  // Restate the open Change control in place (never rebuilt: a keyboard user's
+  // focus is on it): it presses the layout the page shows, and after a click on
+  // Side by side that has no room it says why in its own line.
+  function pressNote() {
+    if (!note || !note.control) return;
+    if (note.layout !== note.nudgedFor) Object.assign(note, { nudged: false, nudgedFor: note.layout });
+    const hint = note.nudged ? roomHint(Object.assign({ layout: note.layout, sheet: inSheet() }, splitFit)) : '';
+    if (hint !== note.hint.textContent) {
+      keepPlace(() => {
+        note.hint.textContent = hint;
+        note.hint.hidden = !hint;
+      });
+    }
+    note.control.press();
+  }
+
+  // Take the line off the body (focus stays in the panel when the button the
+  // reader pressed goes with it), and put it back above the view now mounted
+  // when that is the view it belongs to.
+  function placeNote() {
+    if (!ui) return;
+    if (shownNote) {
+      if (shownNote.contains(document.activeElement)) ui.body.focus({ preventScroll: true });
+      shownNote.remove();
+      shownNote = null;
+    }
+    if (note && views.active === note.copy.view && viewNode() !== ui.body) {
+      shownNote = note.node;
+      ui.body.insertBefore(note.node, ui.body.firstChild);
+    }
+  }
+
+  // Show `n` ({ kind, row, chapter, layout }) or, with null, no line.
+  // `layout` is the split layout an opened Change control presses. The same
+  // line again changes nothing but that: an open control re-presses in place
+  // (focus stays on it). One coming or going keeps the reader's place.
+  function setNote(n) {
+    ensureRoot();
+    const copy = noteCopy(n);
+    const key = copy ? JSON.stringify(copy) : null;
+    if ((note ? note.key : null) === key) {
+      if (note) note.layout = n.layout;
+      if (note && note.control) {
+        pressNote();
+        refocusLayout = false; // restated in place: focus never left
+      }
+      return;
+    }
+    keepPlace(() => {
+      note = copy ? { key, copy, node: buildNote(copy), layout: n.layout, language: copy.language, control: null } : null;
+      placeNote();
+    });
+  }
+
+  // Run `change` (the note slot growing or shrinking above the mounted view)
+  // and keep the reader's place: the body scrolls by as far as the view moved.
+  function keepPlace(change) {
+    const view = views.active && views.entries[views.active];
+    const top = () => (view && view.node ? view.node.getBoundingClientRect().top : 0);
+    const before = top();
+    change();
+    const moved = top() - before;
+    if (moved && ui && ui.body.scrollTop > 0) setBodyScroll(ui.body.scrollTop + moved);
   }
 
   // Position a view that has just mounted, twice: once now and once next frame.
@@ -1450,6 +2411,11 @@
     return b;
   }
 
+  // The split's fit as the page split last reported it (updateBeside), kept
+  // whether or not a beside card is on screen: the line's Change control
+  // presses by it too. `effective` null until measured.
+  const splitFit = { effective: null, collapseFits: null };
+
   // The beside card on screen: { node, name, layout, effective, parts }, so the
   // layout control and the page split can restate it in place (updateBeside)
   // without rebuilding it under a keyboard user's focus.
@@ -1461,28 +2427,45 @@
   // in the panel) takes it instead.
   let refocusLayout = false;
 
+  // The pick goes to the orchestrator with the row it makes the pick
+  // (layoutChoice: the page's language, moving into the panel).
   function pickLayout(value) {
     refocusLayout = !!ui && ui.rootEl.contains(document.activeElement);
-    if (cbs.onLayoutChange) cbs.onLayoutChange(value);
+    if (cbs.onLayoutChange) cbs.onLayoutChange(value, layoutChoice(arrangementOf(state), value));
   }
 
   // Where a Church language shows (LAYOUTS), as one segmented control: on the
-  // beside card, and above the text when it is read in the panel. `current()`
-  // is the layout showing; picking it again does nothing.
-  function layoutControl(current) {
+  // beside card, above the text when it is read in the panel, and in the
+  // beside-the-page line's place (its Change). `current()` is the reader's
+  // setting; the segment pressed is the layout the page shows
+  // (`host.effective()`, the split's fit; pressedLayout), which differs while
+  // side by side has no room. A click is judged by layoutClick: it writes the
+  // setting, does nothing, or (`host.explain()`) answers that the setting
+  // already is this one and says what would make room.
+  function layoutControl(current, label, host) {
+    const effective = () => (host && host.effective ? host.effective() : null);
     const choices = LAYOUTS.map(([value, text]) => {
-      const b = button('btx-seg-btn', text, () => { if (value !== current()) pickLayout(value); });
+      const b = button('btx-seg-btn', text, () => {
+        const what = layoutClick({ layout: current(), effective: effective(), value });
+        if (what === 'write') pickLayout(value);
+        else if (what === 'explain' && host && host.explain) host.explain();
+      });
       b.dataset.btxLayout = value;
       return b;
     });
-    const press = () => { for (const b of choices) setPressed(b, b.dataset.btxLayout === current()); };
+    const press = () => {
+      const shown = pressedLayout(current(), effective());
+      for (const b of choices) setPressed(b, b.dataset.btxLayout === shown);
+    };
     press();
-    return { group: segmented('btx-seg', 'Where to show it', choices), choices, press };
+    return { group: segmented('btx-seg', label || 'Where to show it', choices), choices, press };
   }
 
+  // Like every focus the panel moves, it never scrolls: not the page, and not
+  // the body, whose one writer is writeBodyScroll.
   function focusPressedLayout(control) {
     const pressed = control.choices.find((b) => b.getAttribute('aria-pressed') === 'true');
-    if (pressed) pressed.focus();
+    if (pressed) pressed.focus({ preventScroll: true });
   }
 
   function buildBeside(card) {
@@ -1490,11 +2473,21 @@
     parts.status = el('p', 'btx-card-title');
     parts.status.setAttribute('role', 'status');
     card.node.appendChild(parts.status);
-    parts.layouts = layoutControl(() => card.layout);
+    parts.layouts = layoutControl(() => card.layout, undefined, {
+      effective: () => card.effective,
+      explain: () => {
+        // The note is already on screen; clearing it for a frame makes the
+        // status region announce it again to a reader who can't see it.
+        card.nudged = true;
+        card.parts.note.textContent = '';
+        requestAnimationFrame(() => fillBeside(card));
+      },
+    });
     card.node.appendChild(parts.layouts.group);
     parts.note = el('p', 'btx-card-hint');
+    parts.note.setAttribute('role', 'status');
     card.node.appendChild(parts.note);
-    parts.collapse = button('btx-btn-outline btx-widen', '', () => setCollapsed(true));
+    parts.collapse = button('btx-btn-outline btx-widen', '', (e) => setCollapsed(true, byKeyboard(e)));
     card.node.appendChild(parts.collapse);
     card.parts = parts;
   }
@@ -1516,16 +2509,27 @@
   // into or out of the bottom sheet (no change given). A no-op while no beside
   // card is on screen.
   function updateBeside(change) {
-    if (!ui || !beside || !ui.body.contains(beside.node)) return;
+    if (!ui) return;
     const c = change || {};
+    const was = beside && ui.body.contains(beside.node) ? beside : null;
     if (c.layout === 'columns' || c.layout === 'interlinear') {
-      if (c.layout !== beside.layout) Object.assign(beside, { effective: null, collapseFits: null }); // the split lays out afresh
-      beside.layout = c.layout;
+      if (c.layout !== (was ? was.layout : note && note.layout)) Object.assign(splitFit, { effective: null, collapseFits: null }); // the split lays out afresh
+      if (was) Object.assign(was, { layout: c.layout, nudged: false });
     }
-    if (c.effective !== undefined) beside.effective = c.effective;
-    if (c.collapseFits !== undefined) beside.collapseFits = c.collapseFits;
+    const before = [splitFit.effective, splitFit.collapseFits];
+    if (c.effective !== undefined) splitFit.effective = c.effective;
+    if (c.collapseFits !== undefined) splitFit.collapseFits = c.collapseFits;
+    const moved = before[0] !== splitFit.effective || before[1] !== splitFit.collapseFits;
     refocusLayout = false; // restated in place: focus never left
-    fillBeside(beside);
+    if (was) {
+      Object.assign(was, splitFit);
+      if (moved) was.nudged = false;
+      fillBeside(was);
+    }
+    if (note && note.control) {
+      if (moved) note.nudged = false;
+      pressNote();
+    }
   }
 
   // The setup card's language picker: a native <select> plus Add. Choosing in
@@ -1574,6 +2578,7 @@
     if (langs.length) {
       const block = el('div', 'btx-card-block');
       block.appendChild(languagePicker(copy, langs));
+      block.appendChild(el('p', 'btx-card-hint', copy.languagesDisclosure));
       block.appendChild(el('p', 'btx-card-hint', copy.languagesHint));
       card.appendChild(block);
     }
@@ -1581,13 +2586,14 @@
       const block = el('div', 'btx-card-block');
       block.appendChild(el('p', 'btx-card-text', copy.bible.text));
       block.appendChild(button('btx-btn-outline', copy.bible.button, () => cbs.onGear && cbs.onGear('bible')));
+      block.appendChild(el('p', 'btx-card-hint', copy.bible.disclosure));
       card.appendChild(block);
     }
     // The card goes with the mode; focus lands on the mode it switched to.
     const talks = button('btx-link', copy.talks, () => {
       const hadFocus = document.activeElement === talks;
       onModeClick('citations');
-      if (hadFocus) ui.modeCitations.focus();
+      if (hadFocus) ui.modeCitations.focus({ preventScroll: true });
     });
     card.appendChild(talks);
     host.appendChild(card);
@@ -1600,6 +2606,13 @@
     if (copy.hint) wrap.appendChild(el('p', 'btx-state-hint', copy.hint));
     if (copy.action === 'settings') wrap.appendChild(button('btx-cta', 'Open settings', () => cbs.onGear && cbs.onGear('bible')));
     if (copy.action === 'retry') wrap.appendChild(button('btx-cta', 'Try again', () => cbs.onRetry && cbs.onRetry()));
+    if (copy.link) {
+      const a = el('a', 'btx-link btx-card-link', copy.link.text);
+      a.href = copy.link.href;
+      a.target = '_blank';
+      a.rel = 'noopener';
+      wrap.appendChild(a);
+    }
     host.appendChild(wrap);
   }
 
@@ -1643,6 +2656,46 @@
     // After the text, outside the article: it is the panel's English, not the
     // translation's language.
     if (st.copyright) host.appendChild(el('p', 'btx-copyright', st.copyright));
+    // Last, and not waited for: the chapter is already on screen.
+    showNearLine(host, article, st.rate);
+  }
+
+  // The near line (nearLine) above the text, once a month. The month last
+  // shown is read from chrome.storage.local after the text is up; if the read
+  // fails the line simply doesn't show. The month is marked seen only once
+  // the line is mounted: a chapter the reader already left never spends it.
+  // `nearSeen` closes the gap between two chapters rendering before the first
+  // write lands. A quiet note, like the no-translation line, with an × to put
+  // it away.
+  let nearSeen = '';
+
+  function showNearLine(host, article, rate) {
+    if (!nearLine(rate, nearSeen)) return; // not due: no storage read
+    const key = C.NEAR_LINE_KEY;
+    const settle = (value) => {
+      const text = nearLine(rate, nearSeen === rate.month ? nearSeen : String(value || ''));
+      if (!text) return;
+      if (article.parentNode !== host) return; // the view moved on: the line waits for the next chapter
+      nearSeen = rate.month;
+      try { chrome.storage.local.set({ [key]: rate.month }); } catch (e) { /* shown, not remembered */ }
+      // Its own row, the × beside the text at a full target, with room
+      // under it before the first verse.
+      const node = el('p', 'btx-note btx-note-near');
+      node.setAttribute('role', 'status');
+      node.appendChild(el('span', 'btx-note-text', text));
+      node.appendChild(document.createTextNode(' '));
+      const x = button('btx-note-x', '×', () => node.remove());
+      labelled(x, 'Dismiss this notice');
+      node.appendChild(x);
+      // Above the text without moving it: the body scrolls by the line's height.
+      const before = article.getBoundingClientRect().top;
+      host.insertBefore(node, host.firstChild);
+      const moved = article.getBoundingClientRect().top - before;
+      if (moved && ui && ui.body.scrollTop > 0) setBodyScroll(ui.body.scrollTop + moved);
+    };
+    try {
+      chrome.storage.local.get(key, (d) => { if (!chrome.runtime.lastError) settle(d && d[key]); });
+    } catch (e) { /* no storage: no line */ }
   }
 
   function showTranslation(st) {
@@ -1681,6 +2734,7 @@
           effective: st.effective || null,
           collapseFits: st.collapseFits === undefined ? null : st.collapseFits,
         };
+        Object.assign(splitFit, { effective: beside.effective, collapseFits: beside.collapseFits });
         buildBeside(beside);
         fillBeside(beside);
         host.appendChild(beside.node);
@@ -1700,12 +2754,22 @@
     }
   }
 
-  // The translation dropdown, from __BTX.churchText.menuFor: headed groups when
-  // both kinds are on offer. Empty, it hides — the setup card is showing.
+  // The translation dropdown, from __BTX.churchText.menuFor: its groups, headed
+  // or not as menuFor says. Empty, it hides — the setup card is showing. The
+  // same rows again are only re-selected, not rebuilt (the background chapter
+  // check restates them, perhaps while the reader has the select open).
+  let menuShown = null;
   function populateTranslations(menu, selectedId) {
     ensureRoot();
-    ui.select.textContent = '';
     const groups = Array.isArray(menu) ? menu : [];
+    const key = JSON.stringify(groups);
+    if (key === menuShown && ui.select.options.length) {
+      if (selectedId && ui.select.value !== selectedId) ui.select.value = selectedId;
+      showSelectedTitle();
+      return;
+    }
+    menuShown = key;
+    ui.select.textContent = '';
     ui.select.hidden = !groups.some((g) => g.items && g.items.length);
     for (const g of groups) {
       let parent = ui.select;
@@ -1792,7 +2856,33 @@
       if (top) ui.rootEl.style.setProperty('--btx-top', top + 'px');
       else ui.rootEl.style.removeProperty('--btx-top');
     }
+    paintTopCap(top);
     watchTopScroll(pageReserve > 0);
+  }
+
+  // While the panel starts below the band, the strip above it is the bare
+  // page background beside the band: an empty block (#89). The cap fills it
+  // in the panel's header colour, so the panel's column reads as running to
+  // the top. It sits beneath the site's header (fixed, z-index 0, outside
+  // #btx-root's stacking context), so the band's controls that run over it —
+  // Sign In, the account menu — stay on top and clickable. Gone with top 0.
+  let topCap = null;
+  function paintTopCap(top) {
+    if (!top) {
+      if (topCap) topCap.remove();
+      topCap = null;
+      return;
+    }
+    if (!topCap) {
+      topCap = document.createElement('div');
+      topCap.id = 'btx-top-cap';
+      topCap.setAttribute('aria-hidden', 'true');
+      topCap.style.cssText = 'position: fixed; top: 0; right: 0; z-index: 0; pointer-events: none;';
+      document.body.appendChild(topCap);
+    }
+    topCap.style.width = pageReserve + 'px';
+    topCap.style.height = top + 'px';
+    topCap.style.background = getComputedStyle(ui.rootEl).getPropertyValue('--btx-header-bg').trim();
   }
 
   // Scrolling moves an overflowing band (and may bring an unfound one into
@@ -1914,20 +3004,41 @@
     applyWidth(widthFromEvent(e));
   }
 
-  function onResizeUp(e) {
-    document.removeEventListener('pointermove', onResizeMove);
+  // A drag selects no page text: the grip captures the pointer (every move and
+  // the release come to it, wherever the pointer is), and the browser's own
+  // mouse-down and select-start defaults are cancelled for the drag's length.
+  function noSelect(e) { e.preventDefault(); }
+
+  let dragFrom = null; // the panel's width at pointer-down (resizeEnd)
+
+  function endResize(e, commit) {
+    const grip = ui.resize;
+    grip.removeEventListener('pointermove', onResizeMove);
+    grip.removeEventListener('pointerup', onResizeUp);
+    grip.removeEventListener('pointercancel', onResizeCancel);
+    document.removeEventListener('selectstart', noSelect, true);
+    try { grip.releasePointerCapture(e.pointerId); } catch (_) { /* already released */ }
     ui.rootEl.classList.remove('btx-resizing');
-    const w = widthFromEvent(e);
-    applyWidth(w);
-    persist({ sidebarWidth: w });
+    const end = resizeEnd({ from: dragFrom, at: widthFromEvent(e), commit });
+    dragFrom = null;
+    applyWidth(end.width);
+    if (end.save) persist({ sidebarWidth: end.width });
   }
+
+  function onResizeUp(e) { endResize(e, true); }
+  function onResizeCancel(e) { endResize(e, false); }
 
   function onResizeDown(e) {
     if (e.button != null && e.button !== 0) return;
     ensureRoot();
+    const grip = ui.resize;
+    dragFrom = parseFloat(ui.rootEl.style.getPropertyValue('--btx-width')) || ui.rootEl.getBoundingClientRect().width;
     ui.rootEl.classList.add('btx-resizing');
-    document.addEventListener('pointermove', onResizeMove);
-    document.addEventListener('pointerup', onResizeUp, { once: true });
+    try { grip.setPointerCapture(e.pointerId); } catch (_) { /* synthetic event */ }
+    grip.addEventListener('pointermove', onResizeMove);
+    grip.addEventListener('pointerup', onResizeUp);
+    grip.addEventListener('pointercancel', onResizeCancel);
+    document.addEventListener('selectstart', noSelect, true);
     e.preventDefault();
   }
 
@@ -1938,6 +3049,8 @@
       init,
       showChapter,
       hide,
+      arrange,
+      arrangement: (facts) => arrangementOf(facts ? Object.assign({}, state, { facts: factsOf(facts) }) : state),
       effectiveMode: () => effectiveMode(state),
       citationView: () => state.citationView,
       toggleCollapsed: (force) => {
@@ -1948,6 +3061,7 @@
       keepView: (keep) => keepView(views, keep),
       scrollIntoView,
       showTranslation,
+      setNote,
       updateBeside,
       populateTranslations,
       getRootEl,

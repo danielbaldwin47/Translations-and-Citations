@@ -8,8 +8,13 @@
  * versions lead the list and which are duplicates, which start checked, which
  * default wins, where a refreshed list's rows go, what an autosave may write
  * and retry, which controls a change arriving from another context may
- * repaint, when Connect rests, the language search, and the status copy.
+ * repaint, when Connect rests and how it re-runs, the language search, and
+ * the status copy with its links.
  * Those are the rules the stale-list and wrong-default bugs lived in.
+ *
+ * It also checks where the in-product disclosures (C.DISCLOSURE) sit: beside
+ * Connect and beside adding a Church language, on this page and on the
+ * panel's setup card (src/content/panel.js setupCopy / renderSetup).
  *
  * It also covers the worker's side of what the page is told
  * (src/background/api.js, loaded in Node against a stubbed fetch): a
@@ -116,6 +121,8 @@ console.log('withStored:');
 eq(ids(F.withStored([NIV, NKJV], [NIV, { id: 'nasb', abbr: 'NASB', name: 'NASB' }])), ['niv', 'nkjv', 'nasb'],
   'a stored version missing from the (possibly day-old) list rides along at the end');
 eq(ids(F.withStored([NIV], undefined)), ['niv'], 'no stored list adds nothing');
+eq(ids(F.withStored([NIV], [NIV, { id: 'engwebp', abbr: 'WEB', name: 'World English Bible', provider: 'bundled' }])), ['niv'],
+  'the bundled World English Bible is not an api.bible version: it never joins the checklist');
 
 // ---- initialChecks: which versions start checked when a key connects ----
 console.log('initialChecks:');
@@ -206,17 +213,63 @@ eq(f3.keys.length, 3, 'without naming the key twice');
 // ---- keyControls: when Connect rests ----
 console.log('keyControls:');
 const kc = (o) => F.keyControls(Object.assign({ field: 'k1', storedKey: 'k1', keyState: 'connected', partial: false }, o));
-eq(kc({}), { connect: false, recheck: true },
+eq(kc({}), { connect: false, recheck: true, recheckUsable: true },
   'the connected key: Connect rests (a refetch costs ~39 calls); "Check for new translations" offers the refresh');
-eq(kc({ partial: true }), { connect: true, recheck: true }, 'the connected key with a partial list: Connect is offered again, as the note says');
-eq(kc({ field: 'k2' }), { connect: true, recheck: false }, 'another key in the field: Connect');
-eq(kc({ storedKey: '' , keyState: 'none' }), { connect: true, recheck: false }, 'a first key: Connect');
-eq(kc({ field: '' }), { connect: false, recheck: false }, 'an empty field: nothing to connect');
-eq(kc({ keyState: 'checking' }), { connect: false, recheck: false }, 'while checking a key with nothing listed yet: neither');
-eq(kc({ keyState: 'checking', listed: true }), { connect: false, recheck: true },
+eq(kc({ partial: true }), { connect: true, recheck: true, recheckUsable: true }, 'the connected key with a partial list: Connect is offered again, as the note says');
+eq(kc({ field: 'k2' }), { connect: true, recheck: false, recheckUsable: false }, 'another key in the field: Connect');
+eq(kc({ storedKey: '' , keyState: 'none' }), { connect: true, recheck: false, recheckUsable: false }, 'a first key: Connect');
+eq(kc({ field: '' }), { connect: false, recheck: false, recheckUsable: false }, 'an empty field: nothing to connect');
+eq(kc({ keyState: 'checking' }), { connect: false, recheck: false, recheckUsable: false }, 'while checking a key with nothing listed yet: neither');
+eq(kc({ keyState: 'checking', listed: true }), { connect: false, recheck: true, recheckUsable: true },
   'while the connected key\'s list is rechecked: "Check for new translations" stays (a keyboard reader on it keeps focus)');
-eq(kc({ field: 'k2', keyState: 'checking', listed: true }), { connect: false, recheck: false }, 'while another key is checked: neither');
-eq(kc({ field: 'k1', keyState: 'error' }), { connect: true, recheck: false }, 'the stored key after an error: Connect retries it');
+eq(kc({ field: 'k2', keyState: 'checking', listed: true }), { connect: false, recheck: false, recheckUsable: false }, 'while another key is checked: neither');
+eq(kc({ field: 'k1', keyState: 'error' }), { connect: true, recheck: false, recheckUsable: false }, 'the stored key after an error: Connect retries it');
+// A paused month (#101 UX pass): the connected key stays connected, and its
+// refresh stays in view, unusable until the day the paused line names (the
+// line says why).
+eq(kc({ paused: true }), { connect: false, recheck: true, recheckUsable: false },
+  'paused, the connected key: "Check for new translations" shows but rests until the date');
+eq(kc({ paused: true, field: 'k2' }), { connect: true, recheck: false, recheckUsable: false },
+  'paused, another key in the field: Connect still tries it (another account\'s key may answer)');
+// The setup steps: open on a fresh card, folded once a key is stored, so the
+// connected state and "Your translations" lead. Decided when the page opens:
+// a key connected meanwhile leaves them as the reader has them.
+eq(F.setupOpen(''), true, 'no key stored: the steps are open');
+eq(F.setupOpen('k1'), false, 'a key stored: the steps fold into "How to set up api.bible"');
+
+// ---- keyFromField: a pasted key connects as if pasted cleanly (#124) ----
+console.log('keyFromField:');
+eq(F.keyFromField('  abc123  '), 'abc123', 'spaces around a pasted key are dropped');
+eq(F.keyFromField('\tabc123\n'), 'abc123', 'so are tabs and a trailing line break');
+eq(F.keyFromField('\u200babc123\ufeff\u00a0'), 'abc123', 'and the invisible characters a web page copies along');
+eq(F.keyFromField('abc123'), 'abc123', 'a clean key is unchanged');
+eq(F.keyFromField('   '), '', 'only spaces is no key');
+eq(F.keyFromField(undefined), '', 'no field value is no key');
+
+// ---- checkingWait / statusChange: every Connect visibly re-runs (#124) ----
+// An explicit Connect (button, Enter, "Check for new translations") shows
+// "Checking…" long enough to be seen and announced, however fast api.bible
+// answers; an automatic try (paste, change) shows its answer at once.
+console.log('checkingWait:');
+const HOLD = F.CHECKING_MIN_MS;
+check(HOLD >= 400 && HOLD <= 1000, `"Checking…" holds long enough to see, not long enough to drag (${HOLD} ms)`);
+eq(F.checkingWait({ explicit: true, since: 1000, now: 1050 }), HOLD - 50, 'a fast answer to Connect waits out the rest of the hold');
+eq(F.checkingWait({ explicit: true, since: 1000, now: 1000 + HOLD }), 0, 'an answer at the hold shows at once');
+eq(F.checkingWait({ explicit: true, since: 1000, now: 1000 + HOLD + 2000 }), 0, 'a slow answer is never held longer');
+eq(F.checkingWait({ explicit: false, since: 1000, now: 1001 }), 0, 'an automatic try shows its answer at once');
+
+// What a status line write does to its live region. A screen reader hears a
+// line only when its text changes, so a result asked to be announced that
+// matches what is shown is cleared and set again ('reannounce'); an unasked
+// repeat writes nothing, so it can't be announced twice by accident.
+console.log('statusChange:');
+const LINE = 'api.bible didn’t accept that key.';
+eq(F.statusChange({ shown: 'Checking…', text: LINE, announce: true }), 'set', 'a new line is simply set (and announced)');
+eq(F.statusChange({ shown: 'Checking…', text: LINE, announce: false }), 'set', '...asked or not');
+eq(F.statusChange({ shown: LINE, text: LINE, announce: true }), 'reannounce', 'the same line asked to be announced is cleared, then set again');
+eq(F.statusChange({ shown: LINE, text: LINE, announce: false }), 'keep', 'the same line unasked writes nothing');
+eq(F.statusChange({ shown: '', text: '', announce: true }), 'keep', 'an empty line has nothing to announce');
+check(F.REANNOUNCE_MS >= 100, `the clear lasts past a rendered frame, so the accessibility tree sees it (${F.REANNOUNCE_MS} ms)`);
 
 // ---- fillPlan: what an incoming change is allowed to repaint ----
 console.log('fillPlan:');
@@ -254,32 +307,107 @@ eq(plan(null, ['scrollSync', 'enabledTranslations']),
 console.log('Copy:');
 eq(F.versionLabel(NIV), 'NIV — New International Version', 'a version reads "abbreviation — name"');
 eq(F.versionLabel({ id: 'x', abbr: '', name: 'Solo' }), 'Solo', 'no abbreviation: the name alone');
-eq(F.moreLabel(23), '23 more free translations', 'the "more" summary counts');
-eq(F.moreLabel(1), '1 more free translation', 'and pluralizes');
+// "More" than nothing reads oddly on a key with none added: the summary says
+// what the rows are.
+eq(F.moreLabel(23), '23 free translations that come with every key', 'the free-translations summary counts, and says what they are');
+eq(F.moreLabel(1), '1 free translation that comes with every key', 'and pluralizes');
+check(!/\bmore\b/.test(F.moreLabel(3)), '...never "more" (than what?)');
 eq(F.connectedText([NIV, NKJV, NIRV]), 'Connected — 3 translations: NIV, NKJV, NIrV', 'connected, with what the panel offers');
 eq(F.connectedText([NIV]), 'Connected — 1 translation: NIV', 'one translation is singular');
 eq(F.connectedText([NIV, NKJV, NIRV, OKE, KJV]), 'Connected — 5 translations: NIV, NKJV, NIrV, OKE, KJV', 'up to five are named');
 eq(F.connectedText([NIV, NKJV, NIRV, OKE, KJV, WEBU1]), 'Connected — 6 translations', 'more than five are counted, so the line stays a line');
 eq(F.connectedText([]), 'Connected. Choose the translations to show in the panel.', 'connected with nothing on says what to do');
-eq(F.yoursNote({ partial: true, yours: 3 }), 'Couldn’t check which translations are yours. Try Connect again later.',
+// api.bible's own pages, as verified on 2026-10-09 (spec #101): the free
+// account, and the dashboard that holds the key and the Bibles on it.
+eq(C.API_BIBLE_PAGES, { signUp: 'https://api.bible/sign-up', dashboard: 'https://api.bible/team' },
+  'api.bible\'s sign-up and dashboard addresses, with no redirect');
+// The dashboard's menus to a key's Bibles, written once: the setup card and
+// the "Your translations" note both read C.API_BIBLE_ADD_BIBLES.
+eq(C.API_BIBLE_ADD_BIBLES, 'Plan, then Edit Plan, then Edit Bible Licenses', 'the dashboard path to a key\'s Bibles, in api.bible\'s menu names');
+// yoursNote is linked text: strings, and { text, href } for a link.
+eq(F.yoursNote({ partial: true, yours: 3 }), ['Couldn’t check which translations are yours. Try Connect again later.'],
   'a partial list owns up to its guess, whatever it guessed');
 eq(F.yoursNote({ partial: true, yours: 0 }), F.yoursNote({ partial: true, yours: 3 }),
   'a partial list never claims the key has no copyrighted translations');
-check(/^This key has no NIV, NKJV or other copyrighted translations yet\. .*Check for new translations/.test(F.yoursNote({ partial: false, yours: 0 })),
-  'an empty "yours" says how to fill it, through the button that refetches (Connect rests on a connected key)');
-eq(F.yoursNote({ partial: false, yours: 2 }), '', 'a full list with versions in "yours" needs no note');
-const bad = 'api.bible didn’t accept that key. Check that you copied all of it.';
-eq(F.keyErrorText({ code: C.ERR.INVALID_KEY }), bad, 'a wrong key says so in plain words');
+eq(F.yoursNote({ partial: false, yours: 0 }), [
+  'No translations are added to this key yet. On the free plan you can add up to 3, such as NIV and NKJV, in your ',
+  { text: 'api.bible dashboard', href: 'https://api.bible/team' },
+  ' (Plan, then Edit Plan, then Edit Bible Licenses). Then choose Check for new translations. Or turn on one of the free translations below.',
+], 'an empty "yours" says what the free plan allows, links the dashboard, names the path there, and refills through the button that refetches (Connect rests on a connected key)');
+check(!/copyright/i.test(F.plainText(F.yoursNote({ partial: false, yours: 0 }))), '...in plain words, not "copyrighted"');
+// Paused, the button is in view but resting: the note points at it for the day it works.
+eq(F.plainText(F.yoursNote({ partial: false, yours: 0, pausedUntil: '2026-11-01' })),
+  'No translations are added to this key yet. On the free plan you can add up to 3, such as NIV and NKJV, in your api.bible dashboard'
+  + ' (Plan, then Edit Plan, then Edit Bible Licenses). Then, from November 1, choose Check for new translations. Or turn on one of the free translations below.',
+  'paused: the note sends the reader to "Check for new translations" from the day it works again');
+eq(F.yoursNote({ partial: false, yours: 2, pausedUntil: '2026-11-01' }), [], '...and still says nothing when "yours" has versions');
+eq(F.yoursNote({ partial: false, yours: 2 }), [], 'a full list with versions in "yours" needs no note');
+// keyErrorText is linked text too. A wrong key (#124): both fixes, for a
+// reader who miscopied and for one with no account yet, each phrase a link
+// straight to api.bible's page.
+const bad = [
+  'api.bible didn’t accept that key. Copy it again from ',
+  { text: 'your api.bible dashboard', href: 'https://api.bible/team' },
+  ', or ',
+  { text: 'create a free account', href: 'https://api.bible/sign-up' },
+  ' first.',
+];
+eq(F.keyErrorText({ code: C.ERR.INVALID_KEY }), bad, 'a wrong key names both fixes, linking the dashboard and sign-up');
 eq(F.keyErrorText({ code: C.ERR.FORBIDDEN }), bad, 'a 403 on the list is a key problem too');
-eq(F.keyErrorText({ code: C.ERR.NETWORK, message: 'Failed to fetch' }), 'Couldn’t reach api.bible. Check your connection and try again.',
+// "dashboard", not the spec's "account page" (UX pass, owner call): the same
+// /team page is the dashboard everywhere else on the card.
+eq(F.plainText(bad), 'api.bible didn’t accept that key. Copy it again from your api.bible dashboard, or create a free account first.',
+  'the line reads (and is announced) as one sentence');
+eq(F.keyErrorKind({ code: C.ERR.INVALID_KEY }), 'error', 'a rejected key is an error');
+eq(F.plainText([]), '', 'no parts is no text');
+eq(F.keyErrorText({ code: C.ERR.NETWORK, message: 'Failed to fetch' }), ['Couldn’t reach api.bible. Check your connection and try again.'],
   'offline says to check the connection');
-eq(F.keyErrorText({ code: C.ERR.RATE_LIMITED }), 'api.bible is busy. Try again in a minute.', 'rate-limited says to wait');
-eq(F.keyErrorText({ code: C.ERR.UNKNOWN, message: 'HTTP 500' }), 'Couldn’t check the key (HTTP 500). Try again.',
+eq(F.keyErrorText({ code: C.ERR.RATE_LIMITED }), ['api.bible is busy. Try again in a minute.'], 'rate-limited says to wait');
+// Refused in a paused month (#101): the monthly-limit line with its date, the
+// panel's own words (one copy, src/shared/rate-copy.js), not "busy".
+{
+  const RC = require(path.join(ROOT, 'src/shared/rate-copy.js'));
+  const paused = { state: 'paused', month: '2026-10', until: '2026-11-01' };
+  // A key that isn't the connected one, refused in a paused month: it wasn't
+  // checked (api.bible listed nothing), so it isn't saved; the line says
+  // when to try it, never that it is wrong.
+  eq(F.plainText(F.keyErrorText({ code: C.ERR.RATE_LIMITED, remote: true }, paused)),
+    'api.bible’s free monthly limit is reached. Back on November 1. Try Connect again on November 1. The World English Bible still works.',
+    'a Connect refused in a paused month says the monthly limit is reached, when to try again, and what still works');
+  check(F.plainText(F.keyErrorText({ code: C.ERR.RATE_LIMITED, remote: true }, paused)).startsWith(RC.pausedLine('2026-11-01') + ' '),
+    '...leading with the panel\'s own sentence');
+  check(!/accept|wrong|copy/i.test(F.plainText(F.keyErrorText({ code: C.ERR.RATE_LIMITED }, paused))), '...without implying the key is wrong');
+  eq(F.plainText(F.keyErrorText({ code: C.ERR.RATE_LIMITED }, { state: 'paused', month: '2026-10' })),
+    'api.bible’s free monthly limit is reached. Try Connect again next month. The World English Bible still works.', '...no date known: next month');
+  eq(F.keyErrorKind({ code: C.ERR.RATE_LIMITED }, paused), 'note', '...shown as a calm notice in the body colour, not an error');
+  eq(F.keyErrorKind({ code: C.ERR.RATE_LIMITED }, { state: 'near', month: '2026-10' }), 'error', 'a 429 that is not a pause keeps the error look');
+  // The connected key in a paused month keeps "Connected." and its look; the
+  // paused line is a second line under it (pausedNote; [] when not paused).
+  eq(F.plainText(F.pausedNote(paused)),
+    'api.bible’s free monthly limit is reached. Back on November 1. Your key is still connected, and the World English Bible still works.'
+    + ' You can use Check for new translations again on that day.',
+    'the connected key\'s paused line: the panel\'s sentence, that nothing is wrong, and why the button rests');
+  eq(F.pausedNote({ state: 'near', month: '2026-10' }), [], 'not paused: no line');
+  eq(F.pausedNote(undefined), [], '...nor with no state');
+  eq(F.pausedUntil({ error: { code: C.ERR.RATE_LIMITED }, rate: paused }), '2026-11-01', 'a reply refused in a paused month names the day');
+  eq(F.pausedUntil({ bibles: [], rate: paused }), '2026-11-01', 'a cached list in a paused month (the page opening) names it too');
+  eq(F.pausedUntil({ error: { code: C.ERR.NETWORK }, rate: paused }), '2026-11-01', '...whatever the error: the month is still paused');
+  eq(F.pausedUntil({ bibles: [], rate: { state: 'ok', month: '2026-11' } }), '', 'not paused: no day');
+  eq(F.pausedUntil(undefined), '', '...nor with no reply');
+  eq(F.keyErrorText({ code: C.ERR.RATE_LIMITED, remote: true }, { state: 'near', month: '2026-10' }), ['api.bible is busy. Try again in a minute.'],
+    'a 429 that is not a pause is still busy');
+  eq(F.keyErrorText({ code: C.ERR.NETWORK }, paused), ['Couldn’t reach api.bible. Check your connection and try again.'],
+    'a paused month changes only the rate-limited line');
+}
+eq(F.keyErrorText({ code: C.ERR.UNKNOWN, message: 'HTTP 500' }), ['Couldn’t check the key (HTTP 500). Try again.'],
   'anything else names what happened, never a bare error code');
-eq(F.keyErrorText(undefined), 'Couldn’t check the key (no answer). Try again.', 'no response at all is still a sentence');
+eq(F.keyErrorText(undefined), ['Couldn’t check the key (no answer). Try again.'], 'no response at all is still a sentence');
 for (const code of Object.values(C.ERR)) {
-  check(!/^[A-Z_]+$/.test(F.keyErrorText({ code })) && !new RegExp(`^Error: `).test(F.keyErrorText({ code })),
-    `${code} reads as a sentence`);
+  const words = F.plainText(F.keyErrorText({ code }));
+  check(!/^[A-Z_]+$/.test(words) && !/^Error: /.test(words), `${code} reads as a sentence`);
+  if (code !== C.ERR.INVALID_KEY && code !== C.ERR.FORBIDDEN) {
+    check(F.keyErrorText({ code }).every((part) => typeof part === 'string'), `${code}: no links (the fix is to wait or retry)`);
+  }
 }
 
 // ---- Church languages ----
@@ -312,6 +440,83 @@ eq(F.groupCount(groups[0], 2), '2 languages', 'a search that leaves the whole gr
 eq(F.groupCount(groups[0], null), '2 languages', 'no search: the plain count');
 check(F.languageGroups(offered).every((x) => !/&/.test(x.label)), 'group labels name books in full ("Doctrine and Covenants", never "D&C")');
 
+// The list the reader sees: "Your languages" on top, then the coverage groups
+// without them, each row carrying its match against the search.
+const list = (enabled, q) => F.languageList(offered, enabled, q);
+const codesOf = (section) => section.rows.map((r) => r.lang.code);
+const noneEnabled = list([], '');
+eq(noneEnabled.map((x) => x.label), F.languageGroups(offered).map((x) => x.label),
+  'with none enabled there is no "Your languages" section, only the coverage groups');
+check(noneEnabled.every((x) => !x.yours), 'and no section is the reader\'s own');
+eq(noneEnabled.map(codesOf), F.languageGroups(offered).map((x) => x.langs.map((l) => l.code)),
+  'the coverage groups are today\'s, unchanged');
+const tableOrder = offered.map((l) => l.code);
+const picked = ['jpn', 'spa', 'tgl'].filter((c) => tableOrder.indexOf(c) >= 0);
+const withYours = list(['tgl', 'spa', 'jpn'], '');
+eq(withYours[0].label, 'Your languages', '"Your languages" comes first');
+check(withYours[0].yours === true && withYours.slice(1).every((x) => !x.yours), 'and only it is the reader\'s own');
+eq(codesOf(withYours[0]), tableOrder.filter((c) => picked.indexOf(c) >= 0),
+  '"Your languages" holds exactly the enabled languages, in table order (not the order they were ticked)');
+check(withYours.slice(1).every((x) => codesOf(x).every((c) => picked.indexOf(c) < 0)),
+  'enabled languages leave their coverage groups');
+eq(withYours.slice(1).reduce((n, x) => n + x.rows.length, 0), offered.length - picked.length,
+  'every other language is still in exactly one coverage group');
+eq(withYours.slice(1).map((x) => x.label), F.languageGroups(offered.filter((l) => picked.indexOf(l.code) < 0)).map((x) => x.label),
+  'a coverage group left empty by the move is gone, the others keep their order');
+eq(list(['xx-not-a-language'], '').map((x) => x.label), noneEnabled.map((x) => x.label), 'a code the table lacks enables nothing');
+eq(list(undefined, undefined).map((x) => x.label), noneEnabled.map((x) => x.label), 'no enabled list, no search: the plain groups');
+eq(F.languageList(undefined, ['spa'], ''), [], 'no table, no list');
+// Unticking: the language is back in its own coverage group.
+const spaGroup = noneEnabled.find((x) => codesOf(x).indexOf('spa') >= 0).label;
+const afterTick = list(['spa'], '');
+eq(codesOf(afterTick[0]), ['spa'], 'ticking Español puts it under "Your languages"');
+check(!afterTick.slice(1).some((x) => codesOf(x).indexOf('spa') >= 0), 'and out of its coverage group');
+const afterUntick = list([], '');
+check(codesOf(afterUntick.find((x) => x.label === spaGroup)).indexOf('spa') >= 0, 'unticking it sends it back to its coverage group');
+// The search runs over both parts.
+const found = list(['spa', 'jpn'], 'espanol');
+eq(found[0].rows.map((r) => [r.lang.code, r.hit]), [['jpn', false], ['spa', true]].sort((a, b) => tableOrder.indexOf(a[0]) - tableOrder.indexOf(b[0])),
+  'a search matches rows under "Your languages"');
+check(found.slice(1).every((x) => x.rows.every((r) => !r.hit)), 'and a language outside it is a miss');
+const foundBoth = list(['spa'], 'portu');
+check(foundBoth[0].rows.every((r) => !r.hit) && foundBoth.slice(1).some((x) => x.rows.some((r) => r.lang.code === 'por' && r.hit)),
+  'a search matches rows in the coverage groups too, at once');
+eq(foundBoth[0].shown, 0, 'a section counts the rows its search leaves in view');
+eq(foundBoth.reduce((n, x) => n + x.shown, 0), foundBoth.reduce((n, x) => n + x.rows.filter((r) => r.hit).length, 0), 'shown is the count of hits');
+check(list(['spa'], '').every((x) => x.shown === x.rows.length && x.rows.every((r) => r.hit)), 'no search: every row is a hit');
+eq(F.groupCount(withYours[0], withYours[0].shown), plural1(withYours[0].rows.length), 'the section\'s count reads like a group\'s');
+
+// A tick during a search: the search clears and focus follows the language to
+// its new place (tester 16).
+const tick = (before, after, q) => F.languageTick(offered, before, after, q);
+const jpnTick = tick([], ['jpn'], 'jap');
+eq(jpnTick.search, '', 'ticking 日本語 during a search answers an empty search');
+eq(jpnTick.focus, 'jpn', 'and focus stays on 日本語');
+eq(jpnTick.place, { yours: true, label: 'Your languages' }, 'whose new place is under "Your languages"');
+eq(tick(['spa'], ['spa', 'jpn'], 'jap').place, { yours: true, label: 'Your languages' }, 'also when "Your languages" already holds others');
+const spaUntick = tick(['spa'], [], 'esp');
+eq(spaUntick.search, '', 'unticking during a search clears it too');
+eq(spaUntick.focus, 'spa', 'focus follows the language');
+eq(spaUntick.place, { yours: false, label: spaGroup }, 'back to its own coverage group');
+eq(spaUntick.openGroup, spaGroup, 'and that group is opened, so the checkbox itself keeps focus');
+eq(jpnTick.openGroup, null, 'a tick needs no group opened ("Your languages" is always open)');
+eq(tick(['spa', 'jpn'], ['spa'], '').place.label, F.languageList(offered, ['spa'], '').find((x) => codesOf(x).indexOf('jpn') >= 0).label,
+  'with no search, an untick still names the language\'s coverage group');
+eq(tick([], ['jpn'], '').search, '', 'a tick with no search leaves the search empty');
+eq(tick([], ['jpn'], '  ').search, '', 'a blank search is cleared to empty');
+const same = tick(['spa'], ['spa'], 'esp');
+eq([same.search, same.focus, same.place, same.openGroup], ['esp', null, null, null],
+  'a change event that leaves the enabled set as it was keeps the search and moves nothing');
+eq(tick(['spa'], ['spa'], '').search, '', 'no change, no search: still empty');
+eq(tick(['spa', 'jpn'], ['spa', 'jpn'], 'x').search, 'x', 'the enabled set compares as a set, not by order');
+eq(tick(['spa', 'jpn'], ['jpn', 'spa'], 'x').focus, null, 'a reorder alone is no tick');
+eq(tick([], ['xx-not-a-language'], 'jap'), { search: 'jap', focus: null, place: null, openGroup: null },
+  'a code the table lacks changes nothing the reader can see');
+eq(tick(undefined, ['jpn'], 'jap').focus, 'jpn', 'no earlier set counts as none enabled');
+check(!list(['spa'], '').some((x) => /common|popular|featured|suggested/i.test(x.label)),
+  'no featured group exists: no language is set above another');
+function plural1(n) { return n === 1 ? '1 language' : `${n} languages`; }
+
 const lang = (code) => C.CHURCH_LANGUAGES.find((l) => l.code === code);
 check(F.matchesLanguage(lang('spa'), 'espanol'), 'the search ignores accents (espanol finds Español)');
 check(F.matchesLanguage(lang('spa'), 'SPAN'), 'and case, and matches the English name');
@@ -327,13 +532,88 @@ check(C.CHURCH_LANGUAGES.every((l) => /^[a-z]{2,3}(-[A-Z][a-z]{3})?(-[A-Z]{2})?$
 eq(['jpn', 'zhs', 'zho', 'yue', 'kor'].map((c) => lang(c).tag), ['ja', 'zh-Hans', 'zh-Hant', 'yue-Hant', 'ko'],
   'CJK names are tagged so the browser picks the right glyphs');
 
+// ---- aboutCopy: the About card (spec #69, A10, A28) ----
+// What the card says, as text: version, pack vintage, source lines, links.
+console.log('aboutCopy:');
+const BYU_LINE = 'Citation data compiled with reference to the BYU Scripture Citation Index. '
+  + 'Not affiliated with or endorsed by BYU or The Church of Jesus Christ of Latter-day Saints.';
+const JOD_LINE = 'Journal of Discourses text: Wikisource, public domain';
+// ebible.org's copyright page for the engwebp edition, word for word.
+const WEB_LINE = 'The World English Bible is in the Public Domain. That means that it is not copyrighted. '
+  + 'However, "World English Bible" is a Trademark of eBible.org.';
+const about = F.aboutCopy({ version: '1.0.0', pack: { flavor: 'public', vintage: '2026-10' } });
+eq(about.version, 'Version 1.0.0', 'the version line names the manifest version');
+eq(about.vintage, 'Citations through October 2026', 'the pack vintage reads as the Citations footer does');
+eq(F.aboutCopy({ version: '1.0.0', pack: null }).vintage, null, 'no pack found: no vintage line');
+eq(F.aboutCopy({ version: '1.0.0', pack: { vintage: 'soon' } }).vintage, null, 'an unreadable vintage: no vintage line');
+eq(about.sources, [BYU_LINE, JOD_LINE, WEB_LINE],
+  'the source lines: BYU compiled source with the not-affiliated line, Wikisource, the World English Bible wording');
+eq(about.links.map((l) => l.label), ['Support'], 'the card\'s links row is Support (the policy sits in "Your data")');
+check(about.links.every((l) => /^https:\/\/\S+$/.test(l.href)), 'the links are https URLs');
+eq(about.links[0].href, 'https://github.com/danielbaldwin47/Translations-and-Citations/issues',
+  'support defaults to the repository\'s issues (owner decision, spec #69 Further Notes)');
+
+// "Your data" (#128): three short lists from C.ABOUT.yourData, then the policy
+// with its address as the link's text. A site line leads with what it is for;
+// its hostnames follow.
+const yours = about.yourData;
+eq(yours.title, 'Your data', 'the section is headed "Your data"');
+eq(yours.lists.map((l) => l.head), ['On this computer', 'Synced through your Chrome account', 'Sites it contacts'],
+  'three lists: on this computer, synced, sites');
+eq(yours.lists, [C.ABOUT.yourData.local, C.ABOUT.yourData.synced, C.ABOUT.yourData.sites].map((l) => ({
+  head: l.head, items: l.items.map((i) => (typeof i === 'string' ? { text: i, hosts: [] } : i)),
+})), 'every list renders from C.ABOUT.yourData, in order; a plain line has no hostnames');
+const [localList, syncedList, sitesList] = yours.lists;
+const listText = (l) => l.items.map((i) => i.text).join(' | ');
+for (const [what, re] of [['highlights', /highlight/i], ['cached chapters', /chapters/i], ['the cached version list', /list of translations/i],
+  ['the usage report\'s device id', /\bid\b[\s\S]*usage report/i], ['the monthly count', /this month/i], ['the pick memory', /picked/i],
+  ['the near line\'s month', /month you last saw the api\.bible limit notice/i], ['the burst window\'s times', /times of the last few/i],
+  ['the highlight hint\'s flag', /whether to keep showing the highlighting tip/i]]) {
+  check(re.test(listText(localList)), `"On this computer" names ${what}`);
+}
+check(!/made one yet/.test(listText(localList)), '...the hint\'s flag by what it does, not "whether you’ve made one yet"');
+check(/This computer’s own count of api\.bible requests this month/.test(listText(localList)),
+  '...and says the monthly count is this computer\'s own (the key syncs, the count doesn\'t)');
+check(/settings/i.test(listText(syncedList)) && /api\.bible key/.test(listText(syncedList)) && /languages/i.test(listText(syncedList)),
+  '"Synced" names the settings, the api.bible key and the languages');
+check(/Anyone signed in to Chrome with this account can see your api\.bible key/.test(listText(syncedList)),
+  '...and that the synced key is readable by anyone signed in to that Chrome account');
+eq(sitesList.items.map((i) => i.hosts), [['www.churchofjesuschrist.org'], ['scriptures.byu.edu'], ['rest.api.bible', 'fums.api.bible']],
+  'the sites, by full hostname, Church site first');
+check(sitesList.items.every((i) => i.text && i.hosts.every((h) => i.text.indexOf(h) < 0)),
+  'each site line leads with a plain description; its hostnames are shown beside it, not in it');
+check(/only once you connect a key/i.test(sitesList.items[2].text), 'api.bible is contacted only once you connect a key');
+check(yours.lists.every((l) => l.items.every((i) => i.text.length <= 100)), 'every line is short (100 characters at most)');
+eq(yours.policy.href, C.ABOUT.privacyUrl, 'the section ends with the privacy policy');
+eq(yours.policy.text, C.ABOUT.privacyUrl.replace(/^https:\/\//, ''), 'the policy link\'s text is its address');
+check(/privacy policy/i.test(yours.policy.label), 'the address is labelled as the privacy policy');
+const settingKeys = Object.keys(S.defaults());
+check(!Object.keys(about).some((k) => settingKeys.indexOf(k) >= 0), 'nothing the About card shows is a setting');
+
+// "Show the welcome again" (#115): the one control on the About card. Its write
+// is the welcome-seen flag false; the welcome then shows by its ordinary due rule.
+eq(F.WELCOME_AGAIN.label, 'Show the welcome again', 'the About card\'s button reads "Show the welcome again"');
+eq(F.WELCOME_AGAIN.patch, { welcomeSeen: false }, '...and its write is the welcome-seen flag false, nothing else');
+check(settingKeys.indexOf('welcomeSeen') >= 0 && S.normalize(F.WELCOME_AGAIN.patch).welcomeSeen === false,
+  '...a key __BTX.settings owns, which its normalizer keeps false');
+// All or nothing: its own line under the button says which half failed, and
+// pressing the button again is the retry (both halves, in order). It never
+// joins the page's "Couldn't save" retry, which would re-send the flag alone.
+eq(F.welcomeAgainError({ saved: false }), 'Couldn’t show the welcome. Try again.',
+  'the flag didn\'t save: the line says the welcome didn\'t come (no tab was asked for)');
+eq(F.welcomeAgainError({ saved: true, reply: { ok: true } }), null, 'saved and the tab opened: no line');
+for (const reply of [{ error: { code: 'UNKNOWN', message: 'x' } }, null, undefined, {}]) {
+  eq(F.welcomeAgainError({ saved: true, reply }), 'Couldn’t open the welcome tab. Try again.',
+    `saved but the worker answered ${JSON.stringify(reply)}: the line says the tab didn't open`);
+}
+
 // ---- the DOM shell stays out of Node ----
 console.log('Shell:');
 eq(Object.keys(F).sort(), [
-  'commitPatch', 'connectedText', 'dedupeVersions', 'failedWrites', 'fillPlan', 'groupCount', 'initialChecks', 'isAdded',
-  'keyControls', 'keyErrorText', 'languageGroups', 'listGuesses', 'matchesLanguage', 'mergeVersions', 'moreLabel', 'offeredLanguages',
-  'patchLanded', 'pickDefaultId', 'stableGroups', 'translationPatch', 'versionGroups', 'versionLabel', 'withStored',
-  'yoursNote',
+  'aboutCopy', 'CHECKING_MIN_MS', 'checkingWait', 'commitPatch', 'connectedText', 'dedupeVersions', 'failedWrites', 'fillPlan', 'groupCount', 'initialChecks', 'isAdded',
+  'keyControls', 'keyFromField', 'keyErrorKind', 'keyErrorText', 'languageGroups', 'languageList', 'languageTick', 'listGuesses', 'matchesLanguage', 'mergeVersions', 'moreLabel', 'offeredLanguages',
+  'patchLanded', 'pausedNote', 'pausedUntil', 'pickDefaultId', 'plainText', 'REANNOUNCE_MS', 'setupOpen', 'stableGroups', 'statusChange', 'translationPatch', 'versionGroups', 'versionLabel', 'welcomeAgainError', 'withStored',
+  'WELCOME_AGAIN', 'yoursNote',
 ].sort(), 'requiring the page in Node exposes the pure core and nothing else');
 
 // ---- the shell actually uses the core ----
@@ -383,14 +663,47 @@ check(/type: C\.MSG\.LIST_BIBLES, key, refresh: !!explicit/.test(bodyOf('connect
   'Connect fetches the list afresh; an automatic try may take the cache');
 check(/await write\(partial, \['apiKey'\][\s\S]*\n {4}updateConnect\(\);/.test(bodyOf('connect')),
   'once a connect saves its key, Connect rests and "Check for new translations" shows');
-check((bodyOf('connect').match(/settleKeyFocus\(from\)/g) || []).length === 2 && /const from = document\.activeElement/.test(bodyOf('connect')),
-  'a connect that disables the button pressed puts keyboard focus back on the key row, on success and on error');
+check((bodyOf('connect').match(/settleKeyFocus\(from\)/g) || []).length === 3 && /const from = document\.activeElement/.test(bodyOf('connect')),
+  'a connect that disables the button pressed puts keyboard focus back on the key row, on success, on error, and on a paused refresh');
+// Every Connect visibly re-runs and is heard (#124).
+check(/const since = Date\.now\(\);\s*const res = await send\(/.test(bodyOf('connect'))
+  && /await sleep\(checkingWait\(\{ explicit, since, now: Date\.now\(\) \}\)\);\s*if \(seq !== connectSeq\) return;/.test(bodyOf('connect')),
+  'an explicit Connect holds "Checking…" for checkingWait, and a newer try still wins');
+check(/setKeyStatus\(keyErrorText\(res\.error, res\.rate\), keyErrorKind\(res\.error, res\.rate\), \{ announce \}\)/.test(bodyOf('connect'))
+  && /showKeyState\(\{ announce \}\)/.test(bodyOf('connect')),
+  'a Connect\'s answer, error or success, is announced even when it repeats the last one');
+check(/setKeyStatus\(keyErrorText\(res\.error, res\.rate\), keyErrorKind\(res\.error, res\.rate\)\)/.test(bodyOf('refreshList')), 'a stored key rejected on open shows the same linked line');
+check(/statusChange\(\{ shown: statusShown, text: plainText\(parts\), announce/.test(bodyOf('setKeyStatus'))
+  && /setTimeout\([\s\S]*?REANNOUNCE_MS\)/.test(bodyOf('setKeyStatus')),
+  'the key status writes through statusChange, re-announcing a repeat after its clear has rendered');
+check(/linkedText\(els\.keyStatus, parts\)/.test(bodyOf('writeKeyStatus')) && !/innerHTML/.test(shell),
+  'the status line renders through linkedText (text nodes and anchors, never innerHTML)');
+check((shell.match(/linkedText\(els\.keyStatus/g) || []).length === 1 && !/els\.keyStatus\.(textContent|innerText|replaceChildren)/.test(shell),
+  'the key status line has one writer');
+check(!/apiKey\.value\.trim\(\)/.test(shell) && (shell.match(/keyFromField\(els\.apiKey\.value\)/g) || []).length >= 5,
+  'the shell reads the key field through keyFromField, so stray spaces never cost a reader');
+check(/id="keyStatus"[^>]*role="status"[^>]*aria-live="polite"/.test(html), 'the key status is a polite live region');
 check(/listed: versionsLoaded/.test(bodyOf('updateConnect')), '"Check for new translations" knows whether a list is on screen');
 check(/if \(!els\.connectKey\.disabled\) connect\(true\)/.test(shell), 'Enter in the key field rests with Connect (no refetch of the connected key)');
 check(/keyControls\(/.test(bodyOf('updateConnect')) && /els\.recheckKey\.hidden = !c\.recheck/.test(bodyOf('updateConnect')),
   'Connect and "Check for new translations" follow keyControls');
-check(/recheckKey\.addEventListener\('click', \(\) => \{ if \(keyState !== 'checking'\) connect\(true\); \}\)/.test(shell) && /id="recheckKey"[^>]*>Check for new translations</.test(html),
-  '"Check for new translations" is the explicit refresh');
+check(/recheckKey\.addEventListener\('click', \(\) => \{ if \(keyState !== 'checking' && !paused\) connect\(true\); \}\)/.test(shell) && /id="recheckKey"[^>]*>Check for new translations</.test(html),
+  '"Check for new translations" is the explicit refresh, resting in a paused month');
+// A paused month on the connected key (#101 UX pass): "Connected." stays, the
+// paused line is a second live region under it, and the button rests with
+// its reason.
+check(/paused = pausedUntil\(res\) \? res\.rate : null;\s*if \(res\.error && paused && available\.length\) \{\s*(\/\/[^\n]*\n\s*)*keyState = 'connected';/.test(bodyOf('refreshList')),
+  'the page opening in a paused month keeps the stored key connected, with its list');
+check(/paused = pausedUntil\(res\) \? res\.rate : null;\s*if \(res\.error && stored && paused && available\.length\) \{\s*(\/\/[^\n]*\n\s*)*keyState = 'connected';/.test(bodyOf('connect')),
+  '...and so does its refresh refused in a paused month');
+check(/pausedNote\(paused\)/.test(bodyOf('showKeyPause')) && /keyState === 'connected'/.test(bodyOf('showKeyPause')) && /linkedText\(els\.keyPause, parts\)/.test(bodyOf('showKeyPause')),
+  'the paused line shows under the connected key only, through linkedText');
+check(/id="keyPause" class="status note" role="status" aria-live="polite"/.test(html) && /id="recheckKey"[^>]*aria-describedby="keyPause"/.test(html),
+  '...as its own polite live region, which describes the resting button');
+check(/setAttribute\('aria-disabled', 'true'\)/.test(bodyOf('updateConnect')) && /c\.recheckUsable/.test(bodyOf('updateConnect'))
+  && /\.text-button\[aria-disabled='true'\]/.test(css),
+  'a resting "Check for new translations" is aria-disabled (it keeps focus) and looks off');
+check(!/\.status\.note \{[^}]*--error/.test(css) && /\.status\.note \{ color: var\(--fg\); \}/.test(css), 'the paused line is the body colour, never the error red');
 check(/stableGroups\(shown, available/.test(bodyOf('renderTranslations')), 'a redraw keeps rows where they were (stableGroups)');
 check(/available = stored \? mergeVersions\(available, res\.bibles\)/.test(bodyOf('connect'))
   && /listPartial = listGuesses\(available, res\.partial\)/.test(bodyOf('connect')),
@@ -405,6 +718,17 @@ check(/fillForm\(\);[\s\S]*reveal\(\);[\s\S]*listRefresh = refreshList\(\)/.test
 check(/<script src="\.\.\/background\/cache\.js"><\/script>\s*(<!--[^>]*-->\s*)?<script src="options\.js">/.test(html)
   || /cache\.js"><\/script>\s*<script src="options\.js">/.test(html),
   'the options page loads the worker\'s cache module before its own script');
+// A ticked language leads the pick memory (#105): one key in C, one rule in church text.
+check(/church-text\.js"><\/script>[\s\S]*<script src="options\.js">/.test(html)
+  && /constants\.js"><\/script>[\s\S]*church-text\.js"/.test(html),
+  'the options page loads church text after the constants and before its own script');
+check(typeof C.SELECTION_KEY === 'string' && !/btxSelectedTranslation/.test(src)
+  && !/btxSelectedTranslation/.test(fs.readFileSync(path.join(ROOT, 'src/content/content.js'), 'utf8')),
+  'the pick memory\'s storage key is named once, in C.SELECTION_KEY');
+check(/CHURCH\.rememberTicked\(picks, before, after\)/.test(bodyOf('rememberTicks'))
+  && /rememberTicks\(settings\.churchLanguages, values\.churchLanguages\)[\s\S]*return write\(/.test(bodyOf('flush'))
+  && !/SELECTION_KEY\]: (?!picks)/.test(src),
+  'a Church-language autosave writes the pick memory through church text\'s rememberTicked, before the setting');
 check(/again\.focus\(/.test(bodyOf('renderTranslations')),
   'rebuilding the list puts focus back on the row that had it (a refresh must not drop a keyboard reader)');
 check(/listRefresh\.then\(/.test(bodyOf('focusSection')) && /listRefresh = refreshList\(\)/.test(bodyOf('init')),
@@ -477,33 +801,155 @@ const fieldsTable = (shell.match(/const FIELDS = \[[\s\S]*?\n {2}\];/) || [''])[
 check(fieldsTable, 'FIELDS is still one literal table in the shell');
 const CONTROL = {
   apiKey: 'apiKey', churchLanguages: 'churchLanguages', churchLanguageLayout: 'churchLanguageLayout',
-  scrollSync: 'scrollSync', actOnNonEngOnly: 'showOnOtherLanguages', sidebarWidth: 'sidebarWidth', fontScale: 'fontScale',
+  scrollSync: 'scrollSync', sidebarWidth: 'sidebarWidth', fontScale: 'fontScale',
 };
 for (const [key, id] of Object.entries(CONTROL)) {
   check(new RegExp(`key: '${key}'`).test(fieldsTable), `${key} is a FIELDS row (so the autosave writes it and fillForm repaints it)`);
   check(new RegExp(`id="${id}"`).test(html), `${key} has a control on the options page (#${id})`);
 }
-check(/key: 'actOnNonEngOnly',[\s\S]*?read: \(\) => !els\.showOnOtherLanguages\.checked/.test(fieldsTable),
-  '"Also show on pages in other languages" is actOnNonEngOnly, inverted');
 // Retired settings: the panel owns the citation layout, and the rest are gone.
-for (const key of ['citationView', 'citationSourceMark', 'showCitationToggle', 'scrollToSnippet']) {
+for (const key of ['citationView', 'citationSourceMark', 'showCitationToggle', 'scrollToSnippet', 'actOnNonEngOnly']) {
   check(!new RegExp(key).test(src) && !new RegExp(key).test(html), `${key} is not on the options page`);
 }
+check(!/showOnOtherLanguages|pages in other languages/.test(src + html),
+  'the "Also show on pages in other languages" row is gone (the panel shows on every chapter page)');
 check(!/id="save"|Save settings/.test(html), 'there is no Save button — every change saves itself');
 check(/id="saveStatus"[^>]*role="status"/.test(html), 'the autosave status is announced (role=status)');
 
 // Card ids are the deep-link sections, in order.
 const cardIds = [...html.matchAll(/<section class="card" id="([^"]+)"/g)].map((m) => m[1]);
 eq(cardIds, C.OPTIONS_SECTIONS, 'the cards are the deep-link sections, in order');
+eq(cardIds, ['languages', 'bible', 'reading', 'about'],
+  'the cards run Church languages, Bible translations, Reading, About (the setup that needs no key comes first)');
 check(/id="reading"[\s\S]*id="scrollSync"/.test(html) && /id="reading"[\s\S]*id="fontScale"/.test(html),
   'scroll sync and text size sit in the Reading card');
 check(/id="languages"[\s\S]*id="churchLanguages"[\s\S]*id="reading"/.test(html),
   'the Church-language checklist sits in its own card');
+
+// The About card (spec #69): the fourth section, text and links only, so it
+// adds nothing the autosave could write.
+eq(C.OPTIONS_SECTIONS, ['languages', 'bible', 'reading', 'about'], 'About is the fourth section; the ids are the same four');
+const aboutCard = (html.match(/<section class="card" id="about"[\s\S]*?<\/section>/) || [''])[0];
+check(aboutCard, 'the About card is on the page');
+check(!/<(input|select|textarea)\b|contenteditable/i.test(aboutCard), 'the About card has no form field');
+eq([...aboutCard.matchAll(/<button\b[^>]*>/g)].length, 1, 'the About card has one button');
+check(/<button id="welcomeAgain" type="button"[^>]*>Show the welcome again<\/button>/.test(aboutCard),
+  'the About card\'s button is "Show the welcome again"');
+const welcomeAgainBody = bodyOf('showWelcomeAgain');
+check(/write\(WELCOME_AGAIN\.patch,/.test(welcomeAgainBody), 'pressing it writes the flag through write() (one SETTINGS.patch)');
+check(/C\.MSG\.OPEN_WELCOME/.test(welcomeAgainBody), 'then asks the worker to open the Alma 5 tab (C.MSG.OPEN_WELCOME)');
+check(welcomeAgainBody.indexOf('write(') >= 0 && welcomeAgainBody.indexOf('write(') < welcomeAgainBody.indexOf('OPEN_WELCOME'),
+  'the flag is written before the tab is asked for, so the new tab sees the welcome due');
+check(/write\(WELCOME_AGAIN\.patch, \[\], true, true\)/.test(welcomeAgainBody),
+  'its write stands alone: a failure never joins `failed`, so the page\'s Try again cannot re-send the flag without the tab');
+check(/if \(!alone\)/.test(bodyOf('write')) && /failed = failedWrites/.test(bodyOf('write')),
+  'write() keeps an alone write out of the generic retry');
+check(/welcomeAgainError\(/.test(welcomeAgainBody) && /els\.welcomeAgainStatus/.test(welcomeAgainBody),
+  'a failed save or a failed open is said under the button, never silent');
+check(/<p id="welcomeAgainStatus"[^>]*role="status"/.test(aboutCard), 'the About card has the button\'s status line, announced');
+check(/getElementById|\$\('welcomeAgain'\)|welcomeAgain:/.test(shell) && /showWelcomeAgain/.test(bodyOf('init')),
+  'init wires the button');
+check(!/els\.about/.test(fieldsTable), 'no FIELDS row reads or writes the About card');
+const renderAboutBody = bodyOf('renderAbout');
+check(/aboutCopy\(\{ version: chrome\.runtime\.getManifest\(\)\.version, pack \}\)/.test(renderAboutBody),
+  'the card shows the running manifest\'s version through aboutCopy');
+check(/citData\.loadPack\(\)/.test(renderAboutBody), 'the vintage comes from the pack the reader loads (personal first, then public)');
+check(!/queueCommit|write\(|dirty|SETTINGS/.test(renderAboutBody), 'rendering the About card touches no setting');
+check(/<div id="aboutData"[^>]*>\s*<h3 id="aboutDataHead"/.test(aboutCard), 'the About card holds the "Your data" section, under its heading');
+check(/copy\.yourData/.test(renderAboutBody) && /els\.aboutData/.test(renderAboutBody), 'renderAbout draws "Your data" from aboutCopy');
+check(!/innerHTML/.test(renderAboutBody), 'the About card is drawn as text (no innerHTML)');
+check(/linkedText\(/.test(renderAboutBody) && !/el\('a'/.test(renderAboutBody), 'the About card\'s links are built by linkedText, the page\'s one link builder');
+check((shell.match(/el\('a'/g) || []).length === 1, '...which is the only place the page builds a link');
+check(/renderAbout\(\)/.test(bodyOf('init')), 'init renders the About card');
+check(/cit-data\.js"><\/script>\s*<script src="\.\.\/citations\/cit-view-model\.js"><\/script>[\s\S]*<script src="options\.js">/.test(html),
+  'the options page loads the pack loader and the view-model (vintageLine) before its own script');
+check(/if \(section === 'about'\) return;/.test(bodyOf('focusSection')), 'a deep link to About scrolls to it and moves no focus');
 check(/chrome\.storage\.session\.get\(C\.OPTIONS_FOCUS_KEY\)/.test(bodyOf('takeFocusRequest'))
   && /chrome\.storage\.session\.remove\(C\.OPTIONS_FOCUS_KEY\)/.test(bodyOf('takeFocusRequest')),
   'a deep link is read and cleared from session storage');
 check(/area === 'session' && changes\[C\.OPTIONS_FOCUS_KEY\]/.test(shell),
   'an already-open page follows a new deep link');
+
+// ---- Disclosures (spec #69, A29): the click beside each sentence is the consent ----
+// Four places: beside Connect and beside adding a language, on this page and
+// on the panel's setup card. One wording, C.DISCLOSURE.
+console.log('Disclosures:');
+eq(C.DISCLOSURE.apiBible, 'Connecting sends the chapters you open, your key, and an anonymous usage report to API.Bible.',
+  'the api.bible sentence is the spec\'s wording');
+eq(C.DISCLOSURE.churchLanguage, 'Fetches that language’s chapter from churchofjesuschrist.org.',
+  'the Church-language sentence is the spec\'s wording (curly apostrophe)');
+const textOf = (id) => ((html.match(new RegExp(`<p[^>]*\\bid="${id}"[^>]*>([\\s\\S]*?)</p>`)) || [])[1] || '').replace(/\s+/g, ' ').trim();
+const cardOf = (id) => (html.match(new RegExp(`<section class="card" id="${id}"[\\s\\S]*?</section>`)) || [''])[0];
+eq(textOf('keyDisclosure'), C.DISCLOSURE.apiBible, 'settings: the api.bible sentence is on the page');
+check(/id="connectKey"[^>]*>Connect<\/button>\s*<\/div>\s*(<!--[\s\S]*?-->\s*)?<p[^>]*\bid="keyDisclosure"/.test(cardOf('bible')),
+  'settings: the api.bible sentence sits directly under the row holding Connect');
+check(/id="connectKey"[^>]*aria-describedby="keyDisclosure"/.test(html), 'settings: Connect is described by the sentence');
+eq(textOf('languagesDisclosure'), C.DISCLOSURE.churchLanguage, 'settings: the Church-language sentence is on the page');
+check(/id="languagesDisclosure"[\s\S]*id="churchLanguages"/.test(cardOf('languages')),
+  'settings: the Church-language sentence sits in the Church languages card, above the checklist that adds one');
+const P = require(path.join(ROOT, 'src/content/panel.js'));
+for (const bible of ['nokey', 'noversions']) {
+  eq(P.setupCopy({ chapter: 'John 3', bible }).bible.disclosure, C.DISCLOSURE.apiBible,
+    `setup card: the api.bible path (${bible}) carries the api.bible sentence`);
+}
+eq(P.setupCopy({ chapter: 'Alma 5', bible: null }).languagesDisclosure, C.DISCLOSURE.churchLanguage,
+  'setup card: the language picker carries the Church-language sentence');
+const panelSrc = fs.readFileSync(path.join(ROOT, 'src/content/panel.js'), 'utf8').replace(/\r\n/g, '\n');
+const renderSetupSrc = (panelSrc.match(/function renderSetup\([^)]*\) \{[\s\S]*?\n {2}\}\n/) || [''])[0];
+check(/languagePicker\(copy, langs\)\);\s*block\.appendChild\(el\('p', '[^']+', copy\.languagesDisclosure\)\)/.test(renderSetupSrc),
+  'setup card: the Church-language sentence renders right under the picker with Add');
+check(/copy\.bible\.button[^\n]*\n\s*block\.appendChild\(el\('p', '[^']+', copy\.bible\.disclosure\)\)/.test(renderSetupSrc),
+  'setup card: the api.bible sentence renders right under its button');
+
+// ---- api.bible setup (spec #101, #123): no account to NIV showing ----
+console.log('api.bible setup:');
+{
+  const card = cardOf('bible');
+  const setup = (card.match(/<div class="hint setup" id="bibleSetup">([\s\S]*?)<\/div>/) || [])[1] || '';
+  const words = (h) => h.replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim();
+  const steps = [...((setup.match(/<ol[^>]*>([\s\S]*?)<\/ol>/) || [])[1] || '').matchAll(/<li>([\s\S]*?)<\/li>/g)].map((m) => m[1]);
+  check(card.indexOf('id="bibleSetup"') >= 0 && card.indexOf('id="bibleSetup"') < card.indexOf('id="apiKey"'),
+    'the setup steps sit above the key field they end in');
+  eq(steps.map(words), [
+    'Create a free account at api.bible. Sign-up asks a few questions about how you’ll use it.',
+    'Choose up to 3 Bibles, such as NIV, on the free plan.',
+    'Copy the key from the top right of your api.bible dashboard, and paste it below. It’s a long string of letters and numbers.',
+  ], 'three numbered steps, in order');
+  check(/<a href="https:\/\/api\.bible\/sign-up"[^>]*>Create a free account<\/a>/.test(steps[0] || ''), 'step 1 links api.bible\'s sign-up page');
+  check(/<a href="https:\/\/api\.bible\/team"[^>]*>api\.bible dashboard<\/a>/.test(steps[2] || ''), 'step 3 links the dashboard');
+  check(/id="apiKey"[^>]*placeholder="A long string of letters and numbers"/.test(card), 'the key field\'s placeholder says what a key looks like, as step 3 does');
+  const intro = words((setup.match(/^\s*<p[^>]*>([\s\S]*?)<\/p>/) || [])[1] || '');
+  eq(intro, 'The World English Bible is built in and needs no key. For more translations, such as NIV and NKJV, you can connect a free api.bible key.',
+    'the card opens by saying a key is optional');
+  check(/<details id="setupSteps"[^>]*>\s*<summary[^>]*>How to set up api\.bible<\/summary>\s*<ol>/.test(setup) && /<\/ol>[\s\S]*<\/details>\s*$/.test(setup),
+    'the steps and the add-later line fold into "How to set up api.bible"');
+  check(/els\.setupSteps\.open = setupOpen\(settings\.apiKey\)/.test(src), '...open or folded by setupOpen when the page opens');
+  const later = setup.replace(/<ol[\s\S]*<\/ol>/, '');
+  check(/choose <span id="addBiblesPath"><\/span><span id="addLaterCheck">, then choose Check for new translations below<\/span>\./.test(later.replace(/\s+/g, ' ')),
+    'the add-later line holds the dashboard path\'s slot, and its button clause apart');
+  check(/els\.addLaterCheck\.hidden = !\(c\.recheck && c\.recheckUsable\)/.test(bodyOf('updateConnect')),
+    '...which shows only while "Check for new translations" is there to use');
+  check(!/Edit Plan/.test(html), '...and not a second copy of the path (it comes from C.API_BIBLE_ADD_BIBLES)');
+  check(/els\.addBiblesPath\.textContent = C\.API_BIBLE_ADD_BIBLES/.test(src) && /addBiblesPath: \$\('addBiblesPath'\)/.test(src),
+    'the page fills the path from C.API_BIBLE_ADD_BIBLES');
+  check(/<a href="https:\/\/api\.bible\/team"/.test(later), 'the add-later line links the dashboard');
+  check(/C\.API_BIBLE_ADD_BIBLES/.test(F.yoursNote.toString()), 'the "Your translations" note reads the same field');
+  const links = setup.match(/<a\b[^>]*>/g) || [];
+  check(links.length >= 3 && links.every((a) => /target="_blank"/.test(a) && /rel="noopener"/.test(a)),
+    'every setup link opens in a new tab with noopener');
+  check(links.every((a) => /href="https:\/\/api\.bible\/(sign-up|team)"/.test(a)), 'every setup link goes straight to api.bible\'s current pages');
+  // Reader-facing copy names the site api.bible; only the API host may say scripture.
+  for (const rel of ['src/options/options.html', 'src/options/options.js', 'src/content/panel.js', 'src/content/content.js']) {
+    const text = fs.readFileSync(path.join(ROOT, rel), 'utf8');
+    check(!/(?<!api\.)scripture\.api\.bible/.test(text), `${rel} never names scripture.api.bible to the reader`);
+  }
+  check(/yoursNote\(\{[^)]*\}\);\s*\n\s*linkedText\(els\.yoursNote, note\)/.test(src), 'the note renders through linkedText');
+  check((src.match(/keyErrorText\(res\.error, res\.rate\)/g) || []).length === 2 && !/keyErrorText\(res\.error\)/.test(src),
+    'Connect and the list refresh hand keyErrorText the reply\'s month state');
+  check(/<script src="\.\.\/shared\/rate-copy\.js"><\/script>[\s\S]*<script src="options\.js">/.test(html), 'the options page loads the shared rate copy before its own script');
+  check(/n\.textContent = text/.test(bodyOf('el')) && /createTextNode/.test(bodyOf('linkedText')) && !/innerHTML/.test(bodyOf('linkedText')),
+    'linked text is built from text nodes and anchors, never innerHTML');
+}
 
 // The language search must not live inside the churchLanguages FIELDS node, or
 // typing in it would mark the setting dirty.
@@ -533,20 +979,28 @@ check(!/[A-Za-z]'[A-Za-z]/.test(htmlText), 'the page\'s copy uses curly apostrop
 const jsStrings = [...shell.replace(/^\s*\/\/.*$/gm, '').matchAll(/(['"`])((?:(?!\1)[^\\\n]|\\.)*)\1/g)].map((m) => m[2]);
 check(!jsStrings.some((t) => /[A-Za-z]'[A-Za-z]|n't\b/.test(t)), 'the script\'s copy uses curly apostrophes too');
 check(/id="langFilter"/.test(html), 'the language list has a search box');
-check(/for \(const group of |languageGroups\(offeredLanguages\(C\.CHURCH_LANGUAGES\)\)/.test(bodyOf('buildLanguageList')),
-  'the checklist is built from the extension\'s own language table, minus English');
+check(/languageList\(offeredLanguages\(C\.CHURCH_LANGUAGES\), checkedLanguages\(\), q\)/.test(bodyOf('renderLanguageList')),
+  'the checklist is laid out by the pure languageList from the extension\'s own language table (minus English), the ticked languages and the search');
+check(/renderLanguageList\(\)/.test(fieldsTable + bodyOf('init')) && /renderLanguageList/.test(bodyOf('checkLanguages')),
+  'a tick, an adopted setting and the search each lay the list out again');
+check(/languageTick\(offeredLanguages\(C\.CHURCH_LANGUAGES\), ticked, now, els\.langFilter\.value\)/.test(bodyOf('onLanguageTick'))
+  && /els\.langFilter\.value = tick\.search/.test(bodyOf('onLanguageTick'))
+  && /f\.key === 'churchLanguages'\) onLanguageTick\(\)/.test(bodyOf('init')),
+  'a tick or untick asks the pure languageTick, clears the search it answers, and the checklist\'s change handler runs it');
+check(/renderLanguageList\(tick\.focus\)/.test(bodyOf('onLanguageTick')) && /focusCode = code \|\|/.test(bodyOf('renderLanguageList')),
+  'the language the tick named gets the focus in its new place');
 check(/buildLanguageList\(\);[\s\S]{0,80}fillForm\(\);/.test(bodyOf('init')),
   'init builds the Church-language checklist before the first fillForm, key or no key');
 for (const name of ['connect', 'renderTranslations', 'refreshList']) {
   const body = bodyOf(name);
   check(body && !/buildLanguageList|churchLanguages/.test(body), `${name} never builds or touches the Church-language list`);
 }
-check(/groupCount\(g\.group, filtering \? n : null\)/.test(bodyOf('applyLanguageFilter')),
-  'a search updates each group\'s count to the languages it leaves in view');
-check(/aria-labelledby', summary\.id/.test(bodyOf('buildLanguageList')) && /aria-labelledby="moreSummary"/.test(html),
+check(/groupCount\(section, filtering \? section\.shown : null\)/.test(bodyOf('renderLanguageList')),
+  'a search updates each section\'s count to the languages it leaves in view');
+check(/aria-labelledby', summary\.id/.test(bodyOf('renderLanguageList')) && /aria-labelledby="moreSummary"/.test(html),
   'every <details> group is named by its summary');
 check(/\.summary-count \{ white-space: nowrap; \}/.test(css), 'a wrapping group label keeps "· 69 languages" on one line');
-check(/el\('span', 'summary-text', `\$\{group\.label\}\\u00a0`\)/.test(bodyOf('buildLanguageList')),
+check(/el\('span', 'summary-text', `\$\{section\.label\}\\u00a0`\)/.test(bodyOf('renderLanguageList')),
   'the label\'s last word joins its count with a no-break space, so a wrapped line never starts with the dot');
 check(/span\.lang = lang\.tag/.test(bodyOf('nativeName')) && /span\.dir = 'auto'/.test(bodyOf('nativeName')),
   'native language names are tagged with their language and direction');

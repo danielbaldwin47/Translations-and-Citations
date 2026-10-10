@@ -32,15 +32,17 @@ function eq(actual, expected, msg) {
 console.log('Schema:');
 const KEYS = [
   'apiKey', 'provider', 'enabledTranslations', 'defaultTranslationId', 'churchLanguages', 'churchLanguageLayout',
-  'actOnNonEngOnly', 'sidebarWidth', 'fontScale', 'citationView',
-  'panelMode', 'panelCollapsed', 'scrollSync',
+  'sidebarWidth', 'fontScale', 'citationView',
+  'panelMode', 'panelCollapsed', 'scrollSync', 'noTranslationLineDismissed', 'welcomeSeen',
 ];
 check(Array.isArray(S.KEYS), 'exports KEYS');
 eq(S.KEYS.slice().sort(), KEYS.slice().sort(), 'KEYS covers exactly the known settings');
 // Retired settings: talks always open at the cited passage, the By source |
 // By verse toggle always shows, and the coloured strip is the one source
 // marking. A value stored by an older version is an unknown key from now on.
-const RETIRED = ['scrollToSnippet', 'showCitationToggle', 'citationSourceMark'];
+// `actOnNonEngOnly` went with the rule that hid the panel on other-language pages:
+// the panel shows on every chapter page now.
+const RETIRED = ['scrollToSnippet', 'showCitationToggle', 'citationSourceMark', 'actOnNonEngOnly'];
 for (const key of RETIRED) {
   check(!S.KEYS.includes(key), `${key} is retired (not a setting)`);
   check(!(key in S.normalize({ [key]: 'stored by an older version' })), `a stored ${key} is not exposed as a setting`);
@@ -75,12 +77,12 @@ for (const bad of ['VERSE', 'by-verse', '', 0, null, {}, undefined]) {
 
 // ---- normalize: panelMode (the panel's persisted mode preference) ----
 console.log('normalize (panelMode):');
-eq(S.defaults().panelMode, 'translation', 'panelMode defaults to "translation"');
+eq(S.defaults().panelMode, 'citations', 'panelMode defaults to "citations"');
 eq(S.normalize({ panelMode: 'citations' }).panelMode, 'citations', 'panelMode "citations" survives');
 eq(S.normalize({ panelMode: 'translation' }).panelMode, 'translation', 'panelMode "translation" survives');
 for (const bad of ['CITATIONS', 'both', '', 0, null, {}, undefined]) {
-  eq(S.normalize({ panelMode: bad }).panelMode, 'translation',
-    `panelMode ${JSON.stringify(bad)} falls back to "translation"`);
+  eq(S.normalize({ panelMode: bad }).panelMode, 'citations',
+    `panelMode ${JSON.stringify(bad)} falls back to "citations"`);
 }
 
 // ---- normalize: panelCollapsed (default-false boolean) ----
@@ -93,9 +95,29 @@ for (const bad of ['true', 1, null, undefined, {}]) {
     `panelCollapsed ${JSON.stringify(bad)} falls back to false`);
 }
 
+// ---- normalize: noTranslationLineDismissed (the no-translation line's ×) ----
+console.log('normalize (noTranslationLineDismissed):');
+eq(S.defaults().noTranslationLineDismissed, false, 'the no-translation line starts un-dismissed');
+eq(S.normalize({ noTranslationLineDismissed: true }).noTranslationLineDismissed, true, 'dismissed true survives');
+eq(S.normalize({ noTranslationLineDismissed: false }).noTranslationLineDismissed, false, 'dismissed false survives');
+for (const bad of ['true', 1, null, undefined, {}]) {
+  eq(S.normalize({ noTranslationLineDismissed: bad }).noTranslationLineDismissed, false,
+    `dismissed ${JSON.stringify(bad)} falls back to false (the line shows)`);
+}
+
+// ---- normalize: welcomeSeen (the welcome's Got it, GLOSSARY: Welcome) ----
+console.log('normalize (welcomeSeen):');
+eq(S.defaults().welcomeSeen, false, 'a fresh profile has not seen the welcome');
+eq(S.normalize({ welcomeSeen: true }).welcomeSeen, true, 'Got it (true) survives');
+eq(S.normalize({ welcomeSeen: false }).welcomeSeen, false, '"Show the welcome again" (false) survives');
+for (const bad of ['true', 1, null, undefined, {}]) {
+  eq(S.normalize({ welcomeSeen: bad }).welcomeSeen, false,
+    `welcomeSeen ${JSON.stringify(bad)} falls back to false (the welcome is due)`);
+}
+
 // ---- normalize: booleans ----
 console.log('normalize (booleans):');
-for (const key of ['actOnNonEngOnly', 'scrollSync']) {
+for (const key of ['scrollSync']) {
   eq(S.defaults()[key], true, `${key} defaults to true`);
   eq(S.normalize({ [key]: false })[key], false, `${key} false survives`);
   eq(S.normalize({ [key]: true })[key], true, `${key} true survives`);
@@ -145,15 +167,51 @@ eq(S.defaults().fontScale, S.normalize({ fontScale: 1 }).fontScale, 'the default
 console.log('normalize (strings, provider, translations):');
 eq(S.normalize({ apiKey: '  abc  ' }).apiKey, 'abc', 'apiKey is trimmed');
 eq(S.normalize({ apiKey: 42 }).apiKey, '', 'non-string apiKey falls back to ""');
-eq(S.normalize({ defaultTranslationId: ' xyz ' }).defaultTranslationId, 'xyz', 'defaultTranslationId is trimmed');
-eq(S.normalize({ provider: C.PROVIDER_BIBLEAPI }).provider, C.PROVIDER_BIBLEAPI, 'known provider survives');
+eq(S.normalize({ enabledTranslations: [{ id: 'xyz' }], defaultTranslationId: ' xyz ' }).defaultTranslationId, 'xyz', 'defaultTranslationId is trimmed');
+eq(S.normalize({ provider: 'api.bible' }).provider, 'api.bible', 'api.bible is the provider');
+// The retired public-domain provider: a value an older version stored.
+const RETIRED_PROVIDER = 'bible-api.com';
+eq(S.normalize({ provider: RETIRED_PROVIDER }).provider, 'api.bible', 'a stored retired provider maps to api.bible');
 eq(S.normalize({ provider: 'made-up' }).provider, C.PROVIDER_APIBIBLE, 'unknown provider falls back to api.bible');
 eq(S.defaults().provider, C.PROVIDER_APIBIBLE, 'provider defaults to api.bible');
 
+// The World English Bible ships in the extension (provider `bundled`): its row
+// is always in the list, after the api.bible versions.
+const WEB = { id: 'engwebp', abbr: 'WEB', name: 'World English Bible', provider: 'bundled' };
 const trs = [{ id: 'a', name: 'A' }, { id: '', name: 'empty' }, null, 'nope', { name: 'no id' }];
-eq(S.normalize({ enabledTranslations: trs }).enabledTranslations, [{ id: 'a', name: 'A' }],
+eq(S.normalize({ enabledTranslations: trs }).enabledTranslations, [{ id: 'a', name: 'A' }, WEB],
   'enabledTranslations keeps only entries with a non-empty id');
-eq(S.normalize({ enabledTranslations: 'nope' }).enabledTranslations, [], 'non-array enabledTranslations -> []');
+eq(S.normalize({ enabledTranslations: 'nope' }).enabledTranslations, [WEB], 'non-array enabledTranslations -> just the World English Bible');
+
+// ---- normalize: the bundled World English Bible ----
+console.log('normalize (World English Bible row, default translation):');
+eq(S.defaults().enabledTranslations, [WEB], 'a fresh profile has the World English Bible on');
+eq(S.defaults().defaultTranslationId, 'engwebp', '...and it is the default translation');
+eq(S.normalize({ enabledTranslations: [] }).enabledTranslations, [WEB], 'turning every api.bible version off leaves the World English Bible');
+const NIV = { id: 'niv', abbr: 'NIV', name: 'New International Version', provider: 'api.bible' };
+const KJV = { id: 'kjv', abbr: 'KJV', name: 'King James Version', provider: 'api.bible' };
+eq(S.normalize({ enabledTranslations: [WEB, NIV] }).enabledTranslations, [NIV, WEB],
+  'the World English Bible row sits after the api.bible versions, wherever it was stored');
+eq(S.normalize({ enabledTranslations: [Object.assign({}, WEB, { abbr: 'XYZ', name: 'Edited', description: 'Protestant' })] }).enabledTranslations, [WEB],
+  'a stored World English Bible row is put back to the shipped one');
+eq(S.normalize({ enabledTranslations: [NIV], defaultTranslationId: '' }).defaultTranslationId, '',
+  'with an api.bible version on, an empty default stays for the panel to resolve');
+eq(S.normalize({ enabledTranslations: [NIV, KJV], defaultTranslationId: 'kjv' }).defaultTranslationId, 'kjv',
+  'with api.bible versions on, the chosen default stands');
+eq(S.normalize({ enabledTranslations: [NIV], defaultTranslationId: 'engwebp' }).defaultTranslationId, 'engwebp',
+  'the World English Bible may stay the default with api.bible versions on');
+eq(S.normalize({ enabledTranslations: [], defaultTranslationId: 'niv' }).defaultTranslationId, 'engwebp',
+  'with no api.bible version on, the World English Bible is the default');
+eq(S.normalize({ defaultTranslationId: '' }).defaultTranslationId, 'engwebp',
+  'an empty default with no api.bible version on is the World English Bible');
+const legacyRow = { id: 'kjv', abbr: 'KJV', name: 'King James Version', provider: RETIRED_PROVIDER };
+eq(S.normalize({ enabledTranslations: [NIV, legacyRow] }).enabledTranslations, [NIV, WEB],
+  'a row of the retired provider is dropped (nothing serves it)');
+eq(S.normalize({ enabledTranslations: [legacyRow], defaultTranslationId: 'kjv' }).defaultTranslationId, 'engwebp',
+  '...and a default that named it falls to the World English Bible');
+const fresh = S.defaults();
+eq(S.normalize(fresh), fresh, 'normalize is idempotent with the World English Bible row in place');
+eq(S.diff({}, { enabledTranslations: [WEB] }), [], 'storing the guaranteed row is not a change');
 
 // Slim rows: the string fields every reader uses, and nothing else. A
 // copyright line per row filled the 8 KB sync item at ~21 translations.
@@ -161,22 +219,22 @@ console.log('normalize (enabledTranslations: slim rows, twins):');
 const COPYRIGHT = 'Holy Bible, New International Version®, NIV® Copyright © 1973, 1978, 1984, 2011 by Biblica, Inc.® Used by permission. All rights reserved worldwide.';
 const fat = { id: 'niv', abbr: 'NIV', name: 'New International Version', provider: 'api.bible', description: 'Holy Bible', copyright: COPYRIGHT, extra: { big: true } };
 eq(S.normalize({ enabledTranslations: [fat] }).enabledTranslations,
-  [{ id: 'niv', abbr: 'NIV', name: 'New International Version', provider: 'api.bible', description: 'Holy Bible' }],
+  [{ id: 'niv', abbr: 'NIV', name: 'New International Version', provider: 'api.bible', description: 'Holy Bible' }, WEB],
   'a stored row keeps id, abbr, name, provider and description (copyright and anything else dropped)');
-eq(S.normalize({ enabledTranslations: [{ id: 'x', abbr: 5, name: null }] }).enabledTranslations, [{ id: 'x' }],
+eq(S.normalize({ enabledTranslations: [{ id: 'x', abbr: 5, name: null }] }).enabledTranslations, [{ id: 'x' }, WEB],
   'a field that is not a string is dropped, not coerced');
 eq(S.diff({ enabledTranslations: [fat] }, { enabledTranslations: [Object.assign({}, fat, { copyright: '' })] }), [],
   'a row that differs only in copyright is not a change (both read slim)');
 
 const W = (id, description) => ({ id, abbr: 'WEBU', name: 'World English Bible Updated', provider: 'api.bible', description });
 eq(S.normalize({ enabledTranslations: [W('w1', 'Ecumenical'), fat, W('w2', 'Protestant'), W('w3', 'Catholic')] })
-  .enabledTranslations.map((t) => t.id), ['w2', 'niv'],
+  .enabledTranslations.map((t) => t.id), ['w2', 'niv', 'engwebp'],
 'twins (same abbreviation and name) collapse to the Protestant edition, in the first twin\'s place');
-eq(S.normalize({ enabledTranslations: [W('w1'), W('w2'), W('w3')] }).enabledTranslations.map((t) => t.id), ['w1'],
+eq(S.normalize({ enabledTranslations: [W('w1'), W('w2'), W('w3')] }).enabledTranslations.map((t) => t.id), ['w1', 'engwebp'],
   'twins with no Protestant edition (rows stored without a description) collapse to the first');
-eq(S.normalize({ enabledTranslations: [fat, fat] }).enabledTranslations.length, 1, 'a repeated id is kept once');
-eq(S.normalize({ enabledTranslations: [W('w1', 'Protestant'), Object.assign(W('b1'), { provider: 'bible-api.com' })] })
-  .enabledTranslations.length, 2, 'the same label from two providers is two rows');
+eq(S.normalize({ enabledTranslations: [fat, fat] }).enabledTranslations.map((t) => t.id), ['niv', 'engwebp'], 'a repeated id is kept once');
+eq(S.normalize({ enabledTranslations: [W('w1', 'Protestant'), Object.assign(W('b1'), { provider: undefined })] })
+  .enabledTranslations.length, 3, 'the same label with and without a provider is two rows');
 eq(S.normalize({ enabledTranslations: [W('w1'), W('w2'), W('w3')], defaultTranslationId: 'w3' }).defaultTranslationId, 'w1',
   'a default naming a dropped twin follows it to the kept row');
 eq(S.normalize({ enabledTranslations: [W('w1'), fat], defaultTranslationId: 'niv' }).defaultTranslationId, 'niv',
@@ -210,7 +268,7 @@ const reader = Object.assign(S.defaults(), {
   defaultTranslationId: forty[0].id,
   churchLanguages: ['spa', 'jpn', 'fra', 'deu', 'por', 'kor'],
 });
-eq(S.normalize(reader).enabledTranslations.length, 40, 'the quota case really holds 40 rows');
+eq(S.normalize(reader).enabledTranslations.length, 41, 'the quota case really holds 40 rows (plus the World English Bible)');
 check(itemBytes(reader) < QUOTA_BYTES_PER_ITEM * 0.75,
   `40 translations on stay well under the sync item's 8 KB (${itemBytes(reader)} bytes)`);
 const everything = Object.assign({}, reader, { churchLanguages: C.CHURCH_LANGUAGES.map((l) => l.code) });
@@ -219,7 +277,7 @@ check(itemBytes(everything) < QUOTA_BYTES_PER_ITEM * 0.9,
 const prose = 'The Holy Bible in English, Douay-Rheims American Edition of 1899, translated from the Latin Vulgate';
 eq(S.normalize({ enabledTranslations: [Object.assign({}, fat, { description: prose })] }).enabledTranslations[0].description, undefined,
   'a description longer than an edition note is prose, and is not stored');
-eq(S.normalize({ enabledTranslations: [W('w1', 'Ecumenical'), W('w2', `Protestant ${prose}`)] }).enabledTranslations.map((t) => t.id), ['w2'],
+eq(S.normalize({ enabledTranslations: [W('w1', 'Ecumenical'), W('w2', `Protestant ${prose}`)] }).enabledTranslations.map((t) => t.id), ['w2', 'engwebp'],
   'the Protestant edition is still preferred when its description is too long to store');
 
 // ---- normalize: Church languages ----
@@ -350,6 +408,14 @@ async function storageChecks() {
   eq(store.btxSettings.futureSetting, 'keep me', 'an unknown key survives one of our writes');
   eq((await S.get()).sidebarWidth, 300, 'our own field still went through');
   check(!('futureSetting' in (await S.get())), 'an unknown key is still not exposed as a setting');
+
+  // The retired actOnNonEngOnly: a value an older version stored is an unknown
+  // key, kept harmlessly, never read, and a reader who had it off loses nothing.
+  chrome.storage.sync.set({ btxSettings: Object.assign(S.defaults(), { actOnNonEngOnly: false, sidebarWidth: 350 }) });
+  await S.patch({ scrollSync: false });
+  eq(store.btxSettings.actOnNonEngOnly, false, 'a stored actOnNonEngOnly passes through our writes as an unknown key');
+  eq((await S.get()).sidebarWidth, 350, 'the reader\'s other settings carry on');
+  check(!('actOnNonEngOnly' in (await S.get())), 'the retired actOnNonEngOnly is not exposed as a setting');
 
   // A write that never lands must not leave the cache believing it did.
   const kept = (await S.get()).sidebarWidth;

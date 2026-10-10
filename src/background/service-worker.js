@@ -5,8 +5,18 @@
  * Messages (C.MSG):
  *   GET_ENABLED_TRANSLATIONS -> what the panel may offer (translations, Church
  *                               languages, default, hasKey, …)
- *   GET_CHAPTER              -> one chapter as IR, cache first, rate-limited;
- *                               a rejected key also drops the cached version list
+ *   GET_CHAPTER              -> one chapter as IR. api.bible: cache first,
+ *                               rate-limited; a rejected key also drops the
+ *                               cached version list. Every api.bible answer,
+ *                               a cache hit or an error too, carries `rate`:
+ *                               the month's state (ratelimit.js rateState),
+ *                               counted after this call. Every api.bible display,
+ *                               a cache hit too, sends a FUMS usage report
+ *                               (fums.js) with the token cached beside the
+ *                               chapter; the reply carries neither the token
+ *                               nor any script. `bundled` (the World English
+ *                               Bible): read from the packaged files, no key,
+ *                               limiter, cache or usage report
  *   LIST_BIBLES { key?, refresh? }
  *                            -> the versions on a key (default: the stored one).
  *                               Served from the cache when it holds that key's
@@ -14,15 +24,31 @@
  *                               page's explicit Connect). A `partial` list
  *                               (a copyright lookup failed) is passed on but
  *                               never cached. One refresh costs 1 + one call
- *                               per version (~39) against a monthly quota.
+ *                               per version (~39) against a monthly quota,
+ *                               added to the month's count. The answer carries
+ *                               `rate` too, so a Connect refused in a paused
+ *                               month can say so.
+ *                               A list for a named `key` is the options page's
+ *                               Connect: once it succeeds, the FUMS device id
+ *                               exists (the click was the consent).
  *   OPEN_OPTIONS { section? } -> opens (or focuses) the options page; a section
  *                               from C.OPTIONS_SECTIONS is parked in
  *                               chrome.storage.session for the page to scroll to.
+ *   GET_TOOLBAR_PIN          -> { isOnToolbar } from chrome.action.getUserSettings
+ *                               (content scripts can't call it); null when the
+ *                               API is missing or fails: the welcome then
+ *                               suggests the pin (#114)
+ *   OPEN_WELCOME            -> opens the Alma 5 tab install opens (the options page's
+ *                               "Show the welcome again", which has written
+ *                               `welcomeSeen` false first).
  *
  * Browser events: the toolbar icon sends TOGGLE_PANEL to the tab. It opens
  * the options page instead on a tab without our content script, and on a
  * Gospel Library page showing no chapter (the reply says `shown: false`); a
- * fresh install opens the options page.
+ * fresh install (reason `install`, never an update) opens Alma 5 in a new tab;
+ * an update (reason `update`) marks the welcome seen (`welcomeSeen`) and
+ * removes the daily api.bible counters from before the monthly count
+ * (ratelimit.js forgetDaily).
  *
  * Classic (non-module) worker so a single IIFE authoring style works everywhere;
  * dependencies are pulled in with importScripts in dependency order.
@@ -35,7 +61,8 @@ importScripts(
   '../shared/books.js',
   './cache.js',
   './ratelimit.js',
-  './api.js'
+  './api.js',
+  './fums.js'
 );
 
 const C = self.__BTX.const;
@@ -43,6 +70,7 @@ const SETTINGS = self.__BTX.settings;
 const API = self.__BTX.api;
 const CACHE = self.__BTX.cache;
 const RATE = self.__BTX.rate;
+const FUMS = self.__BTX.fums;
 
 // Settings (schema, normalization, caching, invalidation) are owned by
 // __BTX.settings — this worker is just one of its adapters.
@@ -57,7 +85,7 @@ async function handleGetEnabledTranslations() {
     defaultId: s.defaultTranslationId,
     provider: s.provider,
     hasKey: !!s.apiKey,
-    actOnNonEngOnly: s.actOnNonEngOnly,
+    noTranslationLineDismissed: s.noTranslationLineDismissed,
   };
 }
 
@@ -65,45 +93,64 @@ async function handleListBibles(msg) {
   // The options page names the key it is connecting; with none, the stored key.
   const s = await SETTINGS.get();
   const key = msg.key || s.apiKey;
-  if (!msg.refresh) {
-    const cached = await CACHE.getBibles(key);
-    if (cached) return { bibles: cached };
+  const cached = msg.refresh ? null : await CACHE.getBibles(key);
+  let result;
+  if (cached) {
+    result = { bibles: cached };
+  } else {
+    result = await API.listBibles(key);
+    if (result.calls) await RATE.addCalls(result.calls, RATE.answerOf(result));
+    if (!result.error && result.bibles && !result.partial) await CACHE.setBibles(result.bibles, key);
   }
-  const result = await API.listBibles(key);
-  if (!result.error && result.bibles && !result.partial) await CACHE.setBibles(result.bibles, key);
-  return result;
+  // A Connect that succeeded (the options page named its key), cached or not.
+  if (!result.error && msg.key) await FUMS.connected();
+  return withRate(result);
 }
 
 async function handleGetChapter(msg) {
-  const { provider, bibleId, chapterId, ldsBook, chapter } = msg;
+  const { provider, bibleId, chapterId } = msg;
   if (!provider || !bibleId || !chapterId) return { error: { code: C.ERR.UNKNOWN, message: 'Bad request' } };
 
-  // Cache first (does not count against rate limits).
-  const cached = await CACHE.getChapter(provider, bibleId, chapterId);
-  if (cached) return cached;
-
-  const s = await SETTINGS.get();
-
-  let result;
-  if (provider === C.PROVIDER_BIBLEAPI) {
-    result = await API.fetchBibleApiChapter(bibleId, ldsBook, chapter);
-  } else {
-    if (!s.apiKey) return { error: { code: C.ERR.NO_KEY, message: 'No API key set' } };
-    const gate = await RATE.check();
-    if (!gate.ok) {
-      return { error: { code: C.ERR.RATE_LIMITED, message: gate.reason, retryAfterMs: gate.retryAfterMs } };
-    }
-    result = await API.fetchApiBibleChapter(s.apiKey, bibleId, chapterId);
-    await RATE.consume();
-    // The stored key stopped working: its cached version list would still tell
-    // the options page "Connected", so the page fetches afresh and says why.
-    if (result.error && result.error.code === C.ERR.INVALID_KEY) await CACHE.dropBibles();
+  // The bundled Bible is read from the extension's own files: no key, no
+  // rate limiter, no usage report, and nothing worth caching.
+  if (provider === C.PROVIDER_BUNDLED) {
+    const bundled = await API.fetchBundledChapter(bibleId, chapterId);
+    return bundled.error ? bundled : bundled.payload;
   }
 
-  if (result.error) return result;
-  await CACHE.setChapter(provider, bibleId, chapterId, result.payload);
-  // Forward FUMS only on a fresh fetch (cache hits return above without it).
-  return Object.assign({}, result.payload, { fums: result.fums || null });
+  // Cache first (does not count against rate limits). An api.bible chapter
+  // is cached with its FUMS token, reported on every display.
+  const cached = await CACHE.getChapter(provider, bibleId, chapterId);
+  if (cached) return withRate(await displayed(cached));
+
+  const s = await SETTINGS.get();
+  if (!s.apiKey) return withRate({ error: { code: C.ERR.NO_KEY, message: 'No API key set' } });
+  const gate = await RATE.check();
+  if (!gate.ok) {
+    return withRate({ error: { code: C.ERR.RATE_LIMITED, message: gate.reason, retryAfterMs: gate.retryAfterMs } });
+  }
+  const result = await API.fetchApiBibleChapter(s.apiKey, bibleId, chapterId);
+  await RATE.consume(RATE.answerOf(result));
+  // The stored key stopped working: its cached version list would still tell
+  // the options page "Connected", so the page fetches afresh and says why.
+  if (result.error && result.error.code === C.ERR.INVALID_KEY) await CACHE.dropBibles();
+
+  if (result.error) return withRate({ error: result.error });
+  const entry = result.fumsToken ? Object.assign({}, result.payload, { fumsToken: result.fumsToken }) : result.payload;
+  await CACHE.setChapter(provider, bibleId, chapterId, entry);
+  return withRate(await displayed(entry));
+}
+
+async function withRate(reply) {
+  return Object.assign({}, reply, { rate: await RATE.state() });
+}
+
+// A chapter on its way to the page: report its token, then hand back the
+// chapter without it.
+async function displayed(entry) {
+  const { fumsToken, ...payload } = entry;
+  if (fumsToken) await FUMS.report(fumsToken);
+  return payload;
 }
 
 // openOptionsPage reuses an open options tab, which then learns the section
@@ -113,6 +160,26 @@ async function openOptions(section) {
     try { await chrome.storage.session.set({ [C.OPTIONS_FOCUS_KEY]: section }); } catch (e) { /* page opens at the top */ }
   }
   await chrome.runtime.openOptionsPage();
+  return { ok: true };
+}
+
+// Is the toolbar icon pinned? Asked by the welcome's pinning line. Unknown
+// (null) when this Chrome has no getUserSettings or it fails: the panel shows
+// the line, since a pin suggested twice costs less than a needed one hidden.
+async function handleGetToolbarPin() {
+  try {
+    const u = await chrome.action.getUserSettings();
+    return { isOnToolbar: u && typeof u.isOnToolbar === 'boolean' ? u.isOnToolbar : null };
+  } catch (e) {
+    return { isOnToolbar: null };
+  }
+}
+
+// The Alma 5 tab: where install sends a new reader, and where the options
+// page's "Show the welcome again" sends one who asked. One function, so both
+// open the same page.
+async function openWelcome() {
+  await chrome.tabs.create({ url: C.FIRST_RUN_URL });
   return { ok: true };
 }
 
@@ -132,6 +199,12 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       break;
     case C.MSG.OPEN_OPTIONS:
       promise = openOptions(msg.section);
+      break;
+    case C.MSG.GET_TOOLBAR_PIN:
+      promise = handleGetToolbarPin();
+      break;
+    case C.MSG.OPEN_WELCOME:
+      promise = openWelcome();
       break;
     default:
       return false;
@@ -160,7 +233,19 @@ chrome.action.onClicked.addListener((tab) => {
   });
 });
 
-// ---- First install: open the options page (what works, and where to start) ----
+// ---- First install: open Alma 5, where the panel is already at work ----
+// `install` only: an update, a browser update or a shared-module update opens
+// nothing. The welcome (GLOSSARY: Welcome) greets new installs only: a profile
+// from before it has no `welcomeSeen`, which reads as not seen, so an update
+// marks it seen. Install leaves it unseen, and Alma 5 opens with it up.
+// Neither has anyone to answer: a refused tab or a failed write is logged,
+// never an unhandled rejection.
 chrome.runtime.onInstalled.addListener((details) => {
-  if (details && details.reason === 'install') chrome.runtime.openOptionsPage();
+  const reason = details && details.reason;
+  const logged = (what) => (e) => console.warn(`[BTX] ${what}:`, e);
+  if (reason === 'install') openWelcome().catch(logged('could not open the welcome tab'));
+  else if (reason === 'update') {
+    SETTINGS.patch({ welcomeSeen: true }).catch(logged('could not mark the welcome seen'));
+    RATE.forgetDaily().catch(logged('could not remove the old daily counters'));
+  }
 });
