@@ -30,6 +30,9 @@
  * to a list; every bit of state they read lives on the list's own elements,
  * which the view host caches and re-mounts as one piece.
  *
+ * Query-only rows (By verse; see the view-model's header) mount when a verse
+ * query first shows them (mountShownRows), never at render.
+ *
  * Fetched excerpts (rows whose row.snippet is a fetch marker): see "fetched
  * excerpts" below. Each such row carries data-btx-excerpt =
  * pending | filled | missed.
@@ -127,6 +130,15 @@
     if (desc) node.appendChild(desc);
   }
 
+  // The talk line: the title, then " · " and where it was given, dimmer
+  // (citations.css), so the title reads without parsing it from its place.
+  function subLine(row) {
+    const sub = el('div', 'btx-cit-sub');
+    if (row.talkTitle) sub.appendChild(el('span', 'btx-cit-title', row.talkTitle));
+    if (row.where) sub.appendChild(el('span', 'btx-cit-where', (row.talkTitle ? ' · ' : '') + row.where));
+    return sub;
+  }
+
   function rowEl(row, onOpen) {
     const node = el('div', 'btx-cit');
     node.dataset.btxUid = row.uid;
@@ -142,7 +154,7 @@
       if (desc) node.appendChild(desc);
     }
     node.appendChild(head);
-    if (row.sub) node.appendChild(el('div', 'btx-cit-sub', row.sub));
+    if (row.talkTitle || row.where) node.appendChild(subLine(row));
     if (row.snippet && row.snippet.text) {
       const snippet = el('div', 'btx-cit-snippet', row.snippet.text);
       describedBy(node, snippet, 'btx-cit-snippet');
@@ -196,11 +208,21 @@
     return slot;
   }
 
+  // list element -> its watch state, so rows mounted after render (a verse
+  // query's query-only rows) join the same observer.
+  const watches = new WeakMap();
+
   function watchExcerpts(wrap, rowsByNode) {
     if (!rowsByNode.size) return;
+    const had = watches.get(wrap);
+    if (had) {
+      for (const [node, row] of rowsByNode) { had.rows.set(node, row); had.observer.observe(node); }
+      return;
+    }
     const body = wrap.closest('.btx-body');
     if (!body) return;
     const st = { body, rows: rowsByNode, inBand: new Set(), asked: new WeakSet(), observer: null, band: -1 };
+    watches.set(wrap, st);
     observeRows(st);
   }
 
@@ -306,13 +328,17 @@
     mountHead(node, 'btx-cit-vhead', group);
     node.open = group.open;
     if (group.focus) node.classList.add('btx-cit-focus');
+    if (group.queryOnly) node.classList.add('btx-cit-hidden');
 
     for (const child of group.children) {
       const cnode = el('details', groupClass('btx-cit-cgroup', child));
       cnode.dataset.btxUid = child.uid;
       mountHead(cnode, 'btx-cit-chead', child);
       cnode.open = child.open;
-      for (const row of child.rows) cnode.appendChild(rowNode(row, onOpen, pending));
+      if (child.queryOnly) cnode.classList.add('btx-cit-hidden');
+      // Query-only rows mount when a verse query first shows them
+      // (mountShownRows): a chapter like D&C 76 holds thousands.
+      for (const row of child.rows) if (!row.queryOnly) cnode.appendChild(rowNode(row, onOpen, pending));
       node.appendChild(cnode);
     }
     if (group.rows.length) {
@@ -331,17 +357,67 @@
     return nodes;
   }
 
-  // Toolbar above the list: a live filter box (speaker / title / passage) and
+  // Toolbar above the list: a live filter box (speaker / title / verse) and
   // Collapse all. The view-model decides what hides, what opens, what the
   // counts, summary and button say; this mirrors each plan onto the elements
   // and reports the user's own open/close back into the state.
-  function attachTools(wrap, tools, summary, viewModel) {
+  // Mount the query-only rows a plan shows that are not in the list yet, each
+  // in its descriptor's place among its group's rows (newest first).
+  function mountShownRows(wrap, viewModel, plan, mountRow) {
+    let nodes = null;
+    for (const g of viewModel.groups) {
+      for (const c of g.children) {
+        if (!c.rows.some((r) => r.queryOnly && !plan.hidden[r.uid])) continue;
+        nodes = nodes || nodeMap(wrap);
+        const cnode = nodes.get(c.uid);
+        if (!cnode) continue;
+        let next = null; // the mounted row after the one being placed
+        for (let i = c.rows.length - 1; i >= 0; i--) {
+          const r = c.rows[i];
+          let n = nodes.get(r.uid);
+          if (!n && !plan.hidden[r.uid]) {
+            n = mountRow(r);
+            cnode.insertBefore(n, next);
+            nodes.set(r.uid, n);
+          }
+          if (n) next = n;
+        }
+      }
+    }
+  }
+
+  // A By source row that matched a verse query only through a range says
+  // which verse beside its badge (plan.matchNotes), in words and in its name.
+  function applyMatchNotes(wrap, plan, rowsByUid, nodes) {
+    for (const n of wrap.querySelectorAll('.btx-cit-match')) {
+      const node = n.closest('.btx-cit');
+      if (node && plan.matchNotes[node.dataset.btxUid]) continue;
+      n.remove();
+      const row = node && rowsByUid.get(node.dataset.btxUid);
+      if (row) node.setAttribute('aria-label', row.a11yLabel);
+    }
+    for (const uid of Object.keys(plan.matchNotes)) {
+      const node = nodes.get(uid);
+      const range = node && node.querySelector('.btx-cit-range');
+      if (!range) continue;
+      let note = node.querySelector('.btx-cit-match');
+      if (!note) {
+        note = el('span', 'btx-cit-match');
+        range.after(note);
+      }
+      note.textContent = plan.matchNotes[uid].text;
+      node.setAttribute('aria-label', plan.matchNotes[uid].a11yLabel);
+    }
+  }
+
+  function attachTools(wrap, tools, summary, viewModel, mountRow) {
     const input = el('input', 'btx-cit-filter');
     input.type = 'search';
-    input.placeholder = 'Filter talks…';
-    input.setAttribute('aria-label', 'Filter talks');
-    const collapse = el('button', 'btx-cit-toolbtn');
+    input.placeholder = vm().FILTER_COPY.placeholder;
+    input.setAttribute('aria-label', vm().FILTER_COPY.label);
+    const collapse = el('button', 'btx-cit-toolbtn btx-cit-collapse', vm().FILTER_COPY.collapse);
     collapse.type = 'button';
+    const rowsByUid = new Map(vm().allRows(viewModel).map((r) => [r.uid, r]));
     tools.appendChild(input);
     tools.appendChild(collapse);
 
@@ -363,21 +439,24 @@
       }
     }
 
-    // The button hides when there is nothing to collapse; focus on it would
-    // fall to the page, so it moves to the first group header instead.
+    // The button hides when there is nothing to collapse, keeping its slot so
+    // the filter box beside it never changes width under the caret. Focus on
+    // it would fall to the page, so it moves to the first group header instead.
     function showCollapse(label) {
       const had = document.activeElement === collapse;
       if (label) collapse.textContent = label;
-      collapse.hidden = !label;
-      if (had && collapse.hidden) {
+      collapse.classList.toggle('btx-cit-held', !label);
+      if (had && !label) {
         const first = wrap.querySelector('.btx-cit-vgroup:not(.btx-cit-hidden) > summary');
-        (first || input).focus();
+        (first || input).focus({ preventScroll: true });
       }
     }
 
     function applyFilter() {
       const plan = vm().filterPlan(viewModel, input.value, state);
+      mountShownRows(wrap, viewModel, plan, mountRow);
       const nodes = nodeMap(wrap);
+      applyMatchNotes(wrap, plan, rowsByUid, nodes);
       for (const uid of Object.keys(plan.hidden)) {
         const node = nodes.get(uid);
         if (node) node.classList.toggle('btx-cit-hidden', plan.hidden[uid]);
@@ -404,7 +483,7 @@
     input.addEventListener('keydown', (e) => {
       if (e.key === 'Escape' && input.value) { e.stopPropagation(); input.value = ''; applyFilter(); }
     });
-    clear.addEventListener('click', () => { input.value = ''; applyFilter(); input.focus(); });
+    clear.addEventListener('click', () => { input.value = ''; applyFilter(); input.focus({ preventScroll: true }); });
     collapse.addEventListener('click', () => {
       const plan = vm().collapseAllPlan(viewModel, state, hidden);
       applyOpen(plan.open, nodeMap(wrap));
@@ -531,7 +610,15 @@
       if (viewModel.showTools) {
         const tools = el('div', 'btx-cit-tools');
         wrap.appendChild(tools);
-        noRes = attachTools(wrap, tools, summary, viewModel);
+        // A row mounted after render (a verse query's query-only row) joins
+        // the excerpt watch at once; the list is in the panel by then.
+        const mountRow = (row) => {
+          const later = new Map();
+          const node = rowNode(row, onOpen, later);
+          watchExcerpts(wrap, later);
+          return node;
+        };
+        noRes = attachTools(wrap, tools, summary, viewModel, mountRow);
       }
       for (const group of viewModel.groups) wrap.appendChild(groupEl(group, onOpen, pending));
       if (noRes) wrap.appendChild(noRes);

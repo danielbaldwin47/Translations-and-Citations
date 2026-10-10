@@ -10,16 +10,30 @@
  *       Resolves once the talk or its error state shows. Scrolling goes
  *       through __BTX.panel.scrollIntoView, the body's one scroll writer.
  *   render(html) -> element     Sanitize talk HTML into a detached .btx-talk.
- *   refPunctuation(classAttr) -> { open, close }   Pure; Node-tested in
- *       tools/test-talk-source.js.
+ *   markCite(target, { roomH }) -> { tinted, passage, reveal }   Mark
+ *       findTarget's element: the block tinted (null when none), the
+ *       paragraph with the accent bar, and the element open() scrolls to
+ *       (the target).
+ *   Pure: tintsPassage, revealClear, refPunctuation(classAttr) -> { open, close }.
+ *   All are Node-tested in tools/test-talk-source.js (render and markCite
+ *   over tools/mini-dom.js: the render contract below).
  *
  * Layout: a sticky header (Back, verse chip, external link; then the title),
  * then in the scroll body a byline (speaker, source, and talk-source's credit
- * line: the BYU fetch line, or "Text: Wikisource, revision N" linking the
- * permalink), the one-line highlight
- * hint until the first highlight exists, and the article. The cited passage is
- * marked (btx-cit-highlight on the target, btx-cit-passage on its paragraph)
- * and revealed on open; the verse chip reveals it again.
+ * line, "Text from {publisher}" linking the talk there), the highlight hint
+ * on every talk opened before the first highlight exists (it stays on that
+ * talk, so the first highlight shifts no text), and the article.
+ * The cited passage is marked (markCite: btx-cit-highlight tints the target,
+ * or its paragraph when the target has no text, as a Journal of Discourses
+ * marker or page anchor has none, and then only a paragraph no taller than
+ * about half the panel body, tintsPassage; such a target gets the pin,
+ * btx-cit-pin, drawn by CSS; btx-cit-passage puts the accent bar on the
+ * paragraph). Open scrolls to the target itself (btx-cit-target), where
+ * the cited words are, with the paragraph's first line clear of the header
+ * when the whole paragraph fits (revealClear); the verse chip scrolls there
+ * again. Focus follows: a talk opened from the keyboard, and the chip, move
+ * focus to the cited paragraph (highlights' focusSpot), so a screen reader
+ * reads on from there; a mouse open leaves it on Back.
  *
  * Re-mount: the panel caches a loaded talk and re-mounts the same DOM at its
  * scroll offset without calling open(), so every listener lives on the view's
@@ -33,8 +47,9 @@
  * survive, source classes come back prefixed `btxk-`, footnotes carry
  * data-btx-footnum, and the article's textContent stays exactly the source
  * text. Display additions are CSS generated content (reference punctuation on
- * data-btx-open/close, note numbers on data-value) or wrapper spans, and the
- * byline and hint sit outside the article, so saved highlight offsets hold.
+ * data-btx-open/close, note numbers on data-value) or wrapper spans, the
+ * cite's mark is classes, and the byline and hint sit outside the article,
+ * so saved highlight offsets hold.
  *
  * IIFE -> __BTX.talkView (+ module.exports for the Node tests).
  */
@@ -48,7 +63,18 @@
 
   // A load quicker than this shows no spinner at all, rather than a flash.
   const LOADING_DELAY_MS = 200;
-  const HINT = 'Select text to highlight it. Highlights stay on this computer.';
+  // Shown above each talk until the first highlight is made; it stays on that
+  // talk (removing it would shift the text under the new mark).
+  const HINT = 'Select text to highlight it; click a highlight to remove it. '
+    + 'Keyboard: caret browsing (F7), then Shift+arrows. Highlights stay on this computer.';
+
+  // Whether the reader's last input was a key (a talk opened from the
+  // keyboard takes focus to the cited passage). Capture-phase, page-wide.
+  let lastInputKey = false;
+  if (typeof document !== 'undefined' && document.addEventListener) {
+    document.addEventListener('keydown', () => { lastInputKey = true; }, true);
+    document.addEventListener('pointerdown', () => { lastInputKey = false; }, true);
+  }
 
   // Tags kept when sanitizing fetched talk HTML; everything else is unwrapped.
   const ALLOWED = new Set(['P', 'DIV', 'SPAN', 'BLOCKQUOTE', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6',
@@ -57,6 +83,55 @@
     'HEAD', 'NAV', 'BUTTON', 'FORM', 'INPUT', 'IMG', 'PICTURE', 'FIGURE', 'VIDEO', 'AUDIO']);
   // The paragraph-like block around a target, which gets the accent bar.
   const PASSAGE = 'p, li, blockquote, .btxk-paragraph, .btxk-std, .btxk-footnote';
+
+  // Whether the cited paragraph is tinted: only while it is at most about
+  // half the panel body (`roomH`). A taller one (a Journal of Discourses
+  // paragraph can run for screens) would fill the panel with tint and say
+  // nothing about where the cite is; its accent bar and the pin mark it
+  // instead. Nothing measured (no roomH): tinted. Pure.
+  function tintsPassage({ passageH, roomH } = {}) {
+    if (!(roomH > 0)) return true;
+    return (Number(passageH) || 0) <= roomH / 2;
+  }
+
+  // How much of the panel body's top the reveal must clear, for a target
+  // `into` px below its paragraph's top. The sticky header (headerH) always.
+  // When the whole paragraph fits below the header with breathing room either
+  // side, also the part of the paragraph above the target, so the paragraph
+  // opens at its first line rather than cut off under the header. A taller
+  // paragraph opens at the cited words. Pure; px.
+  const REVEAL_SLACK_PX = 12;
+  function revealClear({ headerH, roomH, passageH, into } = {}) {
+    const head = Math.max(0, Number(headerH) || 0);
+    const above = Math.max(0, Number(into) || 0);
+    const fits = roomH > 0 && passageH > 0 && head + passageH + 2 * REVEAL_SLACK_PX <= roomH;
+    return fits ? head + above : head;
+  }
+
+  // Mark the cite at `target` (findTarget's element)
+  //   -> { tinted, passage, reveal }.
+  // A target with text is tinted itself. One with none (a Journal of
+  // Discourses marker or page anchor) has nothing to tint: it gets the pin
+  // (btx-cit-pin, a mark CSS draws as generated content), and its paragraph
+  // is tinted instead while tintsPassage allows (`opts.roomH`, the panel
+  // body's height; tinted is then null). The paragraph around the target
+  // (`passage`) gets the accent bar. The reader scrolls to the target itself
+  // (reveal, marked btx-cit-target for the panel's place-keeper), since a
+  // paragraph can run for screens above the cited words. Classes only: the
+  // article's text is unchanged.
+  function markCite(target, opts) {
+    const roomH = opts && opts.roomH;
+    const passage = target.closest(PASSAGE);
+    const empty = !target.textContent.trim();
+    let tinted = passage && empty ? passage : target;
+    if (tinted === passage && roomH > 0
+      && !tintsPassage({ passageH: passage.getBoundingClientRect().height, roomH })) tinted = null;
+    if (tinted) tinted.classList.add('btx-cit-highlight');
+    if (passage) passage.classList.add('btx-cit-passage');
+    if (empty) target.classList.add('btx-cit-pin');
+    target.classList.add('btx-cit-target');
+    return { tinted, passage, reveal: target };
+  }
 
   const SVG_NS = 'http://www.w3.org/2000/svg';
   const ICONS = {
@@ -258,11 +333,11 @@
     const a = el('a', cls, text);
     a.href = href;
     a.target = '_blank';
-    a.rel = 'noopener';
+    a.rel = 'noopener noreferrer';
     return a;
   }
 
-  // `credit` is talk-source's { text, href? } naming whose text this is;
+  // `credit` is talk-source's { text, href?, title? } naming whose text this is;
   // with an href the line links it.
   function byline(heading, credit) {
     const b = el('div', 'btx-talk-byline');
@@ -270,7 +345,11 @@
     if (heading.where) b.appendChild(el('div', 'btx-talk-where', heading.where));
     if (credit) {
       const line = el('div', 'btx-talk-credit', credit.href ? null : credit.text);
-      if (credit.href) line.appendChild(externalLink('btx-talk-credit-link', credit.href, credit.text));
+      if (credit.href) {
+        const link = externalLink('btx-talk-credit-link', credit.href, credit.text);
+        if (credit.title) link.title = credit.title;
+        line.appendChild(link);
+      }
       b.appendChild(line);
     }
     return b.childElementCount ? b : null;
@@ -360,12 +439,31 @@
     bindEsc();
     // A fresh build only: a re-mounted talk leaves focus where the reader put
     // it (the mode button that brought it back), and Esc still reaches it.
+    const byKeyboard = lastInputKey;
     back.focus({ preventScroll: true });
 
-    // The sticky header covers the top of the body; the passage must clear it.
-    let target = null;
-    const reveal = () => { if (target) panel().scrollIntoView(target, { clearTop: header.offsetHeight }); };
-    chip.addEventListener('click', reveal);
+    // The sticky header covers the top of the body; the passage must clear
+    // it, and so must its paragraph's first line when the paragraph fits
+    // (revealClear).
+    let cite = null; // markCite's { tinted, passage, reveal }
+    const roomH = () => { const b = host.closest('.btx-body'); return b ? b.clientHeight : 0; };
+    const reveal = () => {
+      if (!cite) return;
+      const t = cite.reveal;
+      let clearTop = header.offsetHeight;
+      if (cite.passage) {
+        const box = cite.passage.getBoundingClientRect();
+        clearTop = revealClear({ headerH: clearTop, roomH: roomH(), passageH: box.height, into: t.getBoundingClientRect().top - box.top });
+      }
+      panel().scrollIntoView(t, { clearTop });
+    };
+    // Focus follows the reader to the passage, so a screen reader reads on
+    // from there: the cited paragraph (else the target), ringed.
+    const focusCite = () => {
+      const hl = highlights();
+      if (cite && hl) hl.focusSpot(cite.passage || cite.reveal);
+    };
+    chip.addEventListener('click', () => { reveal(); focusCite(); });
 
     async function show(retry) {
       body.textContent = '';
@@ -402,35 +500,36 @@
 
       const by = byline(heading, loaded.credit);
       if (by) body.appendChild(by);
-      let hint = hintDone ? null : el('p', 'btx-talk-hint', HINT);
-      if (hint) body.appendChild(hint);
+      if (!hintDone) body.appendChild(el('p', 'btx-talk-hint', HINT));
       const article = render(loaded.html);
       body.appendChild(article);
       // Local highlights (saved on this machine, re-applied on reopen).
       try {
         highlights().attach(article, entry.talkId, {
           host,
-          onCreate: () => { if (hint) { hint.remove(); hint = null; } },
+          reveal: (el) => panel().scrollIntoView(el, { clearTop: header.offsetHeight }),
+          menuMinTop: () => header.getBoundingClientRect().bottom,
         });
       } catch (e) { /* non-fatal */ }
       if (retry) keepView(true);
       // Two frames, so re-applied highlights and reflow have settled before
       // the header and target are measured.
       requestAnimationFrame(() => requestAnimationFrame(() => {
-        target = loaded.findTarget(article);
-        if (!target) return;
-        target.classList.add('btx-cit-highlight');
-        const passage = target.closest(PASSAGE);
-        if (passage) passage.classList.add('btx-cit-passage');
+        const found = loaded.findTarget(article);
+        if (!found) return;
+        cite = markCite(found, { roomH: roomH() });
         chip.hidden = false;
         reveal();
+        // A keyboard open: focus moves on from Back to the passage, unless
+        // the reader has already moved it.
+        if (byKeyboard && document.activeElement === back) focusCite();
       }));
     }
 
     return show(false);
   }
 
-  const API = { open, render, refPunctuation };
+  const API = { open, render, markCite, tintsPassage, revealClear, refPunctuation };
   if (typeof module !== 'undefined' && module.exports) module.exports = API;
   root.__BTX = Object.assign(root.__BTX || {}, { talkView: API });
 })(typeof globalThis !== 'undefined' ? globalThis : this);

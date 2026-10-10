@@ -120,6 +120,18 @@ on screen inside a source-type group the reader opened. While the fetch is
 pending the row reserves the excerpt's size from a per-cite character count.
 _Avoid_: preview, teaser
 
+**Footnote cite**:
+A cite in a note of its talk whose excerpt cannot explain it: the note points
+the reader to the verse ("See", "see also", "compare", or a note with words
+beyond its references), and the paragraph the note hangs off neither quotes
+the verse nor shares its distinctive words. The shard marks it `fn: true`. A
+cite in a note that fails this is a plain cite, most often a bare reference
+naming the source of the paragraph's quotation. The rule and its thresholds
+live in `tools/footnote-cite.js`; the build applies it to BYU's cites, the
+derivation run to derived cites at fetch time. The reader shows nothing for
+it: a row label ("· in a footnote") was tried and dropped as clutter.
+_Avoid_: footnote flag (the shard's `fn` marks a footnote cite), note cite
+
 **Body passage**:
 In STPJS talks, the sentence(s) the footnote annotates — the text around the
 matching `footRef` marker, not the footnote's reference line. STPJS snippets
@@ -130,8 +142,9 @@ A run of consecutive verses covered by one cite (e.g. vv. 3–5).
 
 **Anchor verse**:
 The first verse of each contiguous range a cite covers. In the by-verse layout
-a talk appears once per anchor verse, not under every verse in the range.
-Verse 1000 is a chapter's closing note (JS—H 1), shown as "Note".
+a talk appears once per anchor verse, not under every verse in the range,
+until a verse query: then the queried verse's group holds every talk whose
+cites take it in. Verse 1000 is a chapter's closing note (JS—H 1), shown as "Note".
 
 **uniqueTotal**:
 The count of distinct cites in a chapter. It only decides the empty state; the

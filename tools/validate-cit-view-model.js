@@ -8,7 +8,8 @@
  * orderings, which groups start open, snippet cleaning and quoting, the
  * excerpt source per corpus and the filter haystack, every label
  * (summary, counts, verse, range, screen-reader, empty state), plain-text
- * titles, the filter / collapse-all state transitions, and the talk reader's
+ * titles, the filter / collapse-all state transitions, verse queries (the
+ * grammar and how a plan matches them), and the talk reader's
  * heading.
  *
  * Exits non-zero on any failure so it can gate a commit.
@@ -31,6 +32,15 @@ const deep = (a, b, msg) => check(JSON.stringify(a) === JSON.stringify(b), `${ms
 const allGroups = (view) => view.groups.reduce((acc, g) => acc.concat([g], g.children), []);
 const visibleRowIds = (view, plan) =>
   VM.allRows(view).filter((r) => !plan.hidden[r.uid]).map((r) => r.citId);
+// The list as it shows with no query: the tree without its query-only groups
+// and rows (By verse's talks that only run through a verse; see verseGroups).
+const listed = (view) => Object.assign({}, view, {
+  groups: view.groups.filter((g) => !g.queryOnly).map((g) => Object.assign({}, g, {
+    rows: g.rows.filter((r) => !r.queryOnly),
+    children: g.children.filter((c) => !c.queryOnly)
+      .map((c) => Object.assign({}, c, { rows: c.rows.filter((r) => !r.queryOnly) })),
+  })),
+});
 
 // --- fixtures -------------------------------------------------------------
 // Pack descriptors as the build writes them for each pack mode
@@ -82,6 +92,10 @@ const SRC = { view: 'source', fullName: 'John', chapter: 3 };
 
 // --- pure helpers ---------------------------------------------------------
 console.log('Helpers:');
+deep(VM.verseRuns([3, 4, 5, 10, 11]), [[3, 4, 5], [10, 11]], 'verseRuns splits an ascending list into contiguous runs');
+deep(VM.verseRuns([24, 45, 46]), [[24], [45, 46]], 'verseRuns on a gap');
+deep(VM.verseRuns([]), [], 'verseRuns of an empty span');
+deep(VM.verseRuns(undefined), [], 'verseRuns of no span');
 deep(VM.anchorVerses([3, 4, 5, 10, 11]), [3, 10], 'anchorVerses splits contiguous ranges');
 deep(VM.anchorVerses([24, 45, 46]), [24, 45], 'anchorVerses on a gap');
 deep(VM.anchorVerses([16]), [16], 'anchorVerses of a single verse');
@@ -217,12 +231,19 @@ console.log('By-verse layout:');
     { citId: 'b', verses: [4], source: jod('Young', 'On Rebirth', '1857-07', 'Journal of Discourses 26:278') },
     { citId: 'c', verses: [16], source: gc('Oaks', 'God So Loved', '2021-10') },
   ].concat(FILLER));
-  const view = VM.buildView(data, OPTS);
+  const full = VM.buildView(data, OPTS);
+  const view = listed(full);
 
   eq(view.layout, 'verse', 'layout is by verse');
   eq(view.empty, false, 'not empty');
   // Anchor-verse dedup: cite "a" spans 3–5 but anchors only at 3, so verse 5
-  // (mid-range, nothing else on it) yields no verse group at all.
+  // (mid-range, nothing else on it) yields no listed verse group; it and
+  // verse 4 carry "a" only as a query-only row.
+  deep(full.groups.slice(0, 4).map((g) => [g.label, g.queryOnly]),
+    [['Verse 3', false], ['Verse 4', false], ['Verse 5', true], ['Verse 16', false]], 'verse 5 is a query-only group');
+  deep(full.groups[1].children.map((c) => [c.key, c.queryOnly, c.rows.map((r) => [r.citId, r.queryOnly])]),
+    [['general-conference', true, [['a', true]]], ['journal-of-discourses', false, [['b', false]]]],
+    'verse 4 lists its own cite and carries the spanning one query-only, in a query-only source-type group');
   deep(view.groups.slice(0, 3).map((g) => g.label), ['Verse 3', 'Verse 4', 'Verse 16'],
     'a "Verse {v}" group per verse with an anchored cite');
   deep(view.groups.slice(0, 3).map((g) => g.verse), [3, 4, 16], 'verse groups carry their verse');
@@ -250,7 +271,7 @@ console.log('By-verse layout:');
   // Row descriptor content.
   const row = v3.children[0].rows[0];
   eq(row.speaker, 'Nelson', 'row speaker');
-  eq(row.sub, 'Born Again · 2020-04', 'sub line drops the redundant "General Conference"');
+  deep([row.talkTitle, row.where], ['Born Again', '2020-04'], 'the talk line is the title, then where, without the redundant "General Conference"');
   eq(row.snippet.text, '“…water and spirit”', 'snippet is cleaned and quoted for display');
   eq(row.a11yLabel, 'Nelson, Born Again, 2020-04, verses 3 to 5', 'row names speaker, talk and range for a screen reader');
   eq(row.search, 'nelson born again 2020-04 general conference 2020-04 …water and spirit', 'filter haystack is lowercased');
@@ -258,7 +279,7 @@ console.log('By-verse layout:');
   eq(row.talkId, 't-a', 'row names its talk');
 
   const jodRow = v4.children[0].rows[0];
-  eq(jodRow.sub, 'On Rebirth · vol. 26, p. 278', 'Journal of Discourses volume:page is spelled out');
+  deep([jodRow.talkTitle, jodRow.where], ['On Rebirth', 'vol. 26, p. 278'], 'Journal of Discourses volume:page is spelled out, apart from the title');
   eq(jodRow.a11yLabel, 'Young, On Rebirth, vol. 26, p. 278', 'no range in the label of a single-verse row');
 }
 
@@ -266,7 +287,7 @@ console.log('By-verse layout:');
   // A few titles carry an italicised word's markup; every surface shows text.
   const src = gc('Reyna I. Aburto', '<em>We</em> Are The Church of Jesus Christ', '2022-04');
   const row = VM.buildView(makeData([{ citId: 'a', verses: [3], source: src }]), OPTS).groups[0].children[0].rows[0];
-  eq(row.sub, 'We Are The Church of Jesus Christ · 2022-04', 'the row’s title line drops the tags');
+  eq(row.talkTitle, 'We Are The Church of Jesus Christ', 'the row’s title line drops the tags');
   eq(row.a11yLabel, 'Reyna I. Aburto, We Are The Church of Jesus Christ, 2022-04', 'so does its screen-reader label');
   check(!/[<>]/.test(row.search) && row.search.includes('we are the church'), 'and the filter haystack');
   eq(VM.talkHeading(src, [3]).title, 'We Are The Church of Jesus Christ', 'and the talk reader’s title');
@@ -299,7 +320,8 @@ console.log('By-verse layout:');
     { citId: 'a', verses: [3, 4, 5, 10, 11], source: gc('Holland', 'Born of Water', '2015-04') },
     { citId: 'b', verses: [10], source: gc('Bednar', 'Converted', '2019-10') },
   ]);
-  const view = VM.buildView(data, OPTS);
+  const full = VM.buildView(data, OPTS);
+  const view = listed(full);
   deep(view.groups.map((g) => g.label), ['Verse 3', 'Verse 10'], 'one verse group per anchor verse');
   deep(view.groups[0].children[0].rows.map((r) => r.citId), ['a'], 'first range anchors at v3');
   deep(view.groups[1].children[0].rows.map((r) => r.citId), ['b', 'a'], 'second range anchors at v10, newest talk first');
@@ -308,9 +330,9 @@ console.log('By-verse layout:');
   eq(view.groups[0].count, 1, 'v3 chip counts only what anchors there');
   eq(view.groups[1].count, 2, 'v10 chip counts both');
 
-  const rowUids = VM.allRows(view).map((r) => r.uid);
-  eq(new Set(rowUids).size, rowUids.length, 'the twice-anchored cite gets two distinct row uids');
-  eq(new Set(allGroups(view).map((g) => g.uid)).size, allGroups(view).length, 'group uids are unique');
+  const rowUids = VM.allRows(full).map((r) => r.uid);
+  eq(new Set(rowUids).size, rowUids.length, 'every row uid is distinct, query-only rows too');
+  eq(new Set(allGroups(full).map((g) => g.uid)).size, allGroups(full).length, 'group uids are unique');
 }
 
 {
@@ -342,17 +364,17 @@ console.log('By-verse layout:');
   eq(g.count, 3, 'verse chip counts all three');
   deep(g.children.map((c) => c.key), ['general-conference', 'journal-of-discourses', 'teachings-of-the-prophet-joseph-smith'], 'source-type groups keep their fixed order');
   deep(g.children.map((c) => c.count), [1, 1, 1], 'per-source-type counts');
-  eq(g.children[2].rows[0].sub, 'p. 2', 'an untitled Teachings row shows its page');
+  deep([g.children[2].rows[0].talkTitle, g.children[2].rows[0].where], [null, 'p. 2'], 'an untitled Teachings row shows its page');
 
   // Sessions the build labels by the month they began belong to that
   // spring's or autumn's conference (Ensign May / November issue).
   const session = (lbl) => VM.buildView(makeData([{ citId: 'w', verses: [1],
-    source: { c: 'G', sp: 'Monson', ti: 'Courage', d: '2009-03', lbl } }]), OPTS).groups[0].children[0].rows[0].sub;
-  eq(session('03 2009 General Conference'), 'Courage · April 2009', 'a March session is the April conference');
-  eq(session('02 1990 General Conference'), 'Courage · April 1990', 'so is a February meeting');
-  eq(session('09 2023 General Conference'), 'Courage · October 2023', 'a September session is the October conference');
-  eq(session('11 1980 General Conference'), 'Courage · October 1980', 'so is a November one');
-  eq(session('October 2023 General Conference'), 'Courage · October 2023', 'a named session is left as it is');
+    source: { c: 'G', sp: 'Monson', ti: 'Courage', d: '2009-03', lbl } }]), OPTS).groups[0].children[0].rows[0].where;
+  eq(session('03 2009 General Conference'), 'April 2009', 'a March session is the April conference');
+  eq(session('02 1990 General Conference'), 'April 1990', 'so is a February meeting');
+  eq(session('09 2023 General Conference'), 'October 2023', 'a September session is the October conference');
+  eq(session('11 1980 General Conference'), 'October 1980', 'so is a November one');
+  eq(session('October 2023 General Conference'), 'October 2023', 'a named session is left as it is');
 }
 
 {
@@ -411,7 +433,7 @@ console.log('By-source layout:');
   eq(rows[1].citId, 'k1', 'the merged row opens at the earliest cite');
   eq(rows[1].rangeLabel, 'vv. 3–5, 7', 'the badge is the union of every cite');
   eq(rows[1].snippet.text, '“…first passage”', 'the snippet is the earliest cite’s');
-  eq(rows[1].sub, 'The New Birth, Etc. · vol. 14, p. 321', 'Journal of Discourses location is spelled out');
+  deep([rows[1].talkTitle, rows[1].where], ['The New Birth, Etc.', 'vol. 14, p. 321'], 'Journal of Discourses location is spelled out');
   eq(view.groups[0].count, 3, 'the group counts talks');
   eq(view.talks, 3, 'the view counts talks');
   eq(view.summary, '3 talks cite this chapter', 'summary counts talks, not cites');
@@ -512,6 +534,21 @@ console.log('Source types from the descriptor:');
     'with no descriptor no corpus exists');
 }
 
+// --- no footnote label -------------------------------------------------------
+// The shard's `fn` (a footnote cite) is not shown: the owner judged the row's
+// label clutter. A flagged cite's row reads like any other.
+console.log('No footnote label:');
+{
+  const cite = { citId: 'fn', verses: [7], source: gc('Cook', 'Zoram', '2025-10'), excerptChars: 90 };
+  const data = makeData([cite]);
+  data.entries.fn.fn = true;
+  data.entries.fn.inFootnote = true;
+  const row = VM.allRows(VM.buildView(data, SRC))[0];
+  deep([row.talkTitle, row.where], ['Zoram', '2025-10'], 'a footnote cite’s talk line is title and date alone');
+  eq(row.a11yLabel, 'Cook, Zoram, 2025-10, verse 7', 'and its screen-reader name says nothing of a note');
+  check(!('footnote' in row), 'the row carries no footnote field');
+}
+
 // --- excerpt source per corpus ---------------------------------------------
 // A row's excerpt comes from where the descriptor says (`excerpt`): a bundled
 // corpus hands over display-ready text, a fetched one a fetch marker with the
@@ -592,7 +629,7 @@ console.log('Source-type notes:');
   eq(verse.groups[0].a11yLabel, 'Verse 3, 2 talks', 'the note never changes the group\u2019s screen-reader label');
 
   deep(titles(VM.buildView(makeData(cites, PUBLIC), OPTS)).map((t) => t[1]), [null, null],
-    'a descriptor without notes gives no title (today\u2019s pack)');
+    'a descriptor without notes gives no title');
   const partial = Object.assign({}, PUBLIC, { corpora: Object.assign({}, CORPORA, {
     J: Object.assign({}, CORPORA.J, { sourceNote: JD_NOTE }) }) });
   deep(titles(VM.buildView(makeData(cites, partial), OPTS)).map((t) => t[1]), [null, JD_NOTE],
@@ -703,6 +740,155 @@ console.log('Toolbar state:');
   eq(VM.collapseLabel(view, after), null, 'all folded -> the button hides');
 }
 
+// --- verse queries ----------------------------------------------------------
+console.log('Verse queries:');
+{
+  deep(VM.verseQuery('27', '14'), [27], 'a bare number is a verse');
+  deep(VM.verseQuery('v27', '14'), [27], 'v27');
+  deep(VM.verseQuery('v. 27', '14'), [27], 'v. 27');
+  deep(VM.verseQuery('V.27', '14'), [27], 'V.27, any case');
+  deep(VM.verseQuery('14:27', '14'), [27], 'a chapter prefix naming this chapter');
+  eq(VM.verseQuery('14:27', '15'), null, 'a chapter prefix naming another chapter is text');
+  deep(VM.verseQuery('27-29', '14'), [27, 28, 29], 'a range with a hyphen');
+  deep(VM.verseQuery('27–29', '14'), [27, 28, 29], 'a range with an en dash');
+  deep(VM.verseQuery('27, 29', '14'), [27, 29], 'a comma list');
+  deep(VM.verseQuery('27 29', '14'), [27, 29], 'a space list');
+  deep(VM.verseQuery('vv. 1-2, 14:27 – 28; 30', '14'), [1, 2, 27, 28, 30], 'every form together');
+  deep(VM.verseQuery('verse 27', '14'), [27], 'the word verse');
+  deep(VM.verseQuery('v27, v29', '14'), [27, 29], 'a v on each item');
+  deep(VM.verseQuery('29-27', '14'), [27, 28, 29], 'a range typed backwards');
+  deep(VM.verseQuery('14:27-14:29', '14'), [27, 28, 29], 'a chapter prefix on both ends');
+  eq(VM.verseQuery('14:27-15:2', '14'), null, 'a range into another chapter is text');
+  // Mid-keystroke forms keep the verses typed so far, so the list doesn't
+  // flash to text matches between "27" and "27-29".
+  deep(VM.verseQuery('27-', '14'), [27], 'a dangling dash');
+  deep(VM.verseQuery('27,', '14'), [27], 'a dangling comma');
+  // Years and pages are four digits; no chapter has a verse 0 or 1000.
+  eq(VM.verseQuery('2006', '14'), null, 'a year is text');
+  eq(VM.verseQuery('0', '14'), null, 'zero is text');
+  eq(VM.verseQuery('27 2006', '14'), null, 'one non-verse makes the whole query text');
+  eq(VM.verseQuery('Doctrine and Covenants 76', '14'), null, 'a title with a number is text');
+  eq(VM.verseQuery('3 Nephi', '14'), null, 'a number and a word is text');
+  eq(VM.verseQuery('v', '14'), null, 'a lone v is text');
+  eq(VM.verseQuery('14:', '14'), null, 'a chapter with no verse is text');
+  eq(VM.verseQuery('   ', '14'), null, 'blank is no query');
+
+  // John 14: Rasband cites verse 27 alone, Holland cites 25–27 (one row,
+  // anchored at 25 in By verse), Oaks cites 29, Young 3.
+  const data = makeData([
+    { citId: 'a', verses: [27], source: gc('Rasband', 'Love Like Jesus', '2025-10'), snippet: 'my peace I give' },
+    { citId: 'b', verses: [25, 26, 27], source: gc('Holland', 'The Comforter', '2018-04'), snippet: 'peace I leave' },
+    { citId: 'c', verses: [29], source: gc('Oaks', 'Doctrine and Covenants 76', '2005-10'), snippet: 'when it is come' },
+    { citId: 'd', verses: [3], source: jod('Young', 'Mansions', '1857-07', 'Journal of Discourses 14:27'), snippet: 'a place for you' },
+  ].concat(FILLER));
+  const bySource = VM.buildView(data, { view: 'source', fullName: 'John', chapter: '14' });
+  const plan = (view, q) => VM.filterPlan(view, q, VM.initialState(view));
+
+  for (const q of ['27', 'v27', 'v. 27', '14:27']) {
+    deep(visibleRowIds(bySource, plan(bySource, q)), ['a', 'b'], `By source, "${q}": the talks citing verse 27, a range among them`);
+  }
+  for (const q of ['27-29', '27–29', '27, 29', '27 29']) {
+    deep(visibleRowIds(bySource, plan(bySource, q)), ['a', 'b', 'c'], `By source, "${q}"`);
+  }
+  eq(plan(bySource, '27').summary, '2 of 14 talks match', 'a verse query counts matching talks');
+  deep(visibleRowIds(bySource, plan(bySource, 'covenants 76')), ['c'], 'a number in a title is found by its words');
+  // A row whose badge reads more verses than were asked for says which of
+  // them matched, beside the badge, and to a screen reader.
+  const p27 = plan(bySource, '27');
+  const rowOf = (view, id) => VM.allRows(view).find((r) => r.citId === id);
+  deep(p27.matchNotes[rowOf(bySource, 'b').uid], { text: 'incl. v. 27', a11yLabel: 'Holland, The Comforter, 2018-04, verses 25 to 27, including verse 27' },
+    'By source, "27": the 25–27 row names the verse it matched');
+  eq(p27.matchNotes[rowOf(bySource, 'a').uid], undefined, 'a row citing just the verse asked for needs no note');
+  eq(plan(bySource, '27-29').matchNotes[rowOf(bySource, 'b').uid].text, 'incl. v. 27', 'only the verses the row takes in');
+  eq(plan(bySource, '25-27').matchNotes[rowOf(bySource, 'b').uid], undefined, 'a row inside the query needs none');
+  eq(plan(bySource, '26-29').matchNotes[rowOf(bySource, 'b').uid].text, 'incl. vv. 26–27', 'several matched verses');
+  deep(plan(bySource, '').matchNotes, {}, 'no query, no notes');
+  deep(plan(bySource, 'holland').matchNotes, {}, 'a text query, no notes');
+  deep(VM.filterPlan(VM.buildView(data, { view: 'verse', fullName: 'John', chapter: '14' }), '27', VM.initialState(bySource)).matchNotes, {},
+    'By verse names the verse in its group header instead');
+
+  const onJohn15 = VM.buildView(data, { view: 'source', fullName: 'John', chapter: '15' });
+  deep(visibleRowIds(onJohn15, plan(onJohn15, '14:27')), ['d'], 'on John 15, "14:27" is text (a Journal of Discourses place)');
+
+  // By verse: a verse query shows the queried verses' groups and no other,
+  // each opened and holding every talk whose cites take in that verse:
+  // Holland's 25–27 row is listed under Verse 25, and under the query it
+  // shows under Verse 27 too, newest first among the rest. Both layouts
+  // count the same talks.
+  const byVerse = VM.buildView(data, { view: 'verse', fullName: 'John', chapter: '14' });
+  const state = VM.initialState(byVerse);
+  state.open['v:3'] = true; // the reader opened verse 3 by hand
+  const v27 = VM.filterPlan(byVerse, '27', state);
+  const shownGroups = (view, p) => view.groups.filter((g) => !p.hidden[g.uid]).map((g) => g.uid);
+  deep(shownGroups(byVerse, v27), ['v:27'], 'By verse, "27": Verse 27 alone, not Verse 25 where the 25–27 run starts');
+  deep(visibleRowIds(byVerse, v27), ['a', 'b'], 'holding both talks, newest first, the range among them');
+  check(byVerse.groups.every((g) => v27.hidden[g.uid] || v27.open[g.uid]), 'and it opens');
+  eq(v27.open['v:3'], true, 'a hidden group keeps its open state');
+  eq(v27.summary, plan(bySource, '27').summary, 'both layouts count the same talks');
+  eq(v27.counts['v:27'], 2, 'the group counts every talk it shows');
+  deep(shownGroups(byVerse, plan(byVerse, '25-29')), ['v:25', 'v:26', 'v:27', 'v:29'],
+    'a range query shows each queried verse a talk takes in, in order (26 only through the 25–27 run)');
+  deep(visibleRowIds(byVerse, plan(byVerse, '26')), ['b'], 'a verse only a range takes in gets a group of its own under the query');
+
+  // Without a verse query the list is today's: each talk listed at the verse
+  // its run starts at; the range's other verses add no group, row or count.
+  eq(byVerse.groups.find((g) => g.uid === 'v:26').queryOnly, true, 'a verse only a range takes in is a query-only group');
+  eq(byVerse.groups.find((g) => g.uid === 'v:26').count, 0, 'which counts nothing');
+  const idle = plan(byVerse, '');
+  eq(idle.hidden['v:26'], true, 'and hides with no query');
+  deep(visibleRowIds(byVerse, idle).filter((id) => id === 'b'), ['b'], 'the range row shows once, at Verse 25');
+  eq(idle.counts['v:27'], 1, 'Verse 27 counts its own talk');
+  deep(visibleRowIds(byVerse, plan(byVerse, 'holland')), ['b'], 'a text query finds the range row once');
+  deep(shownGroups(byVerse, plan(byVerse, 'holland')), ['v:25'], 'where it starts');
+  eq(VM.buildView(data, { view: 'verse', fullName: 'John', chapter: '14', focusVerse: 26 }).focusUid, null,
+    'a query-only group never takes the focus verse');
+
+  // A cite of verses 3 and 27 is listed under Verse 3 and again under Verse
+  // 27; a "27" query shows it once, where verse 27 is.
+  const split = makeData([
+    { citId: 'u', verses: [3, 27], source: gc('Uchtdorf', 'Strength of Youth', '2022-10') },
+    { citId: 'w', verses: [1, 2, 3], source: gc('Gong', 'Eastertide', '2026-04') },
+  ].concat(FILLER));
+  const splitView = VM.buildView(split, { view: 'verse', fullName: 'John', chapter: '14' });
+  const u27 = VM.filterPlan(splitView, '27', VM.initialState(splitView));
+  deep(shownGroups(splitView, u27), ['v:27'], 'a talk shows under the verse the query names');
+  eq(u27.summary, '1 of 12 talks matches', 'counted once');
+  const u3 = VM.filterPlan(splitView, '3', VM.initialState(splitView));
+  deep(shownGroups(splitView, u3), ['v:3'], 'verse 3: one group');
+  deep(visibleRowIds(splitView, u3), ['w', 'u'], 'holding the 3 run and the 1–3 run, newest first');
+  eq(u3.summary, '2 of 12 talks match', 'both talks counted');
+
+  // A verse no talk cites: the no-results line names the verse.
+  const none = VM.filterPlan(byVerse, '28', state);
+  eq(none.anyMatch, false, 'nothing cites verse 28 on its own');
+  eq(none.noResults, 'No talks cite verse 28.', 'the no-results line names the verse');
+  eq(none.summary, '0 of 14 talks match', 'and the count says none');
+  eq(VM.filterPlan(byVerse, '30-31', state).noResults, 'No talks cite verses 30–31.', 'or the verses');
+
+  // A reference to another chapter that matches nothing as text says why,
+  // and names a verse to type that has talks here.
+  for (const view of [byVerse, bySource]) {
+    eq(plan(view, '15:27').noResults, '15:27 isn’t in John 14. Type a verse number, like 27.',
+      `${view.layout}: another chapter's verse, with this chapter's own verse 27 to try`);
+    eq(plan(view, ' 15:27 - 29 ').noResults, '15:27–29 isn’t in John 14. Type a verse number, like 27.', `${view.layout}: a range of them`);
+    eq(plan(view, '15:28').noResults, '15:28 isn’t in John 14. Type a verse number, like 3.',
+      `${view.layout}: no talk here cites verse 28, so the first cited verse is offered`);
+  }
+  eq(plan(bySource, '15:27, 14:3').noResults, 'No talks match “15:27, 14:3”.', 'two chapters at once is plain text');
+  deep(visibleRowIds(onJohn15, plan(onJohn15, '14:27')), ['d'], 'a reference that matches as text keeps its matches');
+  eq(plan(onJohn15, '14:27').noResults, null, 'and has no no-results line');
+
+  // Clearing restores the open state from before the verse query.
+  const cleared = VM.filterPlan(byVerse, '', VM.applyPlan(state, v27));
+  eq(cleared.open['v:3'], true, 'the hand-opened group stays open');
+  eq(cleared.open['v:27'], false, 'a group the verse query opened closes again');
+  eq(cleared.preFilterOpen, null, 'the capture is released');
+
+  // The box says what it searches; the label drops the ellipsis a screen reader would speak.
+  eq(VM.FILTER_COPY.placeholder, 'Filter by speaker, title or verse…', 'the placeholder names verses');
+  eq(VM.FILTER_COPY.label, 'Filter by speaker, title or verse', 'and the accessible label');
+}
+
 // --- talk reader heading ---------------------------------------------------
 console.log('Talk heading:');
 {
@@ -722,9 +908,24 @@ console.log('Talk heading:');
   eq(VM.talkHeading({ c: 'G', sp: 'A', ti: 'T', lbl: '09 2023 General Conference' }, [1]).where,
     'October 2023 General Conference', 'the byline names a session as the list does');
   eq(VM.talkHeading(jod('Moses Thatcher', 'Discourse', '1885-04', 'Journal of Discourses 26:306'), [5]).where,
-    'Journal of Discourses, vol. 26, p. 306', 'the byline spells a Journal of Discourses place as the list does');
+    'Journal of Discourses, vol. 26, p. 306 · April 1885', 'the byline spells a Journal of Discourses place as the list does');
   eq(VM.talkHeading(jod('X', 'Y', '1885-04', 'Journal of Discourses'), [5]).where,
-    'Journal of Discourses', 'a label with no volume:page is left as it is');
+    'Journal of Discourses · April 1885', 'a label with no volume:page is left as it is');
+  // The date: a label that lacks it gains month and year.
+  eq(VM.talkHeading(jod('Brigham Young', 'Salvation.', '1853-01', 'Journal of Discourses 1:3'), [5]).where,
+    'Journal of Discourses, vol. 1, p. 3 · January 1853', 'a Journal of Discourses heading gains its month and year');
+  eq(VM.talkHeading(gc('David L. Buckner', 'T', 'October 2024'), [1]).where,
+    'October 2024 General Conference', 'a conference label that holds the year is unchanged');
+  eq(VM.talkHeading({ c: 'G', sp: 'A', ti: 'T', d: '2023-10', lbl: '09 2023 General Conference' }, [1]).where,
+    'October 2023 General Conference', 'a session label that holds the year is unchanged');
+  eq(VM.talkHeading({ c: 'J', sp: 'A', ti: 'T', lbl: 'Journal of Discourses 4:12' }, [1]).where,
+    'Journal of Discourses, vol. 4, p. 12', 'a source with no date gains nothing');
+  eq(VM.talkHeading({ c: 'J', sp: 'A', ti: 'T', d: '1853', lbl: 'Journal of Discourses 4:12' }, [1]).where,
+    'Journal of Discourses, vol. 4, p. 12', 'nor does one whose date has no month');
+  eq(VM.talkHeading({ c: 'J', sp: 'A', ti: 'T', d: '1853-13', lbl: 'Journal of Discourses 4:12' }, [1]).where,
+    'Journal of Discourses, vol. 4, p. 12', 'nor one whose month is not a month');
+  eq(VM.talkHeading({ c: 'J', sp: 'A', ti: '', d: '1853-01', lbl: 'Journal of Discourses 4:12' }, [1]).where,
+    'January 1853', 'a label that stands in as the title is not repeated; the date still follows');
   const note = VM.talkHeading(gc('Oliver Cowdery', 'T', '1990-04'), [1000]);
   eq(note.chip.text, 'Note', 'a chip for the note says Note');
   eq(note.chip.a11yLabel, 'Go to the cited passage, the note', 'and its spoken form');

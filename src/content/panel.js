@@ -452,11 +452,22 @@
   // Where focus goes after a collapse or an expand (the state after it), for
   // a keyboard user whose focus was in the panel: the tab on collapse,
   // Collapse on expand — unless the expand brings the welcome back (null:
-  // the welcome takes focus when it opens).
+  // the welcome takes focus when it opens). Only a keyboard activation moves
+  // focus (`keyboard` false: a mouse click): a mouse reader left a focus ring
+  // on a control they never asked for (#102 C2).
   //   -> 'tab' | 'collapse' | null
-  function focusOnToggle(s) {
+  function focusOnToggle(s, keyboard) {
+    if (keyboard === false) return null;
     if (s.collapsed) return 'tab';
     return welcomeDue(s) ? null : 'collapse';
+  }
+
+  // Was a button's click made with the keyboard? Enter or Space on a focused
+  // button click with a click count (`detail`) of 0, a mouse click with 1 or
+  // more. What isn't known counts as the keyboard: focus moving is the safe
+  // side for a screen-reader user.
+  function byKeyboard(event) {
+    return !event || event.detail === 0 || typeof event.detail !== 'number';
   }
 
   // The controls the panel builds, by name: what a welcome step may point
@@ -1191,16 +1202,33 @@
     return Math.max(0, Math.round(Number(o.bottom) || 0));
   }
 
+  // The packaged icon file for the extension icon drawn at `size` px: twice
+  // the size, so it stays sharp at 2x density (16 -> icons/icon-32.png). The
+  // manifest lists each such file as web-accessible (validate-manifest).
+  function iconFile(size) {
+    return `icons/icon-${size * 2}.png`;
+  }
+
+  // How a width drag ends. The panel follows the pointer during the drag; a
+  // release (commit) keeps and saves where it ended, a cancel (pointercancel)
+  // puts back the width the drag began at and saves nothing.
+  //   from    the panel's width at pointer-down, px
+  //   at      the width under the pointer at the end, px
+  //   -> { width, save }
+  function resizeEnd({ from, at, commit }) {
+    return commit ? { width: at, save: true } : { width: from, save: false };
+  }
+
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = {
       createState, arrangement, layoutChoice, arrangementOf, effectiveMode, selectMode, selectText, selectCitationView, setChapter, sameChapter,
-      welcomeDue, setWelcomeSeen, welcomeTakesFocus, focusOnToggle, CONTROL_NAMES, WELCOME_COPY, WELCOME_STEPS, welcomeSteps, welcomeStepView, welcomeFactsFrom, lineParts,
+      welcomeDue, setWelcomeSeen, welcomeTakesFocus, focusOnToggle, byKeyboard, CONTROL_NAMES, WELCOME_COPY, WELCOME_STEPS, welcomeSteps, welcomeStepView, welcomeFactsFrom, lineParts,
       CALLOUT_GEOMETRY, calloutPlacement, unionRect,
       stepFontScale, setupCopy, noteCopy, besideCopy, pressedLayout, layoutClick, roomHint, errorCopy, pausedLine, nearLine, retryWait, LAYOUTS, RETRY_MAX_WAIT_MS, RETRY_MAX,
       createViews, saveViewScroll, selectView, keepView, settleView, dropViews, SAME_CHAPTER_VIEWS,
       viewRestoresScroll, wantsScrollSync,
       scrollStep, easeRamp, floorStep, carryScroll, realignmentDone, isForeignScroll,
-      revealTop, keptScrollTop, panelTop,
+      revealTop, keptScrollTop, panelTop, resizeEnd, iconFile,
       SCROLL_TAU_MS, SCROLL_RAMP_MS, SCROLL_MIN_STEP_PX, SCROLL_LIMITS,
       SCROLL_REVEAL_FRACTION, SCROLL_REVEAL_CLEAR_PX,
     };
@@ -1267,7 +1295,6 @@
       ['path', { d: 'M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z' }],
     ],
     collapse: PANEL_FRAME.concat([['path', { d: 'm8 9 3 3-3 3' }]]), // chevron toward the edge
-    expand: PANEL_FRAME.concat([['path', { d: 'm10 15-3-3 3-3' }]]), // chevron out of it
   };
 
   function svgNode(tag, attrs) {
@@ -1370,7 +1397,7 @@
 
     // The collapsed panel: one icon tab on the window's right edge.
     const tab = labelled(el('button', 'btx-tab'), 'Show Translations & Citations');
-    tab.appendChild(icon('expand', 20));
+    tab.appendChild(extensionIcon('btx-tab-icon', 16));
 
     rootEl.appendChild(panel);
     rootEl.appendChild(tab);
@@ -1391,13 +1418,14 @@
     smaller.addEventListener('click', () => onFontStep(-1));
     larger.addEventListener('click', () => onFontStep(1));
     gear.addEventListener('click', () => cbs.onGear && cbs.onGear());
-    collapse.addEventListener('click', () => setCollapsed(true));
-    tab.addEventListener('click', () => setCollapsed(false));
+    collapse.addEventListener('click', (e) => setCollapsed(true, byKeyboard(e)));
+    tab.addEventListener('click', (e) => setCollapsed(false, byKeyboard(e)));
     modeTranslation.addEventListener('click', () => onModeClick('translation'));
     modeCitations.addEventListener('click', () => onModeClick('citations'));
     citViewSource.addEventListener('click', () => onCitViewClick('source'));
     citViewVerse.addEventListener('click', () => onCitViewClick('verse'));
     resize.addEventListener('pointerdown', onResizeDown);
+    resize.addEventListener('mousedown', noSelect);
     // Show the scrollbar while scrolling, fade it ~1s after it stops.
     body.addEventListener('scroll', () => {
       onBodyScrolled();
@@ -1560,7 +1588,7 @@
     w.position.textContent = v.position;
     w.lines.replaceChildren(...v.step.lines.map((line) => {
       const p = el('p', line.tip ? 'btx-welcome-line btx-welcome-tip' : 'btx-welcome-line');
-      for (const part of lineParts(line)) p.appendChild(typeof part === 'string' ? document.createTextNode(part) : extensionIcon());
+      for (const part of lineParts(line)) p.appendChild(typeof part === 'string' ? document.createTextNode(part) : extensionIcon('btx-welcome-icon', 16));
       return p;
     }));
     w.back.hidden = !v.back;
@@ -1594,13 +1622,13 @@
 
   // The extension's own toolbar icon, drawn beside its name in words: a
   // picture of what to look for, so its alt text is empty (the name is
-  // already read out).
-  function extensionIcon() {
-    const img = el('img', 'btx-welcome-icon');
+  // already read out). The file is iconFile's, twice the drawn size.
+  function extensionIcon(cls, size) {
+    const img = el('img', cls);
     img.alt = '';
-    img.width = 16;
-    img.height = 16;
-    try { img.src = chrome.runtime.getURL('icons/icon-32.png'); } catch (e) { /* extension reloaded: the name in words stands */ }
+    img.width = size;
+    img.height = size;
+    try { img.src = chrome.runtime.getURL(iconFile(size)); } catch (e) { /* extension reloaded: the name in words stands */ }
     return img;
   }
 
@@ -1734,23 +1762,27 @@
     };
   }
 
-  // What the reader is on: the cited passage while it is on screen, else the
-  // first text in flow at the top of the body (below any pinned header) — to
-  // the character, since one Journal of Discourses paragraph can run for
-  // screens. -> a function reading its viewport top (null once it is gone),
-  // or null.
+  // What the reader is on: the cite's own position (talk-view's
+  // btx-cit-target: a Journal of Discourses marker, not the paragraph it
+  // tints) while its line shows (on screen, below any pinned header), else
+  // the first text in flow at the top of the body (below any pinned header)
+  // — to the character, since one Journal of Discourses paragraph can run
+  // for screens. -> a function reading its viewport top (null once it is
+  // gone), or null.
   function readingAnchor() {
     const node = viewNode();
     if (node === ui.body || !node.isConnected) return null;
     const box = ui.body.getBoundingClientRect();
     if (!(box.height > 0 && box.width > 0)) return null;
     const topOf = (n) => () => (n.isConnected ? n.getBoundingClientRect().top : null);
-    const mark = node.querySelector('.btx-cit-highlight');
+    const x = box.left + box.width / 2;
+    const mark = node.querySelector('.btx-cit-target');
     if (mark) {
       const r = mark.getBoundingClientRect();
-      if (r.bottom > box.top && r.top < box.bottom) return topOf(mark);
+      const shows = r.top >= box.top && r.top < box.bottom &&
+        !pinnedIn(document.elementFromPoint(x, r.top + 1), node);
+      if (shows) return topOf(mark);
     }
-    const x = box.left + box.width / 2;
     for (let y = box.top + 1; y < box.bottom; y += 8) {
       const hit = document.elementFromPoint(x, y);
       if (!hit || hit === node || !node.contains(hit) || pinnedIn(hit, node)) continue;
@@ -1795,8 +1827,8 @@
     // keyboard user mid-adjustment, so hand focus to the other end of the
     // stepper — which is by definition still live, since the two ends cannot
     // both be spent.
-    if (document.activeElement === ui.smaller && ui.smaller.disabled) ui.larger.focus();
-    else if (document.activeElement === ui.larger && ui.larger.disabled) ui.smaller.focus();
+    if (document.activeElement === ui.smaller && ui.smaller.disabled) ui.larger.focus({ preventScroll: true });
+    else if (document.activeElement === ui.larger && ui.larger.disabled) ui.smaller.focus({ preventScroll: true });
   }
 
   function persist(partial) {
@@ -1844,14 +1876,15 @@
   // Focus follows the control across the swap: a keyboard user who collapses
   // lands on the tab, and on Collapse again when expanding. Focus elsewhere
   // (the toolbar icon, a synced change) is left where it is.
-  function setCollapsed(collapsed) {
+  // `keyboard` is false for a mouse click (focusOnToggle: no focus moves then).
+  function setCollapsed(collapsed, keyboard) {
     const c = collapsed === true;
     if (state.collapsed === c) return;
     const hadFocus = ui.rootEl.contains(document.activeElement);
     state.collapsed = c;
     applyCollapsedUI(); // an expand may bring the welcome back, which takes focus
-    const target = hadFocus ? focusOnToggle(state) : null;
-    if (target) (target === 'tab' ? ui.tab : ui.collapse).focus();
+    const target = hadFocus ? focusOnToggle(state, keyboard) : null;
+    if (target) (target === 'tab' ? ui.tab : ui.collapse).focus({ preventScroll: true });
     persist({ panelCollapsed: c });
   }
 
@@ -2163,7 +2196,7 @@
     if (shownNote === was) {
       was.replaceWith(node);
       shownNote = node;
-      focusPressedLayout(control, { preventScroll: true });
+      focusPressedLayout(control);
     }
   }
 
@@ -2189,7 +2222,7 @@
   function placeNote() {
     if (!ui) return;
     if (shownNote) {
-      if (shownNote.contains(document.activeElement)) ui.body.focus();
+      if (shownNote.contains(document.activeElement)) ui.body.focus({ preventScroll: true });
       shownNote.remove();
       shownNote = null;
     }
@@ -2428,11 +2461,11 @@
     return { group: segmented('btx-seg', label || 'Where to show it', choices), choices, press };
   }
 
-  // `opts` is focus()'s: { preventScroll } where the control replaces what
-  // the reader pressed in place, so moving focus must not move the body.
-  function focusPressedLayout(control, opts) {
+  // Like every focus the panel moves, it never scrolls: not the page, and not
+  // the body, whose one writer is writeBodyScroll.
+  function focusPressedLayout(control) {
     const pressed = control.choices.find((b) => b.getAttribute('aria-pressed') === 'true');
-    if (pressed) pressed.focus(opts);
+    if (pressed) pressed.focus({ preventScroll: true });
   }
 
   function buildBeside(card) {
@@ -2454,7 +2487,7 @@
     parts.note = el('p', 'btx-card-hint');
     parts.note.setAttribute('role', 'status');
     card.node.appendChild(parts.note);
-    parts.collapse = button('btx-btn-outline btx-widen', '', () => setCollapsed(true));
+    parts.collapse = button('btx-btn-outline btx-widen', '', (e) => setCollapsed(true, byKeyboard(e)));
     card.node.appendChild(parts.collapse);
     card.parts = parts;
   }
@@ -2560,7 +2593,7 @@
     const talks = button('btx-link', copy.talks, () => {
       const hadFocus = document.activeElement === talks;
       onModeClick('citations');
-      if (hadFocus) ui.modeCitations.focus();
+      if (hadFocus) ui.modeCitations.focus({ preventScroll: true });
     });
     card.appendChild(talks);
     host.appendChild(card);
@@ -2971,20 +3004,41 @@
     applyWidth(widthFromEvent(e));
   }
 
-  function onResizeUp(e) {
-    document.removeEventListener('pointermove', onResizeMove);
+  // A drag selects no page text: the grip captures the pointer (every move and
+  // the release come to it, wherever the pointer is), and the browser's own
+  // mouse-down and select-start defaults are cancelled for the drag's length.
+  function noSelect(e) { e.preventDefault(); }
+
+  let dragFrom = null; // the panel's width at pointer-down (resizeEnd)
+
+  function endResize(e, commit) {
+    const grip = ui.resize;
+    grip.removeEventListener('pointermove', onResizeMove);
+    grip.removeEventListener('pointerup', onResizeUp);
+    grip.removeEventListener('pointercancel', onResizeCancel);
+    document.removeEventListener('selectstart', noSelect, true);
+    try { grip.releasePointerCapture(e.pointerId); } catch (_) { /* already released */ }
     ui.rootEl.classList.remove('btx-resizing');
-    const w = widthFromEvent(e);
-    applyWidth(w);
-    persist({ sidebarWidth: w });
+    const end = resizeEnd({ from: dragFrom, at: widthFromEvent(e), commit });
+    dragFrom = null;
+    applyWidth(end.width);
+    if (end.save) persist({ sidebarWidth: end.width });
   }
+
+  function onResizeUp(e) { endResize(e, true); }
+  function onResizeCancel(e) { endResize(e, false); }
 
   function onResizeDown(e) {
     if (e.button != null && e.button !== 0) return;
     ensureRoot();
+    const grip = ui.resize;
+    dragFrom = parseFloat(ui.rootEl.style.getPropertyValue('--btx-width')) || ui.rootEl.getBoundingClientRect().width;
     ui.rootEl.classList.add('btx-resizing');
-    document.addEventListener('pointermove', onResizeMove);
-    document.addEventListener('pointerup', onResizeUp, { once: true });
+    try { grip.setPointerCapture(e.pointerId); } catch (_) { /* synthetic event */ }
+    grip.addEventListener('pointermove', onResizeMove);
+    grip.addEventListener('pointerup', onResizeUp);
+    grip.addEventListener('pointercancel', onResizeCancel);
+    document.addEventListener('selectstart', noSelect, true);
     e.preventDefault();
   }
 

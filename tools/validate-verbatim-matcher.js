@@ -73,6 +73,17 @@ console.log('Re-derived cites (fixtures):');
     'a cite whose verses the inputs lack is never re-derived');
   deep(kept(`<p>No span here, for you shall live by every word that proceedeth forth from the mouth of God.</p>`,
     [{ id: 21, slug: 'dc', ch: 84, verses: [44] }], SCRIPTURE), [], 'a cite whose span the talk lacks is not re-derived');
+
+  // A modern talk: BYU inlines the note at its marker and repeats every note
+  // in the closing footer.notes list, so the cite's span occurs twice.
+  const noted = '<p>“For you shall live by every word that proceedeth forth from the mouth of God.”' +
+    `<sup class="noteMarker"><a href="#note1">1</a><span class="footnote">[<span class="note-p">${span(22, 'D&amp;C 84:44')}</span>]</span></sup></p>` +
+    `<p>Another paragraph.</p><footer class="notes"><ol><li id="note1"><p>${span(22, 'D&amp;C 84:44')}</p></li></ol></footer>`;
+  deep(kept(noted, [{ id: 22, slug: 'dc', ch: 84, verses: [44] }], SCRIPTURE), [22],
+    'a note cite is matched at its marker in the paragraph, not at its repeat in the closing notes list');
+  const tt = M.talkText(noted);
+  check(tt.text.slice(0, tt.citeAt.get('22')).endsWith('mouth of God.”'),
+    'talkText places a span that occurs twice at its first occurrence');
 }
 
 // The scripture inputs as downloaded: Gutenberg texts carry "c:v " markers

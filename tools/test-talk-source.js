@@ -12,7 +12,13 @@
  *     text (BYU's paragraph without its insertions, the Church paragraph at
  *     its anchor or the locator's, none for a body passage), and the shared
  *     link parser's two span rules;
- *   src/citations/talk-view.js   — the punctuation of BYU's inserted references.
+ *   src/citations/talk-view.js   — the punctuation of BYU's inserted references,
+ *     and the render contract: load() -> render -> findTarget -> markCite over
+ *     tools/mini-dom.js, for a Journal of Discourses marker cite, a page-anchor
+ *     cite and an early-conference reference (text unchanged, ids kept, the
+ *     right block marked, an empty target pinned, a tall paragraph untinted);
+ *     where a cite is revealed (revealClear) and when a paragraph is tinted
+ *     (tintsPassage).
  *
  * Run: node --test tools/test-talk-source.js
  * No test framework — node:test is built in (ADR-0002: no build step, no deps).
@@ -95,17 +101,30 @@ test('targetIds: a modern talk\'s paragraph anchor is not a span fallback', () =
 
 const PERMALINK = 'https://en.wikisource.org/w/index.php?title=Journal_of_Discourses/Volume_1/Salvation&oldid=16217145';
 
-test('talkCredit: a Wikisource talk credits its revision and links its permalink', () => {
+test('talkCredit: a Wikisource talk says so plainly, linking its permalink with the revision on hover', () => {
   assert.deepStrictEqual(talkSource.talkCredit(CORPORA.J, { c: 'J', url: PERMALINK }),
-    { text: 'Text: Wikisource, revision 16217145', href: PERMALINK });
+    { text: 'Text from Wikisource', href: PERMALINK, title: 'Wikisource revision 16217145' });
   assert.deepStrictEqual(talkSource.talkCredit(CORPORA.J, { c: 'J', url: 'https://en.wikisource.org/wiki/Journal_of_Discourses' }),
-    { text: 'Text: Wikisource', href: 'https://en.wikisource.org/wiki/Journal_of_Discourses' }, 'no revision, no number');
+    { text: 'Text from Wikisource', href: 'https://en.wikisource.org/wiki/Journal_of_Discourses' }, 'no revision, no title');
   assert.strictEqual(talkSource.talkCredit(CORPORA.J, { c: 'J' }), null, 'nothing to link');
 });
 
-test('talkCredit: a BYU-fetched talk names the fetch; other corpora have no line', () => {
-  assert.deepStrictEqual(talkSource.talkCredit(CORPORA.E, { c: 'E' }), { text: 'Text fetched from scriptures.byu.edu' });
-  assert.strictEqual(talkSource.talkCredit(CORPORA.G, { c: 'G', url: NELSON }), null);
+test('talkCredit: a live-church talk credits the Church site and links the talk', () => {
+  assert.deepStrictEqual(talkSource.talkCredit(CORPORA.G, { c: 'G', url: NELSON }),
+    { text: 'Text from churchofjesuschrist.org', href: NELSON });
+  assert.strictEqual(talkSource.talkCredit(CORPORA.G, { c: 'G' }), null, 'no talk URL, nothing to link');
+  assert.deepStrictEqual(talkSource.talkCredit({ ...CORPORA.G }, { c: 'X', url: NELSON }),
+    { text: 'Text from churchofjesuschrist.org', href: NELSON }, 'decided by the descriptor text, not the letter');
+});
+
+test('talkCredit: a BYU-fetched talk credits BYU\'s index and links the talk in its viewer', () => {
+  assert.deepStrictEqual(talkSource.talkCredit(CORPORA.E, { c: 'E' }, { talkId: 889, citId: 22657 }),
+    { text: 'Text from BYU Scripture Citation Index', href: 'https://scriptures.byu.edu/#:t379' },
+    'the talk, as the Church credit links the talk; the header\'s link goes to the cite');
+  assert.deepStrictEqual(talkSource.talkCredit(CORPORA.E, { c: 'E', url: NELSON }, { talkId: 889 }),
+    { text: 'Text from BYU Scripture Citation Index', href: 'https://scriptures.byu.edu/#:t379' }, 'never the stored URL');
+  assert.deepStrictEqual(talkSource.talkCredit(CORPORA.E, { c: 'E' }, { talkId: 'gc/2026/10/x' }),
+    { text: 'Text from BYU Scripture Citation Index' }, 'no BYU talk number, no link');
   assert.strictEqual(talkSource.talkCredit(null, { c: 'T' }), null, 'a corpus the pack lacks');
 });
 
@@ -404,7 +423,7 @@ test('load: an early-conference talk is fetched from BYU, credentials omitted', 
   assert.deepStrictEqual(log.requests.map((q) => q.url), ['https://scriptures.byu.edu/content/talks_ajax/889']);
   assert.strictEqual(log.requests[0].init.credentials, 'omit');
   assert.strictEqual(r.html, '<div class="gcera">https://scriptures.byu.edu/content/talks_ajax/889</div>');
-  assert.deepStrictEqual(r.credit, { text: 'Text fetched from scriptures.byu.edu' });
+  assert.deepStrictEqual(r.credit, { text: 'Text from BYU Scripture Citation Index', href: 'https://scriptures.byu.edu/#:t379' });
   assert.deepStrictEqual(r.destination, { href: 'https://scriptures.byu.edu/#:t379$22657', label: 'Open on scriptures.byu.edu' });
   assert.strictEqual(log.bundleReads, 0);
 });
@@ -442,7 +461,7 @@ test('load: a Journal of Discourses talk credits its Wikisource revision and ope
   const log = stubReader(PUBLIC);
   const r = await talkSource.load({ entry: { talkId: 10001, citId: 7 }, source: { c: 'J', url: PERMALINK } });
   assert.strictEqual(r.html, '<p>bundled</p>');
-  assert.deepStrictEqual(r.credit, { text: 'Text: Wikisource, revision 16217145', href: PERMALINK });
+  assert.deepStrictEqual(r.credit, { text: 'Text from Wikisource', href: PERMALINK, title: 'Wikisource revision 16217145' });
   assert.deepStrictEqual(r.destination, { href: PERMALINK, label: 'Open on en.wikisource.org' });
   assert.strictEqual(log.requests.length, 0, 'read from the bundle, offline');
 });
@@ -464,6 +483,7 @@ test('load: a modern talk is fetched once per session too', async () => {
   const r = await talkSource.load({ entry: { talkId: 6141, anchor: 'p9' }, source });
   assert.strictEqual(log.requests.length, 1);
   assert.strictEqual(r.destination.href, `${NELSON}&id=p9#p9`);
+  assert.deepStrictEqual(r.credit, { text: 'Text from churchofjesuschrist.org', href: NELSON }, 'the credit opens the talk, not a paragraph');
 });
 
 test('load: a failed fetch is not kept, so Try again asks the network again', async () => {
@@ -845,4 +865,133 @@ test('locateParagraph: no match, no cite or no HTML yields null', () => {
   assert.strictEqual(locate('', { book: 'john', chapter: 3, verses: '16' }), null);
   assert.strictEqual(talkSource.locateParagraph(html, null), null);
   assert.strictEqual(locate(html, { book: 'john', chapter: 3, verses: '' }), null);
+});
+
+// ---- Render contract (talk-view render + talk-source findTarget + markCite) --
+// The reader's chain in Node, over tools/mini-dom.js: load() reads the talk,
+// talk-view renders it, findTarget finds the cite, markCite marks it. The
+// contract (CLAUDE.md, "Reader scroll targets by corpus"): ids survive, and
+// the article's textContent stays exactly the source text, marks included.
+require('./mini-dom.js').install();
+
+// A Journal of Discourses talk as tools/build-jod-talks.js writes it (trimmed
+// from talk 100001): an empty citation marker after the cited words, and
+// empty printed-page anchors (jdp-N), one opening a paragraph, one inside one.
+const JOD_TALK = `<!doctype html>
+<html><head><meta charset="utf-8"><title>JD 10:1, ETERNAL EXISTENCE OF MAN</title></head><body><article class="jodTalk">
+<p class="jodSubtitle">Remarks by President BRIGHAM YOUNG, made in the Bowery, Great Salt Lake City, September 28, 1862.</p>
+<p id="jp-1"><span class="jodPage" id="jdp-1"></span>We have had a very interesting journey to the southern settlements.</p>
+<p id="jp-3">All the works of mankind amount to but little, unless they are performed in the name of the Lord.<span class="citation" id="81620"></span> Let every man seek to learn the things of God &quot;by revelation.&quot;</p>
+<p id="jp-4">No man can comprehend that there never was a beginning. Who can comprehend <span class="jodPage" id="jdp-2"></span>the duration of time?</p>
+</article></body></html>`;
+const JOD_TEXT = '\n' +
+  'Remarks by President BRIGHAM YOUNG, made in the Bowery, Great Salt Lake City, September 28, 1862.\n' +
+  'We have had a very interesting journey to the southern settlements.\n' +
+  'All the works of mankind amount to but little, unless they are performed in the name of the Lord. Let every man seek to learn the things of God "by revelation."\n' +
+  'No man can comprehend that there never was a beginning. Who can comprehend the duration of time?\n';
+
+// Load, render and find one cite the way the reader does -> { article, target }.
+async function findCite(entry, source, html) {
+  globalThis.__BTX.citData = {
+    loadPack: async () => ({ dir: 'src/citations/data/', descriptor: PUBLIC }),
+    loadTalkHtml: async () => html,
+  };
+  const loaded = await talkSource.load({ entry, source });
+  const article = talkView.render(loaded.html);
+  return { article, target: loaded.findTarget(article) };
+}
+// ...and mark it -> { article, marked: markCite's { tinted, passage, reveal } }.
+async function openCite(entry, source, html) {
+  const { article, target } = await findCite(entry, source, html);
+  return { article, marked: target && talkView.markCite(target) };
+}
+const marksOf = (article, cls) => article.querySelectorAll(`.${cls}`).map((e) => e.id || e.tagName);
+
+test('render contract: a Journal of Discourses marker cite tints its paragraph, text unchanged', async () => {
+  const { article, marked } = await openCite({ talkId: 'jod-render-1', citId: '81620' }, { c: 'J' }, JOD_TALK);
+  assert.strictEqual(article.textContent, JOD_TEXT);
+  assert.strictEqual(marked.tinted.id, 'jp-3', 'the marker has no text: its paragraph is tinted');
+  assert.strictEqual(marked.reveal.id, '81620', 'the reader scrolls to the cited words, not the paragraph top');
+  assert.deepStrictEqual(marksOf(article, 'btx-cit-highlight'), ['jp-3']);
+  assert.deepStrictEqual(marksOf(article, 'btx-cit-target'), ['81620'], 'the place-keeper finds the marker');
+  assert.deepStrictEqual(marksOf(article, 'btx-cit-passage'), ['jp-3']);
+  assert.deepStrictEqual(marksOf(article, 'btx-cit-pin'), ['81620'], 'the empty marker draws a pin where the cite sits');
+  assert.ok(article.querySelector('[id="81620"]'), 'the marker keeps its id');
+});
+
+test('render contract: a paragraph taller than half the panel keeps its bar and pin, without the wall of tint', async () => {
+  const { article, target } = await findCite({ talkId: 'jod-render-3', citId: '81620' }, { c: 'J' }, JOD_TALK);
+  article.querySelector('[id="jp-3"]').getBoundingClientRect = () => ({ top: 0, height: 700 });
+  const marked = talkView.markCite(target, { roomH: 800 });
+  assert.strictEqual(article.textContent, JOD_TEXT);
+  assert.strictEqual(marked.tinted, null, 'nothing is tinted');
+  assert.strictEqual(marked.passage.id, 'jp-3');
+  assert.deepStrictEqual(marksOf(article, 'btx-cit-highlight'), []);
+  assert.deepStrictEqual(marksOf(article, 'btx-cit-passage'), ['jp-3'], 'the accent bar stays');
+  assert.deepStrictEqual(marksOf(article, 'btx-cit-pin'), ['81620'], 'the pin shows where in the paragraph the cite sits');
+});
+
+test('render contract: a paragraph up to half the panel is still tinted', async () => {
+  const { article, target } = await findCite({ talkId: 'jod-render-4', citId: '81620' }, { c: 'J' }, JOD_TALK);
+  article.querySelector('[id="jp-3"]').getBoundingClientRect = () => ({ top: 0, height: 400 });
+  const marked = talkView.markCite(target, { roomH: 800 });
+  assert.strictEqual(marked.tinted.id, 'jp-3');
+});
+
+test('revealClear: a paragraph that fits below the header opens at its first line, not mid-paragraph', () => {
+  // The reference sits 300px into a 360px paragraph: revealed with the
+  // header alone to clear, the paragraph's first lines would be under it.
+  assert.strictEqual(talkView.revealClear({ headerH: 90, roomH: 800, passageH: 360, into: 300 }), 390,
+    'the cited words keep the paragraph\'s top clear of the header');
+  assert.strictEqual(talkView.revealClear({ headerH: 90, roomH: 800, passageH: 360, into: 0 }), 90,
+    'a cite at the paragraph\'s start: the header alone');
+});
+
+test('revealClear: a paragraph too tall to fit goes to the cited words, as before', () => {
+  assert.strictEqual(talkView.revealClear({ headerH: 90, roomH: 800, passageH: 2400, into: 1800 }), 90);
+  assert.strictEqual(talkView.revealClear({ headerH: 90, roomH: 800, passageH: 700, into: 650 }), 90,
+    'the paragraph needs breathing room above and below it too');
+});
+
+test('revealClear: nothing measured clears the header alone', () => {
+  assert.strictEqual(talkView.revealClear({ headerH: 90 }), 90);
+  assert.strictEqual(talkView.revealClear({ headerH: 90, roomH: 800, passageH: 300, into: -20 }), 90, 'no negative offset');
+});
+
+test('tintsPassage: a paragraph is tinted while it is at most about half the panel body', () => {
+  assert.strictEqual(talkView.tintsPassage({ passageH: 120, roomH: 800 }), true);
+  assert.strictEqual(talkView.tintsPassage({ passageH: 400, roomH: 800 }), true, 'exactly half');
+  assert.strictEqual(talkView.tintsPassage({ passageH: 401, roomH: 800 }), false);
+  assert.strictEqual(talkView.tintsPassage({ passageH: 3000, roomH: 800 }), false, 'a Journal of Discourses wall of text');
+  assert.strictEqual(talkView.tintsPassage({ passageH: 3000 }), true, 'nothing measured: tinted, as before');
+});
+
+test('render contract: a page-anchor cite tints the paragraph holding its anchor, as a marker cite does', async () => {
+  // Not placed by the Wikisource build: no marker in the talk, only its page.
+  const { article, marked } = await openCite(
+    { talkId: 'jod-render-2', citId: '99999', anchor: 'jdp-2' }, { c: 'J' }, JOD_TALK);
+  assert.strictEqual(article.textContent, JOD_TEXT);
+  assert.strictEqual(marked.tinted.id, 'jp-4');
+  assert.strictEqual(marked.reveal.id, 'jdp-2', 'the printed page starts mid-paragraph: the reader scrolls there');
+  assert.deepStrictEqual(marksOf(article, 'btx-cit-highlight'), ['jp-4']);
+  assert.deepStrictEqual(marksOf(article, 'btx-cit-target'), ['jdp-2']);
+  assert.deepStrictEqual(marksOf(article, 'btx-cit-passage'), ['jp-4']);
+  assert.ok(article.querySelector('[id="jdp-2"]'), 'the anchor keeps its id');
+});
+
+test('render contract: an early-conference cite still tints its reference, with the bar on its paragraph', async () => {
+  stubReader(PUBLIC, { respond: () => ({ html: byuFragment(
+    '<p>\nOpening.\n</p><p id="para2">\nFor you shall live by every word &amp; man ' +
+    `<span class="ccontainer lparen rparendot">${byuSpan(11779, 'D&amp;C 84:44')}</span>\n</p>`) }) });
+  const loaded = await talkSource.load({ entry: { talkId: 60201, citId: 11779 }, source: { c: 'E' } });
+  const article = talkView.render(loaded.html);
+  const marked = talkView.markCite(loaded.findTarget(article));
+  assert.strictEqual(article.textContent,
+    '1957–A:133, Marion G. Romney\nOpening.\n\nFor you shall live by every word & man   D&C 84:44\n',
+    'the spacer moves out of the reference, the characters keep their order');
+  assert.strictEqual(marked.tinted.id, '11779');
+  assert.strictEqual(marked.reveal.id, '11779');
+  assert.deepStrictEqual(marksOf(article, 'btx-cit-highlight'), ['11779']);
+  assert.deepStrictEqual(marksOf(article, 'btx-cit-target'), ['11779']);
+  assert.deepStrictEqual(marksOf(article, 'btx-cit-passage'), ['para2']);
 });

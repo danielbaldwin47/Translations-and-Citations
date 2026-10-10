@@ -9,7 +9,10 @@
  *   node --experimental-sqlite tools/derive-conference.js 2026-10
  *   node --experimental-sqlite tools/derive-conference.js 2026-10 --from-dir ~/saved/2026-10
  *   options: --out DIR (default source-data/derived), --core DB (default
- *   source-data/core.53.db; read for chapter verse counts only)
+ *   source-data/core.53.db; read for chapter verse counts only), --scripture DIR
+ *   (default source-data/scripture; the public-domain texts the footnote-cite
+ *   rule reads, recipe in tools/build-citation-data.js's header; a missing
+ *   one stops the run before any request)
  *
  * Fetch etiquette (the go/no-go's derivation-fetch conditions, issue #61):
  *   - Single conference: the conference page and that conference's talks,
@@ -28,13 +31,13 @@
  * No Church text is kept: responses live in memory for the run; the output
  * holds per talk its derived id (gc/YYYY/MM/{slug}), URL, speaker, title,
  * conference, label and revision (bibliographic facts), and per cite its
- * verse reference in the shard's form, the paragraph anchor and the excerpt
- * character count. Idempotent per conference: a run rewrites that
+ * verse reference in the shard's form, the paragraph anchor, the excerpt
+ * character count, whether it sits in a note and the footnote flag. Idempotent per conference: a run rewrites that
  * conference's file whole, and the same pages give the same file.
  *
  * Output: {out}/gc-YYYY-MM.json
  *   { conference:'YYYY-MM', source:'church'|'saved-pages',
- *     talks:[{ id, url, sp, ti, d, lbl, rev, cites:[{ id, book, chapter, v, a, ec }] }] }
+ *     talks:[{ id, url, sp, ti, d, lbl, rev, cites:[{ id, book, chapter, v, a, ec, note?, fn? }] }] }
  *
  * Derivation rules (measured in issue #64): scripture links in body
  * paragraphs and in footnotes; plain-text references in footnote text (other
@@ -43,7 +46,18 @@
  * the body paragraph holding the link, or for a footnote the paragraph
  * holding the note's first marker. Links into books the pack lacks (jst-*,
  * study helps) and chapters the book lacks are ignored. The same reference
- * twice at one anchor is one cite. Body prose is not read for references.
+ * twice at one anchor is one cite, the first in reading order (a body link
+ * before a note's). Body prose is not read for references.
+ *
+ * Notes and footnote cites: a cite whose reference was found in one of the
+ * page's notes (a link in a note, or a note's plain text) is `note: true`;
+ * it is also `fn: true`, the shard's flag, when it is a footnote cite
+ * (GLOSSARY.md "Footnote cite"; tools/footnote-cite.js states the rule, the
+ * same one the build applies to BYU's cites). The rule reads the note and the
+ * text of its marker's paragraph, so it runs here, while the page is in
+ * memory: the file keeps no text to run it on later. A body link's cite has
+ * neither key, never false. A file written before `note` existed carries
+ * `fn` on every cite in a note, until the conference is derived again.
  * The pure core is exported for tools/validate-derivation.js.
  *
  * The page reading is the reader's (src/citations/talk-source.js, required
@@ -61,8 +75,9 @@ const BOOKS = require('../src/shared/books.js');
 // ---- talk HTML ----
 
 // The reader's talk-page reading, shared (talk-source's "HTML scanning").
-const { decodeEntities, attrsOf, textOf, withoutRawText, scanTalk, scriptureLink, linkChapters } =
+const { decodeEntities, attrsOf, textOf, withoutRawText, scanTalk, scriptureLink, linkChapters, replaceElements } =
   require('../src/citations/talk-source.js');
+const footnoteRule = require('./footnote-cite.js');
 
 // The content endpoint's JSON -> one talk page as HTML: the body, then each
 // footnote as <li id="noteN"> (the shape a saved page has).
@@ -133,7 +148,38 @@ function scan(html) {
   for (const [id, n] of Object.entries(notes)) noteText[id] = textOf(text.slice(n.start, n.end).replace(/<[^>]*>/g, ' '));
   const paraOfNote = {};
   for (const [id, at] of Object.entries(markerAt)) paraOfNote[id] = at.para;
-  return { paraText, markerAt: paraOfNote, links, noteText };
+  return { paraText, markerAt: paraOfNote, links, noteText, page: { text, paras, notes, markerAt } };
+}
+
+// A paragraph slice's text as the footnote-cite rule reads it: note markers
+// and scripture-link labels dropped, as the build drops BYU's labels.
+const isLabelOrMarker = (open) => /^<a\b[^>]*class="[^"]*\b(?:note-ref|scripture-ref)\b/i.test(open);
+const bodyText = (html) => textOf(replaceElements(html, isLabelOrMarker));
+
+// Whether a link's references include the cite r (same chapter, a verse in common).
+function linkHits(href, label, r) {
+  return linkRefs(href, label).some((x) => x.book === r.book && x.chapter === r.chapter &&
+    (!x.verses || !r.verses || x.verses.some((v) => r.verses.includes(v))));
+}
+
+// The footnote-cite rule's verdict (tools/footnote-cite.js) for cite r found
+// in note `note`: the note as parts, each scripture link own when it names
+// the cite, and the text of the marker's paragraph before and after the
+// marker. Decided here, while the page is in memory: the input keeps no text.
+function isFootnoteCite(page, note, r, verses, footnotes) {
+  const refs = [];
+  const n = page.notes[note];
+  const marked = replaceElements(page.text.slice(n.start, n.end), (o) => /^<a\b[^>]*class="[^"]*\bscripture-ref\b/i.test(o), (open, inner) => {
+    refs.push({ own: linkHits(decodeEntities(attrsOf(open.slice(2, -1)).href || ''), inner, r), label: textOf(inner) });
+    return ` ⟦${refs.length - 1}⟧ `;
+  });
+  const parts = textOf(marked).split(/(⟦\d+⟧)/).filter(Boolean).map((p) => (/^⟦\d+⟧$/.test(p) ? refs[Number(p.slice(1, -1))] : p));
+  const at = page.markerAt[note];
+  const para = page.paras[at.para];
+  return footnoteRule.footnoteCite({
+    note: parts, before: bodyText(page.text.slice(para.start, at.pos)), after: bodyText(page.text.slice(at.pos, para.end)),
+    slug: r.book, ch: r.chapter, verses,
+  }, footnotes).fn;
 }
 
 // Sorted verse numbers -> the shard's form, '1-3,14'.
@@ -216,14 +262,19 @@ function textRefs(text, verseCount) {
   return out;
 }
 
-// One talk page -> { cites: [{ book, chapter, v, a, ec }] } in reading order.
+// One talk page -> { cites: [{ book, chapter, v, a, ec, note?, fn? }] } in reading order.
+//   note  true when the reference was found in one of the page's notes (a link
+//         in a note, or a note's plain text); absent for a body link, never false
+//   fn    true when that cite is a footnote cite (tools/footnote-cite.js); absent otherwise
 //   ctx.verseCount(book, chapter) -> the chapter's verse count (whole-chapter cites)
+//   ctx.footnotes  footnote-cite.js's footnoteContext over the scripture inputs
 function deriveTalk(html, ctx) {
-  const { paraText, markerAt, links, noteText } = scan(html);
+  if (!ctx.footnotes) throw new Error('deriveTalk needs ctx.footnotes (footnote-cite.js footnoteContext) to decide fn');
+  const { paraText, markerAt, links, noteText, page } = scan(html);
   const cites = [];
   const seen = new Set();
   // A chapter the book lacks is no cite; verses past its end are dropped.
-  const add = (r, a) => {
+  const add = (r, a, note) => {
     const n = ctx.verseCount(r.book, r.chapter);
     if (!n) return;
     const verses = r.verses ? r.verses.filter((x) => x >= 1 && x <= n) : null;
@@ -232,14 +283,19 @@ function deriveTalk(html, ctx) {
     const key = `${a} ${r.book} ${r.chapter}:${v}`;
     if (seen.has(key)) return;
     seen.add(key);
-    cites.push({ book: r.book, chapter: r.chapter, v, a, ec: paraText[a].length });
+    const cite = { book: r.book, chapter: r.chapter, v, a, ec: paraText[a].length };
+    if (note) {
+      cite.note = true;
+      if (isFootnoteCite(page, note, r, verses || Array.from({ length: n }, (_, k) => k + 1), ctx.footnotes)) cite.fn = true;
+    }
+    cites.push(cite);
   };
   const linked = {};         // 'anchor book chapter' -> Set of verses, or true (whole chapter)
   for (const l of links) {
     const a = l.note ? markerAt[l.note] : l.para;
     if (!a) continue;
     for (const r of linkRefs(l.href, l.label)) {
-      add(r, a);
+      add(r, a, l.note);
       const k = `${a} ${r.book} ${r.chapter}`;
       if (!r.verses) linked[k] = true;
       else if (linked[k] !== true) { linked[k] = linked[k] || new Set(); r.verses.forEach((v) => linked[k].add(v)); }
@@ -253,7 +309,7 @@ function deriveTalk(html, ctx) {
     for (const r of textRefs(text, ctx.verseCount)) {
       const have = linked[`${a} ${r.book} ${r.chapter}`];
       if (have === true || (have && r.verses && r.verses.every((v) => have.has(v)))) continue;
-      add(r, a);
+      add(r, a, note);
     }
   }
   return { cites };
@@ -362,23 +418,32 @@ function fromDir(dir, conference, ctx) {
 async function main() {
   const conference = process.argv[2];
   if (!/^\d{4}-(04|10)$/.test(conference || '')) {
-    console.error('usage: node --experimental-sqlite tools/derive-conference.js YYYY-04|YYYY-10 [--from-dir DIR] [--out DIR] [--core DB]');
+    console.error('usage: node --experimental-sqlite tools/derive-conference.js YYYY-04|YYYY-10 [--from-dir DIR] [--out DIR] [--core DB] [--scripture DIR]');
     process.exit(2);
   }
   const root = path.resolve(__dirname, '..');
   const out = arg('--out', path.join(root, 'source-data', 'derived'));
   const dir = arg('--from-dir');
-  const ctx = { verseCount: verseCounter(arg('--core', path.join(root, 'source-data', 'core.53.db'))) };
+  const scripture = arg('--scripture', path.join(root, 'source-data', 'scripture'));
+  const ctx = {
+    verseCount: verseCounter(arg('--core', path.join(root, 'source-data', 'core.53.db'))),
+    footnotes: footnoteRule.footnoteContext(require('./verbatim-matcher.js').loadScripture(scripture)),
+  };
   const records = dir ? fromDir(dir, conference, ctx) : await fromChurch(conference, ctx);
   if (!records.length) throw new Error(`no talk of ${conference} was read; nothing written`);
   const input = conferenceInput(conference, records, dir ? 'saved-pages' : 'church');
   fs.mkdirSync(out, { recursive: true });
   const file = path.join(out, `gc-${conference}.json`);
   fs.writeFileSync(file, JSON.stringify(input, null, 1) + '\n');
-  const cites = input.talks.reduce((n, t) => n + t.cites.length, 0);
-  console.log(`Wrote ${file}: ${input.talks.length} talks, ${cites} derived cites.`);
+  const all = input.talks.flatMap((t) => t.cites);
+  console.log(`Wrote ${file}: ${input.talks.length} talks, ${all.length} derived cites ` +
+    `(${all.filter((c) => c.note).length} in a note, ${all.filter((c) => c.fn).length} footnote cites).`);
 }
 
 if (require.main === module) {
-  main().catch((e) => { console.error(`ERROR: ${e.message}`); process.exit(1); });
+  main().catch((e) => {
+    console.error(`ERROR: ${e.message}`);
+    if (/^scripture input/.test(e.message)) console.error('The footnote-cite rule reads these public-domain texts to decide each note cite\'s fn.');
+    process.exit(1);
+  });
 }

@@ -124,7 +124,7 @@ Early General Conference talks (1942 to 1970) are fetched from their
 publisher, BYU's Scripture Citation Index, when you open one in the panel or
 open a citation group whose rows show their excerpts. The request names the
 talk's BYU id, without cookies. At most two such requests are in flight at
-once. The talk's byline says "Text fetched from scriptures.byu.edu".
+once. The talk's byline says "Text from BYU Scripture Citation Index".
 
 ### Nothing else
 

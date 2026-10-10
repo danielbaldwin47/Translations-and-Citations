@@ -9,6 +9,7 @@
 'use strict';
 
 const derive = require('./derive-conference.js');
+const { footnoteContext } = require('./footnote-cite.js');
 
 let failures = 0;
 const check = (cond, msg) => { if (!cond) { console.error('  ✗ ' + msg); failures++; } };
@@ -17,6 +18,13 @@ const deep = (a, b, msg) => check(JSON.stringify(a) === JSON.stringify(b), `${ms
 // Verse counts the fixtures need (the real run reads them from the BYU base).
 const VERSES = { 'moses 1': 42, 'job 38': 41, 'dc 76': 119, '3-ne 11': 41, '3-ne 12': 48, '3-ne 13': 34, 'matt 27': 66, 'alma 32': 43, 'alma 33': 23, 'heb 2': 18 };
 const verseCount = (book, chapter) => VERSES[`${book} ${chapter}`] || null;
+// The footnote-cite rule's scripture (the real run reads the public-domain
+// inputs): Moses 1:39 among filler, so its words are rare as in the real inputs.
+const FOOTNOTES = footnoteContext([
+  { slug: 'moses', ch: 1, v: 39, text: 'For behold, this is my work and my glory—to bring to pass the immortality and eternal life of man.' },
+  ...Array.from({ length: 4000 }, (_, i) => ({ slug: 'gen', ch: 1 + Math.floor(i / 50), v: 1 + (i % 50), text: 'and the Lord did give unto the people of the land' })),
+]);
+const CTX = { verseCount, footnotes: FOOTNOTES };
 
 // An invented talk in the content endpoint's JSON shape: body HTML with
 // note-ref markers, footnotes as a separate map with the marker paragraph's pid.
@@ -44,8 +52,8 @@ console.log('Footnote links (fixtures):');
   const talk = apiTalk(
     `<p data-aid="10" id="p_aaa">Opening words.</p><p data-aid="11" id="p_bbb">His work and glory${marker(1)} is our return.</p>`,
     [`<p data-aid="90" id="p_n1">See ${link('pgp/moses/1', 'p39', 'Moses 1:39')}.</p>`]);
-  deep(derive.deriveTalk(derive.pageFromApi(talk), { verseCount }).cites,
-    [{ book: 'moses', chapter: 1, v: '39', a: 'p_bbb', ec: 'His work and glory is our return.'.length }],
+  deep(derive.deriveTalk(derive.pageFromApi(talk), CTX).cites,
+    [{ book: 'moses', chapter: 1, v: '39', a: 'p_bbb', ec: 'His work and glory is our return.'.length, note: true, fn: true }],
     'a footnote link is a cite at the paragraph holding the note\'s marker, counted from that paragraph\'s text');
 }
 
@@ -58,13 +66,13 @@ console.log('Body links, chapter links, books the pack lacks (fixtures):');
       `${link('dc-testament/dc/76', 'p39-p43', 'Doctrine and Covenants 76:39–43')}.</p>`]);
   const a = 'As Job 38:7 says, and Matthew 27.'.length;
   const b = 'He ministered. Also Joseph Smith Translation, Matthew 1:4.'.length;
-  deep(derive.deriveTalk(derive.pageFromApi(talk), { verseCount }).cites, [
+  deep(derive.deriveTalk(derive.pageFromApi(talk), CTX).cites, [
     { book: 'job', chapter: 38, v: '7', a: 'p_aaa', ec: a },
     { book: 'matt', chapter: 27, v: '1-66', a: 'p_aaa', ec: a },
-    { book: '3-ne', chapter: 11, v: '1-41', a: 'p_bbb', ec: b },
-    { book: '3-ne', chapter: 12, v: '1-48', a: 'p_bbb', ec: b },
-    { book: '3-ne', chapter: 13, v: '1-34', a: 'p_bbb', ec: b },
-    { book: 'dc', chapter: 76, v: '39-43', a: 'p_bbb', ec: b },
+    { book: '3-ne', chapter: 11, v: '1-41', a: 'p_bbb', ec: b, note: true, fn: true },
+    { book: '3-ne', chapter: 12, v: '1-48', a: 'p_bbb', ec: b, note: true, fn: true },
+    { book: '3-ne', chapter: 13, v: '1-34', a: 'p_bbb', ec: b, note: true, fn: true },
+    { book: 'dc', chapter: 76, v: '39-43', a: 'p_bbb', ec: b, note: true, fn: true },
   ], 'body links sit at their paragraph; a chapter link is the whole chapter, every chapter of a span its label names; ' +
     'a Joseph Smith Translation link is ignored; the same reference twice at one paragraph is one cite');
 }
@@ -81,18 +89,18 @@ console.log('Plain-text references in footnote text (fixtures):');
     ]);
   const a = 'First and second.'.length;
   const b = 'Third, unlinked in prose: Alma 32:21.'.length;
-  deep(derive.deriveTalk(derive.pageFromApi(talk), { verseCount: (bk, c) => verseCount(bk, c) || (bk === 'ps' && c === 23 ? 6 : null) }).cites, [
-    { book: 'alma', chapter: 32, v: '21', a: 'p_aaa', ec: a },
-    { book: 'alma', chapter: 32, v: '27', a: 'p_aaa', ec: a },
-    { book: 'heb', chapter: 2, v: '10', a: 'p_aaa', ec: a },
-    { book: 'matt', chapter: 27, v: '54', a: 'p_aaa', ec: a },
-    { book: '3-ne', chapter: 12, v: '1-48', a: 'p_bbb', ec: b },
-    { book: '3-ne', chapter: 13, v: '1-34', a: 'p_bbb', ec: b },
-    { book: 'alma', chapter: 32, v: '42-43', a: 'p_bbb', ec: b },
-    { book: 'alma', chapter: 33, v: '1', a: 'p_bbb', ec: b },
-    { book: 'dc', chapter: 76, v: '22,24', a: 'p_bbb', ec: b },
-    { book: 'dc', chapter: 76, v: '5', a: 'p_bbb', ec: b },
-    { book: 'ps', chapter: 23, v: '1-6', a: 'p_bbb', ec: b },
+  deep(derive.deriveTalk(derive.pageFromApi(talk), { footnotes: FOOTNOTES, verseCount: (bk, c) => verseCount(bk, c) || (bk === 'ps' && c === 23 ? 6 : null) }).cites, [
+    { book: 'alma', chapter: 32, v: '21', a: 'p_aaa', ec: a, note: true, fn: true },
+    { book: 'alma', chapter: 32, v: '27', a: 'p_aaa', ec: a, note: true, fn: true },
+    { book: 'heb', chapter: 2, v: '10', a: 'p_aaa', ec: a, note: true, fn: true },
+    { book: 'matt', chapter: 27, v: '54', a: 'p_aaa', ec: a, note: true, fn: true },
+    { book: '3-ne', chapter: 12, v: '1-48', a: 'p_bbb', ec: b, note: true, fn: true },
+    { book: '3-ne', chapter: 13, v: '1-34', a: 'p_bbb', ec: b, note: true, fn: true },
+    { book: 'alma', chapter: 32, v: '42-43', a: 'p_bbb', ec: b, note: true, fn: true },
+    { book: 'alma', chapter: 33, v: '1', a: 'p_bbb', ec: b, note: true, fn: true },
+    { book: 'dc', chapter: 76, v: '22,24', a: 'p_bbb', ec: b, note: true, fn: true },
+    { book: 'dc', chapter: 76, v: '5', a: 'p_bbb', ec: b, note: true, fn: true },
+    { book: 'ps', chapter: 23, v: '1-6', a: 'p_bbb', ec: b, note: true, fn: true },
   ], 'footnote text names other versions, the Joseph Smith Translation\'s Bible verse, chapter spans and cross-chapter ranges; ' +
     'text a link already covers adds nothing; prose in the body is not read for references');
 }
@@ -111,8 +119,46 @@ const SAVED = `<!DOCTYPE html><html><head><title>An Invented Talk</title>
 {
   const talk = apiTalk(`<p data-aid="10" id="p_aaa">One${marker(1)}.</p>`,
     ['<p data-aid="90" id="p_n1">Job 38:7, 99; Job 99:1; Moses 1:39–45.</p>']);
-  deep(derive.deriveTalk(derive.pageFromApi(talk), { verseCount }).cites.map((c) => `${c.book} ${c.chapter}:${c.v}`),
+  deep(derive.deriveTalk(derive.pageFromApi(talk), CTX).cites.map((c) => `${c.book} ${c.chapter}:${c.v}`),
     ['job 38:7', 'moses 1:39-42'], 'a chapter the book lacks is no cite, and verses past a chapter\'s end are dropped');
+}
+
+console.log('Footnote flag: a reference found in the notes is fn: true, one in the body has no fn (fixtures):');
+{
+  const talk = apiTalk(
+    `<p data-aid="10" id="p_aaa">As ${link('ot/job/38', 'p7', 'Job 38:7')} says.</p>` +
+    `<p data-aid="11" id="p_bbb">Grace${marker(1)} and ${link('pgp/moses/1', 'p39', 'Moses 1:39')} again.${marker(2)}</p>`,
+    [
+      `<p data-aid="90" id="p_n1">See ${link('dc-testament/dc/76', 'p22', 'Doctrine and Covenants 76:22')}; Hebrews 2:10.</p>`,
+      `<p data-aid="91" id="p_n2">${link('pgp/moses/1', 'p39', 'Moses 1:39')}.</p>`,
+    ]);
+  const flags = derive.deriveTalk(derive.pageFromApi(talk), CTX).cites
+    .map((c) => [`${c.book} ${c.chapter}:${c.v} @${c.a}`, 'note' in c ? c.note : 'absent', 'fn' in c ? c.fn : 'absent']);
+  deep(flags, [
+    ['job 38:7 @p_aaa', 'absent', 'absent'],
+    ['moses 1:39 @p_bbb', 'absent', 'absent'],
+    ['dc 76:22 @p_bbb', true, true],
+    ['heb 2:10 @p_bbb', true, true],
+  ], 'a body link has no note and no fn (never false); a note\'s link and a note\'s plain-text reference are in a note; ' +
+    'a reference in the body and in a note of the same paragraph is one cite, the body\'s (reading order, as the build\'s first span)');
+}
+
+console.log('Footnote cites: the rule decided at fetch time (fixtures):');
+{
+  const see = `<p data-aid="90" id="p_n1">See ${link('pgp/moses/1', 'p39', 'Moses 1:39')}.</p>`;
+  const bare = `<p data-aid="90" id="p_n1">${link('pgp/moses/1', 'p39', 'Moses 1:39')}.</p>`;
+  const one = (para, noteHtml) => derive.deriveTalk(derive.pageFromApi(apiTalk(`<p data-aid="11" id="p_bbb">${para}${marker(1)}</p>`, [noteHtml])), CTX)
+    .cites.filter((c) => c.book === 'moses').map((c) => ['note' in c ? c.note : 'absent', 'fn' in c ? c.fn : 'absent'])[0];
+  deep(one('We moved house twice that year.', see), [true, true],
+    'a "See" note on a paragraph that neither quotes nor echoes the verse: a footnote cite');
+  deep(one('We moved house twice that year.', bare), [true, 'absent'],
+    'a bare note (a quotation\'s source): in a note, not a footnote cite');
+  deep(one('The Lord said, “This is my work and my glory—to bring to pass the immortality and eternal life of man.”', see), [true, 'absent'],
+    'a "See" note on a paragraph quoting the verse before the marker: not a footnote cite');
+  deep(one('Our immortality and eternal life are His work and His glory.', see), [true, 'absent'],
+    'a "See" note on a paragraph sharing the verse\'s distinctive words: not a footnote cite');
+  deep(one(`His glory, ${link('ot/job/38', 'p7', 'Job 38:7')} says, is ours to share.`, `<p data-aid="90" id="p_n1">Compare ${link('pgp/moses/1', 'p39', 'Moses 1:39')}.</p>`), [true, true],
+    '"Compare" governs like "see also"; a body link elsewhere in the paragraph changes nothing');
 }
 
 console.log('Talk records, endpoint JSON and saved page (fixtures):');
@@ -126,17 +172,17 @@ console.log('Talk records, endpoint JSON and saved page (fixtures):');
     sp: 'John Q. Smith', ti: 'An Invented Talk', d: '2030-10', lbl: 'October 2030 General Conference', rev: '3',
     cites: [
       { book: 'job', chapter: 38, v: '7', a: 'p_aaa', ec: 'Opening words with Job 38:7.'.length },
-      { book: 'moses', chapter: 1, v: '39', a: 'p_bbb', ec: 'His work and glory is our return.'.length },
+      { book: 'moses', chapter: 1, v: '39', a: 'p_bbb', ec: 'His work and glory is our return.'.length, note: true, fn: true },
     ],
   };
-  deep(derive.talkRecord(derive.pageFromApi(api), '2030-10', { verseCount }), want,
+  deep(derive.talkRecord(derive.pageFromApi(api), '2030-10', CTX), want,
     'the endpoint\'s JSON gives the talk\'s id from its Church slug, its facts and its cites');
-  deep(derive.talkRecord(SAVED, '2030-10', { verseCount }), want,
+  deep(derive.talkRecord(SAVED, '2030-10', CTX), want,
     'a saved page gives the same record; the page\'s script state is not read');
-  deep(derive.talkRecord(SAVED, '2031-04', { verseCount }), null, 'a page of another conference gives no record');
-  deep(derive.talkRecord(SAVED.replace('general-conference-talk', 'general-conference'), '2030-10', { verseCount }), null,
+  deep(derive.talkRecord(SAVED, '2031-04', CTX), null, 'a page of another conference gives no record');
+  deep(derive.talkRecord(SAVED.replace('general-conference-talk', 'general-conference'), '2030-10', CTX), null,
     'a page that is not a talk (a session, the conference) gives no record');
-  deep(derive.talkRecord(SAVED.replace('By Elder John Q. Smith', 'Presented by President Jane Roe'), '2030-10', { verseCount }).sp,
+  deep(derive.talkRecord(SAVED.replace('By Elder John Q. Smith', 'Presented by President Jane Roe'), '2030-10', CTX).sp,
     'Jane Roe', 'a byline loses "By", "Presented by" and the calling');
 }
 

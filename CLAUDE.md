@@ -97,18 +97,18 @@ src/
     cit-data.js            __BTX.citData   probes the pack once per session (personal dir, then public; the Store zip's stamp → public alone; pure packDirs/pickPack) → loadPack() {dir,descriptor}; shards/sources/gunzip talks; chapterData(slug,chap) carries the descriptor as `pack`, clips each cite's verses to its own `v` and ranks same-reference cites for the locator (pure citedVerses/chapterIndex/refRanks)
     cit-view-model.js      __BTX.citVM     PURE: chapter cites → descriptor tree; source types and their header notes from the pack descriptor; every ordering/grouping/counting/label rule; vintage footer; toolbar state machine
     cit-panel.js           __BTX.citPanel  DOM adapter over citVM: render(host, opts) / refocus() / markVerse(v) / revealVerse(v); reads verse text from the page (read-only); fetched row excerpts (observer on the panel body, exact-size reserve)
-    highlights.js          __BTX.highlights local select-to-highlight in the reader
-    talk-source.js         __BTX.talkSource load({entry,source}) → {html,url,destination,credit,findTarget}; excerpt({entry,source}, claim) → paragraph text (read from the fetched HTML string: excerptAt / paragraphText, no DOM); pure corpusPlan(descriptor, corpus, {hasUrl}), readingDestination, talkCredit (BYU fetch line; "Text: Wikisource, revision N"), BYU fragment/viewer URLs; footnote locator (locateParagraph, pure on fetched HTML), targetIds (span, then a J cite's page anchor) + snippet fallback (snippetKey); HTML scanning the build tools require (decodeEntities, scanTalk, scriptureLink, linkChapters' 'locate' vs 'derive' span rules, dropByuInsertions); pre-2013 GC URL repair; FETCH_POLICY (per-host slots, session talk cache, 15s timeout) + pure slotPolicy (which waiting fetch a free slot goes to)
-    talk-view.js           __BTX.talkView  inline reader: sanitizer, render, highlights, sticky header; one Esc listener on #btx-root (highlight menu first, then Back)
+    highlights.js          __BTX.highlights local highlights in the reader: select to add (mouse-up or Shift key-up offers Highlight); one Tab stop per highlight, Enter opens Remove
+    talk-source.js         __BTX.talkSource load({entry,source}) → {html,url,destination,credit,findTarget}; excerpt({entry,source}, claim) → paragraph text (read from the fetched HTML string: excerptAt / paragraphText, no DOM); pure corpusPlan(descriptor, corpus, {hasUrl}), readingDestination, talkCredit (by the descriptor's `text`/`attribution`, never a corpus letter: "Text from {publisher}" linking the talk — BYU Scripture Citation Index (its viewer), churchofjesuschrist.org, Wikisource (the permalink, title "Wikisource revision N")), BYU fragment/viewer URLs; footnote locator (locateParagraph, pure on fetched HTML), targetIds (span, then a J cite's page anchor) + snippet fallback (snippetKey); HTML scanning the build tools require (decodeEntities, scanTalk, scriptureLink, linkChapters' 'locate' vs 'derive' span rules, dropByuInsertions); pre-2013 GC URL repair; FETCH_POLICY (per-host slots, session talk cache, 15s timeout) + pure slotPolicy (which waiting fetch a free slot goes to)
+    talk-view.js           __BTX.talkView  inline reader: sanitizer, render, markCite (tint the cited block, pin an empty target, scroll to the target; focus there from the keyboard), highlights, sticky header; one Esc listener on #btx-root (highlight menu first, then Back)
     citations.css
-    data/                  GENERATED, committed, shipped: the public pack (~30 MB, ADR-0008): index.json (its `pack` is the pack descriptor), sources.json, citations/{slug}.json (G/E cites: no snippet, an excerpt count `ec`), talks/{talkId}.html.gz (J only, Wikisource text), jod-provenance.json
+    data/                  GENERATED, committed, shipped: the public pack (~30 MB, ADR-0008): index.json (its `pack` is the pack descriptor), sources.json, citations/{slug}.json (G/E cites: no snippet, an excerpt count `ec`, `fn: true` on a footnote cite), talks/{talkId}.html.gz (J only, Wikisource text), jod-provenance.json
     data-personal/         GITIGNORED: the personal pack, same layout, descriptor flavor `personal` (build --pack personal)
     store-stamp.json       the Store stamp (GLOSSARY); read by cit-data.js, swapped in by build-store-zip
   bible/engwebp/           GENERATED, committed, shipped: the World English Bible as IR, {USFM}.json per book + index.json (archive SHA-256, download date); C.BUNDLED_BIBLE names it
   options/                 options.html/js/css — cards in the order of C.OPTIONS_SECTIONS: languages, bible, reading (autosaving), then About (text, plus one button, "Show the welcome again": it writes `welcomeSeen` false (`WELCOME_AGAIN`) and sends OPEN_WELCOME; aboutCopy stays text); the Church-language list is the pure languageList ("Your languages" = the enabled ones, then the coverage groups without them, each row's search match; languageTick: a tick or untick clears the search and names where focus goes); pure form core exported for Node
 icons/                     generated by tools/make-icons.js
 docs/                      adr/ (decisions), agents/ (issue-tracker, triage-labels, domain, pack-refresh checklist), store/listing.md (Store texts), privacy.md (the page C.ABOUT.privacyUrl publishes), research/
-tools/                     build-citation-data.js (+ verbatim-matcher.js, inclusion rule verbatim), fetch-jod-wikisource.js + build-jod-talks.js (+ jod-patches.json), derive-conference.js (derivation run), build-bible-data.js, build-store-zip.js, rederive-js-snippets.js, make-icons.js, validate-*.js, test-talk-source.js; fixtures/base-talk-ids.json freezes base talk ids (A26)
+tools/                     build-citation-data.js (+ verbatim-matcher.js, inclusion rule verbatim; + footnote-cite.js, the footnote-cite rule it shares with derive-conference.js), fetch-jod-wikisource.js + build-jod-talks.js (+ jod-patches.json), derive-conference.js (derivation run), build-bible-data.js, build-store-zip.js, rederive-js-snippets.js, make-icons.js, validate-*.js, test-talk-source.js (+ mini-dom.js, its Node DOM); fixtures/base-talk-ids.json freezes base talk ids (A26)
 source-data/               GITIGNORED build input, filled from the owner's private repo (recipe in .gitignore): the BYU DBs, engwebp_usfm.zip, scripture/ (verbatim matcher), the Wikisource snapshot (wikisource-jod.json), the J build (jod-talks/), derived/gc-YYYY-MM.json (derivation runs)
 ```
 
@@ -154,6 +154,18 @@ source-data/               GITIGNORED build input, filled from the owner's priva
   Church paragraph — in-text references kept with their `ccontainer`
   punctuation, BYU's spacer and `sup.noteMarker` (number and note) dropped.
   Talk 2723 (1975) has no citation spans, so its cites carry no count.
+- `fn` marks a footnote cite (GLOSSARY), decided in two steps:
+  `inFootnote` finds the cite's first citation span in a note (the
+  `sup.noteMarker` BYU inlines at a note marker, or the closing
+  `footer.notes` list), then the rule in `tools/footnote-cite.js` reads that
+  note and the paragraph around its marker. Only corpora whose descriptor
+  entry has `footnoteFlag: true` carry it (G and E; BYU's E text has no
+  notes, so E flags none). Modern talks put most references in notes, mostly
+  bare references naming a quotation's source: of the public pack's 51,045 G
+  cites, 25,010 sit in a note and 8,298 are footnote cites (8,063 BYU, 235
+  derived). A derived cite carries the `fn` its derivation input gives:
+  the rule needs the Church page's text, so it runs at fetch time. The
+  reader does not read `fn` (GLOSSARY: Footnote cite).
 
 ## Build / test / verify
 
@@ -174,7 +186,8 @@ source-data/               GITIGNORED build input, filled from the owner's priva
   cached list.
 - **Citations:** toggle the panel to Citations; verse → source-type group →
   talk reads inline. Also on `bofm/alma/5`, `dc-testament/dc/76`,
-  `pgp/moses/1`. In the reader, select text to highlight (click to remove).
+  `pgp/moses/1`. In the reader, select text to highlight (click to remove); by
+  keyboard, Tab to a highlight, Enter opens Remove, Enter removes.
 - **Regenerate citation data** (BYU DBs in `source-data/`):
   ```
   node tools/fetch-jod-wikisource.js            # network; only to refresh the snapshot
@@ -186,9 +199,11 @@ source-data/               GITIGNORED build input, filled from the owner's priva
   The J build feeds both packs. Then the public pack, then the personal pack (see
   "Pack descriptor" below); `validate-citations` checks each pack present
   against its own descriptor. `--inclusion E=verbatim,J=verbatim` sets a
-  corpus's inclusion rule (the committed pack is `all`); `verbatim` reads the
-  public-domain scripture in `source-data/scripture/` (download recipe in the
-  build tool's header) and prints its coverage. Check a verbatim pack in a
+  corpus's inclusion rule (the committed pack is `all`). Every build, and
+  every derivation run, reads the public-domain scripture in
+  `source-data/scripture/` (download recipe in the build tool's header; the
+  footnote-cite rule needs it) and stops when it is missing; a `verbatim`
+  build prints its coverage. Check a verbatim pack in a
   scratch dir: `--out <dir>`, then `validate-citations.js --dir <dir>`. `--inspect` first if DB
   formats may have changed. STPJS snippets alone (no DBs, personal pack):
   `node tools/rederive-js-snippets.js`. Both builds also merge the derived
@@ -387,8 +402,12 @@ validators — go there before changing behaviour.
   render contract: ids survive, classes come back
   `btxk-`-prefixed, footnotes carry `data-btx-footnum`, and the article's
   `textContent` stays exactly the source text (display additions are CSS
-  generated content or wrapper spans; the byline and highlight hint sit
-  outside the article). A live GC cite with no paragraph anchor goes to the
+  generated content or wrapper spans, the cite's mark is classes —
+  `markCite` tints a target with no text through its paragraph, a short one
+  only, and pins it with a CSS-drawn mark, while the reader still scrolls to
+  the target itself; the byline
+  and highlight hint sit outside the article). `test-talk-source.js` checks
+  the contract in Node over `tools/mini-dom.js`. A live GC cite with no paragraph anchor goes to the
   paragraph `locateParagraph` names: it reads the fetched HTML string, since
   the sanitizer unwraps the links it needs, and returns an id. Every corpus
   then falls back to the paragraph holding the cite's snippet, if it bundles
@@ -409,8 +428,10 @@ validators — go there before changing behaviour.
   changes arrive via `renderMode` instead. Reset `currentKey = null` to force a
   re-render.
 - Citations filter: `citVM.filterPlan` decides what hides/opens and restores
-  pre-filter open state on clear; `cit-panel` mirrors the plan onto
-  `[data-btx-uid]` nodes via a capture-phase `toggle` listener.
+  pre-filter open state on clear; a query made only of verse tokens
+  (`citVM.verseQuery`) filters by the rows' verses, anything else is text;
+  `cit-panel` mirrors the plan onto `[data-btx-uid]` nodes via a
+  capture-phase `toggle` listener.
 - Talk reader header and open citation group headers are `position:sticky`
   inside their `.btx-view`; each sticky `top` and negative top margin must sum
   to zero (mechanism in the CSS comments; nested group headers offset by
