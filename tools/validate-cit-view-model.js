@@ -60,6 +60,7 @@ function makeData(cites, pack) {
       versesInChapter: c.verses,
       snippet: c.snippet || '',
       excerptChars: c.excerptChars,
+      inFootnote: c.inFootnote,
       source: c.source,
     };
     for (const v of c.verses) (byVerse[v] = byVerse[v] || []).push(c.citId);
@@ -511,6 +512,28 @@ console.log('Source types from the descriptor:');
   eq(VM.buildView(makeData([cites[0]], null), OPTS).groups.length, 1, '(fixture: makeData defaults to the personal pack)');
   eq(VM.buildView(Object.assign(makeData([cites[0]]), { pack: undefined }), OPTS).empty, true,
     'with no descriptor no corpus exists');
+}
+
+// --- footnote label -----------------------------------------------------------
+// A cite the build flagged `fn` (entry.inFootnote) sits in one of the talk's
+// notes, so its excerpt can be about something else; the row says so.
+console.log('Footnote label:');
+{
+  const data = makeData([
+    { citId: 'fn', verses: [7], source: gc('Cook', 'Zoram', '2025-10'), inFootnote: true, excerptChars: 90 },
+    { citId: 'body', verses: [7], source: gc('Nelson', 'Born Again', '2020-04'), excerptChars: 90 },
+    { citId: 'old', verses: [7], source: jod('Young', 'On Rebirth', '1885-04'), snippet: 'born of water' },
+  ]);
+  const rows = VM.allRows(VM.buildView(data, SRC));
+  const rowOf = (id) => rows.find((r) => r.citId === id);
+  eq(rowOf('fn').footnoteLabel, 'Cited in a footnote', 'a flagged cite’s row carries the label');
+  eq(rowOf('fn').a11yLabel, 'Cook, Zoram, 2025-10, verse 7, Cited in a footnote', 'and its screen-reader name ends with it');
+  eq(rowOf('body').footnoteLabel, null, 'an unflagged row carries none');
+  eq(rowOf('body').a11yLabel, 'Nelson, Born Again, 2020-04, verse 7', 'and its screen-reader name is unchanged');
+  eq(rowOf('old').footnoteLabel, null, 'a cite with no flag (a corpus that cannot carry one) shows none');
+  const ranged = makeData([{ citId: 'r', verses: [3, 4, 5], source: gc('Nelson', 'Born Again', '2020-04'), inFootnote: true }]);
+  eq(VM.allRows(VM.buildView(ranged, SRC))[0].a11yLabel, 'Nelson, Born Again, 2020-04, verses 3 to 5, Cited in a footnote',
+    'after the verse range when the row has one');
 }
 
 // --- excerpt source per corpus ---------------------------------------------

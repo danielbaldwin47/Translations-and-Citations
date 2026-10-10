@@ -151,6 +151,14 @@
       node.appendChild(reserveSlot(row.snippet.chars));
       node.dataset.btxExcerpt = 'pending';
     }
+    // After the excerpt's own box, never inside it: the reserve is sized by
+    // the excerpt alone, so this one fixed line moves nothing when it fills.
+    // Its words are in the row's aria-label (a11yLabel), not described twice.
+    if (row.footnoteLabel) {
+      const note = el('div', 'btx-cit-fn', row.footnoteLabel);
+      note.setAttribute('aria-hidden', 'true');
+      node.appendChild(note);
+    }
     const open = () => onOpen(row, node);
     node.addEventListener('click', open);
     node.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); } });
