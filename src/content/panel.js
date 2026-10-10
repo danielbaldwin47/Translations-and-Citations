@@ -1397,7 +1397,7 @@
 
     // The collapsed panel: one icon tab on the window's right edge.
     const tab = labelled(el('button', 'btx-tab'), 'Show Translations & Citations');
-    tab.appendChild(extensionIcon('btx-tab-icon', 20));
+    tab.appendChild(extensionIcon('btx-tab-icon', 16));
 
     rootEl.appendChild(panel);
     rootEl.appendChild(tab);

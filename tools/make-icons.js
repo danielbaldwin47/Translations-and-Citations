@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 /*
- * Generates the extension icons (icons/icon-{16,32,48,128}.png, the manifest's,
- * plus icon-40.png, which the collapsed panel tab draws at 20px) with only
+ * Generates the extension icons (icons/icon-{16,32,48,128}.png) with only
  * Node's built-in zlib. Re-run after changing the art:
  *   node tools/make-icons.js
  *
@@ -27,7 +26,6 @@ const OUT = path.resolve(__dirname, '..', 'icons');
 const SIZES = [
   { size: 16, pad: 0, detail: 'pixels' },
   { size: 32, pad: 1, detail: 'quote' },
-  { size: 40, pad: 2, detail: 'full' },
   { size: 48, pad: 3, detail: 'full' },
   { size: 128, pad: 16, detail: 'full' },
 ];

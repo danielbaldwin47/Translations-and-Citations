@@ -780,16 +780,17 @@
 /* ---- Collapsed tab ----
    One icon tab on the window's right edge, the same at every width. Fixed to
    the viewport at 200px: below the site's banner, header and Sign In menu,
-   above its chapter arrows and Feedback tab. 26px wide, as the Feedback tab
-   is: the site keeps that much clear beside its footnote panel's text, so the
-   tab never covers it. */
+   above its chapter arrows and Feedback tab. 20px wide, narrower than the
+   Feedback tab's 26px (the gutter the site keeps clear beside its footnote
+   panel's text): unlike Feedback, this tab can't be dismissed, so it stays
+   the smallest thing on that edge. */
 #btx-root .btx-tab {
   display: none;
   position: fixed;
   top: 200px;
   right: 0;
-  width: 26px;
-  height: 40px;
+  width: 20px;
+  height: 32px;
   padding: 0;
   align-items: center;
   justify-content: center;
@@ -800,9 +801,9 @@
   background: var(--btx-bg);
   border: 1px solid var(--btx-border);
   border-right: none;
-  border-radius: 8px 0 0 8px;
+  border-radius: 6px 0 0 6px;
   cursor: pointer;
-  box-shadow: -2px 2px 8px rgba(0, 0, 0, 0.18);
+  box-shadow: -1px 1px 4px rgba(0, 0, 0, 0.16);
   transition: background-color 0.12s, border-color 0.12s;
 }
 /* Hover says "press me": a light accent wash and the accent edge. (A
@@ -812,9 +813,9 @@
   border-color: var(--btx-accent);
 }
 /* The tab sits against the window's edge, where an outer ring would be cut off
-   on the right: the ring is inset, inside the accent edge, around the icon. */
-#btx-root .btx-tab:focus-visible { outline-offset: -3px; }
-#btx-root .btx-tab-icon { display: block; width: 20px; height: 20px; }
+   on the right: the ring is inset, along the tab's own edge. */
+#btx-root .btx-tab:focus-visible { outline-offset: -2px; }
+#btx-root .btx-tab-icon { display: block; width: 16px; height: 16px; }
 
 #btx-root.btx-collapsed { width: auto; }
 #btx-root.btx-collapsed .btx-panel { display: none; }
