@@ -310,7 +310,11 @@ ticked and `churchLanguageLayout` is untouched, so on returns the language in
 the layout the reader had. It is not a panel-handled key: a change from
 another tab re-asks the arrangement through `content.js`'s settings
 subscriber; this tab's writers (the **Hide line** among them) go through
-`content.js`'s `setLanguageShown`, which re-arranges itself. Unticking a language never writes it; adding one writes it on.
+`content.js`'s `setLanguageShown`, which re-arranges itself. Adding a language
+writes it on, in the same patch as the language: a tick in settings
+(`commitPatch`, after the pick-memory move) and the setup card's Add
+(`addLanguage`). Unticking a language never writes it. The options form has no
+control for it; the checklist is the settings-side control.
 _Avoid_: toggle, enable (a language is *enabled* by ticking it in settings;
 the switch says whether the enabled ones *show*)
 

@@ -184,6 +184,28 @@ eq(F.commitPatch({ keys: ['defaultTranslationId'], values: { defaultTranslationI
 eq(F.commitPatch({ keys: ['enabledTranslations'], values: {}, list: { versionsLoaded: false, enabled: [], defaultId: '' } }), {},
   'the list guard holds under autosave: nothing on screen, nothing written');
 eq(F.commitPatch({ keys: ['fontScale'], values: {}, list: LOADED }), {}, 'a key with no value read writes nothing');
+// The language switch (GLOSSARY): a tick shows the language at once, so it
+// writes the switch on in the same patch; an untick never names it.
+eq(F.commitPatch({ keys: ['churchLanguages'], values: { churchLanguages: ['spa', 'jpn'] }, list: LOADED, before: ['spa'] }),
+  { churchLanguages: ['spa', 'jpn'], churchLanguageShown: true },
+  'a tick writes the language switch on, in the same patch as the languages');
+eq(F.commitPatch({ keys: ['churchLanguages'], values: { churchLanguages: ['spa'] }, list: LOADED, before: [] }),
+  { churchLanguages: ['spa'], churchLanguageShown: true },
+  '...the first language too');
+eq(F.commitPatch({ keys: ['churchLanguages'], values: { churchLanguages: ['spa'] }, list: LOADED, before: ['spa', 'jpn'] }),
+  { churchLanguages: ['spa'] },
+  'an untick does not name the switch');
+eq(F.commitPatch({ keys: ['churchLanguages'], values: { churchLanguages: ['spa', 'jpn'] }, list: LOADED, before: ['jpn', 'spa'] }),
+  { churchLanguages: ['spa', 'jpn'] },
+  'a list with no language newly on (a tick undone before it saved) does not name the switch');
+eq(F.commitPatch({ keys: ['churchLanguages'], values: { churchLanguages: ['jpn'] }, list: LOADED, before: ['spa'] }).churchLanguageShown, true,
+  'a tick and an untick together: the tick counts');
+eq(F.commitPatch({ keys: ['scrollSync'], values: { scrollSync: false, churchLanguages: ['spa', 'jpn'] }, list: LOADED, before: [] }),
+  { scrollSync: false },
+  'a patch that does not name the languages names no switch');
+eq(F.commitPatch({ keys: ['churchLanguages'], values: { churchLanguages: ['spa', 'jpn'] }, list: LOADED }),
+  { churchLanguages: ['spa', 'jpn'] },
+  'with nothing known of the stored languages, the switch is left alone');
 
 // ---- patchLanded: did the write stick? ----
 console.log('patchLanded:');
@@ -631,7 +653,7 @@ const bodyOf = (name) => (shell.match(new RegExp(`(?:async )?function ${name}\\(
 check(/SETTINGS\.patch\(/.test(bodyOf('write')), 'write() is where the form reaches storage');
 check((shell.match(/SETTINGS\.(patch|replace)\(/g) || []).length === 1 && !/SETTINGS\.replace\(/.test(shell),
   'the form writes in exactly one place, with patch (never replace: the panel\'s own keys must survive)');
-check(/commitPatch\(\{ keys, values, list: listState\(\) \}\)/.test(bodyOf('flush')),
+check(/commitPatch\(\{ keys, values, list: listState\(\), before: settings\.churchLanguages \}\)/.test(bodyOf('flush')),
   'each autosave builds its write with commitPatch');
 check(/translationPatch\(listState\(\)\)/.test(bodyOf('connect')),
   'a connected key is saved together with its list, through translationPatch');

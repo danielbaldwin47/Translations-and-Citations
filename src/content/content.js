@@ -44,7 +44,7 @@
  *    same-chapter re-render keeps it unless what it shows changed, and
  *    bringing it or taking it away keeps the paragraph at the top of the
  *    screen in place; the split's Hide line turns the language switch off
- *    (setLanguageShown, the one writer of `churchLanguageShown` here)
+ *    (setLanguageShown)
  *  - Citations: builds the list opened at the verse being read (readingVerse:
  *    only in the article of the chapter being rendered, read before the split
  *    comes or goes), moves that verse's mark as the page scrolls (citPanel.markVerse,
@@ -247,7 +247,7 @@
     applyNote();
   }
 
-  // The language switch (`churchLanguageShown`), its one writer here: the
+  // The language switch (`churchLanguageShown`) flipped on its own: the
   // Hide line (off), the off card's Show (on), the language row's switch, a
   // language-row pick while off (on). Writes through __BTX.settings and
   // renders the change itself (the subscriber skips this context's own
@@ -817,11 +817,13 @@
 
   // The setup card's "Add a Church language": turn it on, make it the pick,
   // and show the chapter with it at once (the split appears straight away).
+  // The language switch goes on in the same patch, so the card's promise
+  // holds even when the switch was off.
   async function addLanguage(code) {
     const s = await SETTINGS.get();
-    const next = await SETTINGS.patch({ churchLanguages: s.churchLanguages.concat(code) });
+    const next = await SETTINGS.patch({ churchLanguages: s.churchLanguages.concat(code), churchLanguageShown: true });
     // The worker's copy of the settings may not have caught up yet.
-    if (enabled) enabled = Object.assign({}, enabled, { churchLanguages: next.churchLanguages });
+    if (enabled) enabled = Object.assign({}, enabled, { churchLanguages: next.churchLanguages, churchLanguageShown: true });
     remember(churchText.ID_PREFIX + code);
     currentKey = null; // same chapter, now translatable
     render();
