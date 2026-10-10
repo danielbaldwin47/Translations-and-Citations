@@ -1267,7 +1267,6 @@
       ['path', { d: 'M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z' }],
     ],
     collapse: PANEL_FRAME.concat([['path', { d: 'm8 9 3 3-3 3' }]]), // chevron toward the edge
-    expand: PANEL_FRAME.concat([['path', { d: 'm10 15-3-3 3-3' }]]), // chevron out of it
   };
 
   function svgNode(tag, attrs) {
@@ -1370,7 +1369,7 @@
 
     // The collapsed panel: one icon tab on the window's right edge.
     const tab = labelled(el('button', 'btx-tab'), 'Show Translations & Citations');
-    tab.appendChild(icon('expand', 20));
+    tab.appendChild(extensionIcon('btx-tab-icon', 24, 'icons/icon-48.png'));
 
     rootEl.appendChild(panel);
     rootEl.appendChild(tab);
@@ -1560,7 +1559,7 @@
     w.position.textContent = v.position;
     w.lines.replaceChildren(...v.step.lines.map((line) => {
       const p = el('p', line.tip ? 'btx-welcome-line btx-welcome-tip' : 'btx-welcome-line');
-      for (const part of lineParts(line)) p.appendChild(typeof part === 'string' ? document.createTextNode(part) : extensionIcon());
+      for (const part of lineParts(line)) p.appendChild(typeof part === 'string' ? document.createTextNode(part) : extensionIcon('btx-welcome-icon', 16, 'icons/icon-32.png'));
       return p;
     }));
     w.back.hidden = !v.back;
@@ -1594,13 +1593,14 @@
 
   // The extension's own toolbar icon, drawn beside its name in words: a
   // picture of what to look for, so its alt text is empty (the name is
-  // already read out).
-  function extensionIcon() {
-    const img = el('img', 'btx-welcome-icon');
+  // already read out). `file` is a packaged icon the manifest lists as
+  // web-accessible, at twice the drawn size so it stays sharp.
+  function extensionIcon(cls, size, file) {
+    const img = el('img', cls);
     img.alt = '';
-    img.width = 16;
-    img.height = 16;
-    try { img.src = chrome.runtime.getURL('icons/icon-32.png'); } catch (e) { /* extension reloaded: the name in words stands */ }
+    img.width = size;
+    img.height = size;
+    try { img.src = chrome.runtime.getURL(file); } catch (e) { /* extension reloaded: the name in words stands */ }
     return img;
   }
 
