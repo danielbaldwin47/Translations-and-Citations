@@ -117,17 +117,25 @@
 #btx-root.btx-resizing .btx-resize::before { opacity: 1; }
 #btx-root.btx-resizing { user-select: none; }
 
-/* ---- Chrome: two rows, fixed px ----
+/* ---- Chrome: the header row and the toolbar's rows, fixed px ----
    The header row lines up with the site's toolbar (--btx-header-h) and holds
-   the Translation | Citations control plus two icon buttons; the toolbar row
-   holds the current mode's control (the translation dropdown, or By source |
-   By verse) plus the text-size stepper. In both rows the buttons keep their
-   size (flex: 0 0 auto) and the one wide control yields (flex: 1 1 auto;
-   min-width: 0), so each row fits with nothing clipped down to the 280px
-   minimum width. Chrome is fixed px: the reader's text-size setting never
-   moves it. */
+   the Translation | Citations control plus two icon buttons. The toolbar
+   under it holds up to two rows (panel.js's toolbarRows):
+   - the main row: the current mode's control (the Bible version dropdown,
+     or By source | By verse) plus the text-size stepper. In Translation it
+     shows on a Bible chapter, or when there is no language row (today's one
+     row);
+   - the language row, in Translation whenever a Church language is ticked
+     (GLOSSARY: Language row): the language's name as plain text, or the
+     language dropdown, then its switch. Off the Bible the stepper sits here
+     and the main row goes.
+   In every row the buttons and the switch keep their size (flex: 0 0 auto)
+   and the one wide control yields (flex: 1 1 auto; min-width: 0), so each row
+   fits with nothing clipped down to the 280px minimum width; the switch is
+   never cut. Chrome is fixed px: the reader's text-size setting never moves
+   it. */
 #btx-root .btx-header,
-#btx-root .btx-toolbar {
+#btx-root .btx-toolbar-row {
   display: flex;
   align-items: center;
   flex-wrap: nowrap;
@@ -140,7 +148,13 @@
   min-height: var(--btx-header-h); /* line up with the site's sticky toolbar row */
   background: var(--btx-header-bg);
 }
-#btx-root .btx-toolbar { padding: 6px 8px 6px 10px; }
+#btx-root .btx-toolbar {
+  display: flex;
+  flex-direction: column;
+  flex: 0 0 auto;
+}
+#btx-root .btx-toolbar-row { padding: 6px 8px 6px 10px; }
+#btx-root .btx-toolbar-row[hidden] { display: none; }
 
 #btx-root .btx-select {
   flex: 1 1 auto;
@@ -161,13 +175,94 @@
   background: var(--btx-bg);
   color: var(--btx-fg);
 }
+/* The rested version dropdown (#155): visibly out of reach. */
+#btx-root .btx-select[aria-disabled='true'] { opacity: 0.5; cursor: default; }
+
+/* The language row's one language, as plain text: the select's place, its
+   size and its inset, so the row reads the same with one language or two. */
+#btx-root .btx-lang-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 0 7px;
+  font-size: 13px;
+  line-height: 28px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+#btx-root .btx-lang-name[hidden] { display: none; }
+/* No ticked language has the chapter: the name stays, quieter, beside the
+   greyed switch. */
+#btx-root .btx-langrow[data-btx-lang-absent] .btx-lang-name { color: var(--btx-muted); }
+
+/* The language switch: a button with role="switch". The box is the tap
+   target (44 x 28, the row's height); the track and thumb are drawn inside it,
+   so the visible switch stays slim. On is the accent, the thumb at the end. */
+#btx-root .btx-switch {
+  appearance: none;
+  position: relative;
+  flex: 0 0 auto;
+  width: 44px;
+  height: 28px;
+  padding: 0;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  cursor: pointer;
+}
+#btx-root .btx-switch::before {
+  content: '';
+  position: absolute;
+  inset: 5px 4px;
+  border-radius: 999px;
+  border: 1px solid var(--btx-border);
+  background: var(--btx-border);
+  transition: background 0.12s, border-color 0.12s;
+}
+#btx-root .btx-switch::after {
+  content: '';
+  position: absolute;
+  top: 8px;
+  left: 7px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--btx-bg);
+  box-shadow: 0 0 0 1px var(--btx-border);
+  transition: transform 0.12s;
+}
+#btx-root .btx-switch[aria-checked='true']::before {
+  background: var(--btx-accent);
+  border-color: var(--btx-accent);
+}
+#btx-root .btx-switch[aria-checked='true']::after {
+  transform: translateX(18px);
+  background: var(--btx-on-accent);
+  box-shadow: none;
+}
+/* Greyed (no ticked language has the chapter): the track loses its accent
+   whatever the setting, so it never reads as showing anything. */
+#btx-root .btx-switch[aria-disabled='true'] {
+  opacity: 0.45;
+  cursor: default;
+}
+#btx-root .btx-switch[aria-disabled='true']::before {
+  background: var(--btx-border);
+  border-color: var(--btx-border);
+}
+#btx-root .btx-switch[aria-disabled='true']::after {
+  background: var(--btx-muted);
+  box-shadow: none;
+}
 
 /* While a card fills the body (the setup card, or the one standing in for a
    language split into the page), the stepper has no text to size — the split
-   takes the site's own size. The setup card has no dropdown either, so its
-   toolbar goes altogether; so does a chapter no talk cites. */
+   takes the site's own size. The setup card has no version dropdown either,
+   so the main row goes (the language row stays while a language is ticked);
+   so does the whole toolbar on a chapter no talk cites. The off and
+   not-available cards keep the language row: it names what they speak of. */
 #btx-root[data-btx-card] .btx-font-step { display: none; }
-#btx-root[data-btx-card='setup'] .btx-toolbar,
+#btx-root[data-btx-card='setup'] .btx-toolbar-main,
 #btx-root[data-btx-mode='citations']:has(.btx-body [data-btx-cit-empty]) .btx-toolbar { display: none; }
 
 /* A quiet button (the talk reader's Back uses it too). */
@@ -425,7 +520,7 @@
 #btx-root .btx-loading { animation: btx-appear 0.15s ease-out 0.2s both; }
 @keyframes btx-appear { from { opacity: 0; } to { opacity: 1; } }
 
-/* ---- Cards: setup, beside ----
+/* ---- Cards: setup, beside, off, not-available ----
    Left-aligned blocks at the top of the body, UI font at fixed px. */
 #btx-root .btx-card {
   display: flex;

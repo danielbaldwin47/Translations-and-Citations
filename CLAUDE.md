@@ -84,8 +84,8 @@ src/
     ratelimit.js           __BTX.rate      15/30s burst window + this browser's api.bible calls per calendar month, its writes serialized (no cap: only api.bible's 429 at or past 5,000, naming no short wait, pauses); pure answerOf / rateState ok/near/paused (near only below 5,000), attached as `rate` to every api.bible chapter and version-list answer
     fums.js                __BTX.fums      api.bible usage report (FUMS v3 GET) on every api.bible display, cache hits too; device id minted on a successful Connect (storage.local), session id per worker lifetime
   content/
-    church-text.js         __BTX.churchText which texts a chapter offers + which shows (textsFor/pickText/pickOrder; the one walk firstOffered; the chapter check's chapterOffer over checkResults, keyed by checkKey; the page's language, pageLanguage); dropdown rows (labelFor/menuFor); setup-card list (languagesToAdd); pick memory (mruFrom/rememberPick; rememberTicked for a tick in settings; stored under C.SELECTION_KEY, written by content.js and the options page); same-origin Church-language chapter → IR with element ids (chapterFrom; its block walk blockElements also reads the English side for the split)
-    page-split.js/.css     __BTX.pageSplit the reading layer, independent of the mode: start() fits the site's reading column to the open space while the panel is open (fitColumn / fitRule); show/hide the page split (columns | interlinear) while the arrangement names a page's language, paired by element id; pure cores wantsSplit / fitWidth / effectiveLayout / fitColumn / fitRule / groupRows / soloIds / rowRules / readingRight / readingEdges / collapseFits
+    church-text.js         __BTX.churchText which texts a chapter offers + which shows (textsFor/pickText/pickOrder; the one walk firstOffered; the chapter check's chapterOffer over checkResults, keyed by checkKey; the page's language, pageLanguage); the toolbar's two menus (bibleMenu/languageMenu, the version row's selection versionRow, labels labelFor, a lone language's name nameFor); setup-card list (languagesToAdd); pick memory (mruFrom/rememberPick; rememberTicked for a tick in settings; stored under C.SELECTION_KEY, written by content.js and the options page); same-origin Church-language chapter → IR with element ids (chapterFrom; its block walk blockElements also reads the English side for the split)
+    page-split.js/.css     __BTX.pageSplit the reading layer, independent of the mode: start() fits the site's reading column to the open space while the panel is open (fitColumn / fitRule); show/hide the page split (columns | interlinear) while the arrangement names a page's language, paired by element id, headed by the Hide line (its click is show's onHide); pure cores wantsSplit / hideLineCopy / fitWidth / effectiveLayout / fitColumn / fitRule / groupRows / soloIds / rowRules / readingRight / readingEdges / collapseFits
     detect.js              __BTX.detect    URL parse (all standard works, isBible) + SPA nav
     page-hook.js           page-world history patch, injected via web-accessible <script src>
     theme.js               __BTX.theme     mirror(resolveTarget) → {refresh}: site colors/fonts/header onto the panel; pure policies nextAlignDelay / dominantTextStyle / sameVars
@@ -271,7 +271,10 @@ validators — go there before changing behaviour.
   events bubble to the container; the language search sits outside it). A
   newly ticked language also goes to the front of the pick memory
   (`chrome.storage.local`, `C.SELECTION_KEY`) through `churchText.rememberTicked`,
-  written before the setting so open tabs have it by their re-render. A tick or untick also clears the language search and keeps focus on that
+  written before the setting so open tabs have it by their re-render; the same
+  tick writes `churchLanguageShown` on in the same patch (`commitPatch` given the
+  stored languages as `before`; an untick never names it, and the form has no
+  control for it). A tick or untick also clears the language search and keeps focus on that
   language's checkbox in its new place (`languageTick`; an untick opens the
   coverage group it returns to).
 - **Settings writes** carry a `__btxWrite` tag (how `own` is detected) and
@@ -325,11 +328,15 @@ validators — go there before changing behaviour.
   not re-clamp). Two editors: the options slider and the toolbar's A− / A+
   stepper, which writes through `persist` like every other panel setting.
   `stepFontScale` is one rule for both jobs — where a click lands, and
-  (`null` = nowhere) which button is disabled. Two chrome rows — header
-  (Translation | Citations, Settings, Collapse) and toolbar (the version
-  dropdown or By source | By verse, then A− / A+): in each the one wide
-  control yields (`flex: 1 1 auto; min-width: 0`) and the buttons stay fixed,
-  so both fit at the 280px minimum width.
+  (`null` = nowhere) which button is disabled. Chrome rows — header
+  (Translation | Citations, Settings, Collapse); the toolbar's main row (the
+  Bible version dropdown or By source | By verse, then A− / A+); and in
+  Translation, while a language is ticked, the language row (GLOSSARY: the
+  name or the language dropdown, then the switch; off the Bible it takes the
+  stepper and the main row goes; which rows show is the pure `toolbarRows`):
+  in each the one wide control yields (`flex: 1 1 auto; min-width: 0`) and
+  the buttons and the switch stay fixed, so all fit at the 280px minimum
+  width.
   `--btx-line` is **always a length** — `theme.lineHeightOf` states even
   `normal` in px — because multiplying a ratio would apply the scale twice.
 - **Source-type marking** is a coloured strip on each source-type group, hue
@@ -339,18 +346,36 @@ validators — go there before changing behaviour.
   chapter check (GLOSSARY) found it there; the pure `churchText.chapterOffer`
   marks each text `offered` from its results. What shows is the panel's pure
   **arrangement** (GLOSSARY), the one place the mode rules live: a mode click
-  saves `panelMode` on any chapter; stored Translation on a chapter nothing
-  offers shows the setup card (Add a Church language, or api.bible setup via
-  `OPEN_OPTIONS {section}`) when no Church language is on or the reader
-  clicked Translation on this visit, else Citations with the no-translation
-  line (GLOSSARY), unless the synced `noTranslationLineDismissed` is set.
+  saves `panelMode` on any chapter; Translation on a chapter nothing offers
+  shows one card. The setup card (Add a Church language, or api.bible setup
+  via `OPEN_OPTIONS {section}`) when no Church language is ticked. With one
+  ticked: the off card while the language switch (`churchLanguageShown`) is
+  off on a non-Bible chapter, unless the check already knows every ticked
+  language lacks the chapter; the not-available card (its link opens
+  settings at `languages`) when the reader clicked Translation on this visit
+  (the off card's Show counts as one); else Citations with the
+  no-translation line (GLOSSARY), unless the synced
+  `noTranslationLineDismissed` is set or the switch is off. A Bible chapter
+  every ticked language lacks carries the not-available line above the
+  Bible version. The cards name the language by `churchText.nameFor`, are
+  states (never an earned view), and their copy is the panel's pure
+  `offCopy` / `notAvailableCopy`.
   `content.js` hands it the chapter's facts (`showChapter` / `arrange`, via
   `factsFor`), runs the check while it answers `loading` (so Citations never
   paints first), and applies the answer; it holds no mode rule of its own.
 - **Page split** (`__BTX.pageSplit`) follows the arrangement's page's
   language (`page`, the pure `churchText.pageLanguage`, GLOSSARY: Page
   split), never the mode: it stays on the page in Citations, and on John 3
-  NIV can show in the panel beside it.
+  NIV can show in the panel beside it. It shows only while the **language
+  switch** is on: the synced `churchLanguageShown` (GLOSSARY), a fact
+  `content.js`'s `factsFor` hands the arrangement, which passes it to
+  `pageLanguage`; off names no page language and no `pageNext`, so no split
+  and no chapter check, and the layout setting is untouched. It is not a
+  panel-handled key: another tab's change re-asks the arrangement through
+  the settings subscriber; this tab's writes go through `content.js`'s one
+  writer, `setLanguageShown(on, {anchor, extra})` (`extra`: fields written
+  in the same patch, the setup card's added language), which arranges and
+  renders itself.
   `content.js`'s `syncSplit` runs wherever an input moves (mode, pick,
   chapter, whether the chapter shows at all, settings): while `pageNext`
   names an unchecked language it runs the chapter check (in Citations too,
@@ -365,14 +390,16 @@ validators — go there before changing behaviour.
   navigation drawer move it without a resize). The reading area ends at the
   site's footnote panel and its floating buttons. Columns give way to
   interlinear while each column would be under `MIN_COLUMN_PX`. In
-  Translation, when the tab's text is the page's language, the panel shows
-  the `beside` card: where the text is, the Side by side |
-  Under each verse | In the panel control (writes `churchLanguageLayout`), and
-  "Collapse panel for wider columns" when `collapseFits`; its In the panel is
-  how the reader takes the language off the page. A Bible version in the
-  panel meanwhile carries the beside-the-page line (GLOSSARY: Beside card),
-  whose Change opens the same control in its place; what each pick there
-  writes is the pure `layoutChoice`. Both hosts press the layout the page
+  Translation off the Bible, when the tab's text is the page's language, the
+  panel shows the `beside` card: the Side by side | Under each verse | In the
+  panel control, the room hint, and "Collapse panel for wider columns" when
+  `collapseFits`. On a Bible chapter the panel shows a Bible version, with the
+  beside-the-page line naming the layout the page shows ("Español is side by
+  side · Change"; GLOSSARY: Beside card), whose Change opens the same control
+  in its place. Every pick on the control writes `churchLanguageLayout` alone.
+  In the panel is a layout, not the way off: on a Bible chapter it shows the
+  language in the version's place and the version dropdown rests (the
+  arrangement's `versionRests`, applied by the panel's toolbar). Both hosts press the layout the page
   *shows* (`pressedLayout`; columns wanted without room presses Under each
   verse) while the setting stays what the reader chose, so side by side
   returns by itself; a click is judged against the setting (`layoutClick`),

@@ -8,7 +8,8 @@ own. So the split adds exactly three things and touches nothing else:
 
 - **one layer**, appended to `article#main`, holding the translated blocks
   (built by the IR renderer, text nodes only) absolutely placed at their
-  English partners' offsets;
+  English partners' offsets, headed by the Hide line (text nodes and one
+  button; its room is an id rule on the first pair's English);
 - **`<style>` elements** whose rules select the site's elements by id (`p5`,
   `title_number1`) to make room — width in columns, `min-height` when the
   translation runs longer, `margin-bottom` for interlinear;

@@ -16,9 +16,11 @@
  *                          The fit's rule exists only while the site's own
  *                          column would be clipped: none with the panel
  *                          collapsed or narrow enough.
- *   show({ key, chapter, layout, uri, onLayout, anchor })  split the page.
+ *   show({ key, chapter, name, layout, uri, onLayout, onHide, anchor })
+ *                          split the page.
  *                          `chapter` is a __BTX.churchText load result (blocks
- *                          carry ids), `layout` 'columns' | 'interlinear',
+ *                          carry ids), `name` the language's short name
+ *                          (the Hide line's), `layout` 'columns' | 'interlinear',
  *                          `uri` the chapter's /scriptures/… path. Same key as
  *                          the split showing: nothing happens. Waits, as long
  *                          as it takes, for the site to render that chapter
@@ -33,6 +35,10 @@
  *                          actually on the page ('columns' | 'interlinear'),
  *                          `collapseFits` whether collapsing the open panel
  *                          would give columns room (collapseFits, pure).
+ *                          `onHide({ hadFocus })` is the Hide line's click
+ *                          (`hadFocus`: the button had focus, so the
+ *                          orchestrator places it); without it the split has
+ *                          no Hide line.
  *   hide({ anchor })       remove every trace of the split: layer, its CSS,
  *                          the <html> attribute; the column is fitted again
  *                          without it in the same reflow. `anchor` (optional)
@@ -65,6 +71,15 @@
  *   interlinear  the column keeps the fit's box; each translation sits under
  *                its English element, which gets room as extra margin-bottom.
  *
+ * The Hide line (GLOSSARY): the layer's first item, "Español · Hide"
+ * (hideLineCopy), heading the translation column in columns and above the
+ * first pair interlinear. A verse's typeface, smaller and muted, no border or
+ * background. Its room is an id rule moving the first pair's English down
+ * (rowRules' `head`), so the first row still pairs. Hide calls show's
+ * `onHide`: the layer writes no setting; the orchestrator turns the language
+ * switch off and hides the split, which takes the line with it, and puts a
+ * keyboard Hide's focus in the panel.
+ *
  * The fit (fitColumn, fitRule): with no split, or interlinear, a column whose
  * text runs past the visible reading area (under the docked drawer, under the
  * panel) is placed inside it: the site's padding stays, holding the
@@ -77,7 +92,7 @@
  *
  * Mechanism (why it looks indirect): the site's reader is React's, so the
  * split never edits the site's nodes. Everything it adds is (a) one layer
- * appended to article#main holding the translated blocks, absolutely placed
+ * appended to article#main holding the Hide line and the translated blocks, absolutely placed
  * at their partners' offsets, (b) <style> elements whose rules select the
  * site's elements by id (p5, title_number1 — the same in every language,
  * ADR-0005; the fit's rule selects section#content), and (c)
@@ -122,6 +137,20 @@
   function wantsSplit({ visible, row, layout }) {
     return visible === true && !!row && row.provider === 'church'
       && (layout === 'columns' || layout === 'interlinear');
+  }
+
+  // The Hide line's words for the page's language, by the short name the
+  // orchestrator gives (churchText.nameFor: "Español"), then the Hide
+  // button, whose accessible name says what it hides.
+  //   hideLineCopy(name) -> { language, text, button, label }
+  function hideLineCopy(name) {
+    const language = typeof name === 'string' ? name : '';
+    return {
+      language,
+      text: language ? `${language} ·` : 'Translation on the page ·',
+      button: 'Hide',
+      label: language ? `Hide ${language}` : 'Hide the translation',
+    };
   }
 
   // The room the site's ‹ › chapter arrows take beside the text (#102 C3).
@@ -301,8 +330,11 @@
   // translation height (tail included), English margin-bottom, all px. With
   // `measure`, only what has to hold while measuring: the columns' width.
   // `solo` (soloIds) keep to the English column in columns, like every pair;
-  // interlinear leaves them alone.
-  function rowRules(rows, layout, measure, solo = []) {
+  // interlinear leaves them alone. `head` { id, px } is the Hide line's room:
+  // the first pair's English gets that margin-top (its own margin, the line
+  // and a gap), so both sides of the first row start level under the line;
+  // never while measuring, so the site's own margin is what gets measured.
+  function rowRules(rows, layout, measure, solo = [], head = null) {
     const out = [];
     const column = `width: calc(50% - ${GAP_PX / 2}px) !important; box-sizing: border-box !important;`;
     for (const r of rows) {
@@ -314,6 +346,7 @@
       }
     }
     if (layout === 'columns') for (const id of solo) out.push(`html[data-btx-split="columns"] ${cssId(id)} { ${column} }`);
+    if (head && !measure) out.push(`html[data-btx-split="${layout}"] ${cssId(head.id)} { margin-top: ${Math.ceil(head.px)}px !important; }`);
     return out.join('\n');
   }
 
@@ -330,7 +363,7 @@
 
   const CORE = {
     GAP_PX, MIN_COLUMN_PX, MAX_SECTION_PX, FLOAT_GUTTER_PX, FIT_PAD_PX, TAIL_GAP_PX: 8,
-    MIN_TEXT_PX, wantsSplit, readingRight, readingEdges, arrowGutter, collapseFits, fitWidth, effectiveLayout, fitColumn, fitRule, groupRows, soloIds, rowRules, cssId, moved,
+    MIN_TEXT_PX, wantsSplit, hideLineCopy, readingRight, readingEdges, arrowGutter, collapseFits, fitWidth, effectiveLayout, fitColumn, fitRule, groupRows, soloIds, rowRules, cssId, moved,
   };
 
   if (typeof module !== 'undefined' && module.exports) module.exports = CORE;
@@ -345,9 +378,11 @@
   const TYPO = ['fontFamily', 'fontSize', 'fontStyle', 'fontWeight', 'lineHeight', 'letterSpacing',
     'textTransform', 'textAlign', 'textIndent', 'fontVariant'];
   const WATCH_MS = 400;
+  const LINE_SCALE = 0.8; // the Hide line's size against the first pair's text
+  const LINE_GAP_PX = 10; // between the Hide line and the first pair
 
   // The split: { key, chapter, layout, uri, anchor, effective, article,
-  //   layer, items: [{id,node}], rowStyle, ro, mo, watch }
+  //   layer, line (the Hide line), items: [{id,node}], rowStyle, ro, mo, watch }
   let s = null;
 
   // The reading layer's fit, split or not (#89): the <style> holding
@@ -452,6 +487,7 @@
     s.layer.className = 'btx-split-layer';
     s.layer.style.setProperty('--btx-split-gap', `${GAP_PX}px`);
     const lang = s.chapter.bcp47 || '';
+    if (typeof s.onHide === 'function') s.layer.appendChild(s.line = hideLine(lang));
     for (const block of s.chapter.blocks) {
       if (!block.id) continue;
       const node = document.createElement('div');
@@ -475,12 +511,34 @@
     keepAt(anchor, keep);
   }
 
+  // The Hide line (hideLineCopy): the language's name, then a Hide button
+  // that hands the reader's click to show's `onHide` — the layer itself
+  // writes no setting and moves no focus. Text nodes only.
+  function hideLine(lang) {
+    const copy = hideLineCopy(s.name);
+    const line = document.createElement('div');
+    line.className = 'btx-split-line';
+    const name = document.createElement('span');
+    if (copy.language && lang) name.lang = lang;
+    name.textContent = copy.text;
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'btx-split-hide';
+    button.textContent = copy.button;
+    button.setAttribute('aria-label', copy.label);
+    // Read before the layer goes: a keyboard Hide's focus is the
+    // orchestrator's to place (it would otherwise drop to the page's body).
+    button.addEventListener('click', () => { if (s && s.onHide) s.onHide({ hadFocus: document.activeElement === button }); });
+    line.append(name, ' ', button);
+    return line;
+  }
+
   function unmount() {
     if (s.ro) s.ro.disconnect();
     if (s.mo) s.mo.disconnect();
     for (const n of [s.layer, s.rowStyle]) if (n) n.remove();
     document.documentElement.removeAttribute(ATTR);
-    Object.assign(s, { article: null, layer: null, rowStyle: null, ro: null, mo: null, items: [], effective: null, collapseFits: false });
+    Object.assign(s, { article: null, layer: null, line: null, rowStyle: null, ro: null, mo: null, items: [], effective: null, collapseFits: false });
   }
 
   function style() {
@@ -606,6 +664,16 @@
     const english = BLOCKS(article).filter((el) => !s.layer.contains(el)).map((el) => el.id);
     const solo = soloIds(english, rows.map((row) => row.id));
 
+    // The Hide line takes a verse's typeface (not a heading's), smaller
+    // (LINE_SCALE).
+    const line = s.line && rows.length ? s.line : null;
+    if (s.line) s.line.hidden = !line;
+    if (line) {
+      const cs = getComputedStyle((rows.find((row) => /^p\d/.test(row.id)) || rows[0]).partner);
+      line.style.fontFamily = cs.fontFamily;
+      line.style.fontSize = `${Math.round((parseFloat(cs.fontSize) || 16) * LINE_SCALE * 100) / 100}px`;
+    }
+
     s.rowStyle.textContent = rowRules(rows, s.effective, true, solo);
     const measured = rows.map((row) => ({
       id: row.id,
@@ -613,9 +681,12 @@
       tr: row.nodes.reduce((h, n, i) => h + n.getBoundingClientRect().height + (i ? CORE.TAIL_GAP_PX : 0), 0),
       mb: parseFloat(getComputedStyle(row.partner).marginBottom) || 0,
     }));
-    s.rowStyle.textContent = rowRules(measured, s.effective, false, solo);
+    const lineH = line ? line.getBoundingClientRect().height : 0;
+    const head = line ? { id: rows[0].id, px: (parseFloat(getComputedStyle(rows[0].partner).marginTop) || 0) + lineH + LINE_GAP_PX } : null;
+    s.rowStyle.textContent = rowRules(measured, s.effective, false, solo, head);
 
     const top = article.getBoundingClientRect().top;
+    if (line) line.style.top = `${Math.round(rows[0].partner.getBoundingClientRect().top - top - lineH - LINE_GAP_PX)}px`;
     for (const row of rows) {
       const r = row.partner.getBoundingClientRect();
       let y = s.effective === 'columns' ? r.top - top : r.bottom - top + 4;

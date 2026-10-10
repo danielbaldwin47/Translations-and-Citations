@@ -31,7 +31,7 @@ function eq(actual, expected, msg) {
 // ---- Schema ----
 console.log('Schema:');
 const KEYS = [
-  'apiKey', 'provider', 'enabledTranslations', 'defaultTranslationId', 'churchLanguages', 'churchLanguageLayout',
+  'apiKey', 'provider', 'enabledTranslations', 'defaultTranslationId', 'churchLanguages', 'churchLanguageLayout', 'churchLanguageShown',
   'sidebarWidth', 'fontScale', 'citationView',
   'panelMode', 'panelCollapsed', 'scrollSync', 'noTranslationLineDismissed', 'welcomeSeen',
 ];
@@ -304,6 +304,17 @@ eq(S.defaults().churchLanguageLayout, 'columns', 'a Church language splits the p
 for (const v of ['columns', 'interlinear', 'panel']) eq(S.normalize({ churchLanguageLayout: v }).churchLanguageLayout, v, `${v} is a layout`);
 eq(S.normalize({ churchLanguageLayout: 'sideways' }).churchLanguageLayout, 'columns', 'an unknown layout falls back to columns');
 
+// The language switch (GLOSSARY: Language switch): one synced boolean, on
+// unless a stored `false` says otherwise.
+eq(S.defaults().churchLanguageShown, true, 'the language switch starts on');
+eq(S.normalize({ churchLanguageShown: true }).churchLanguageShown, true, 'switch true survives');
+eq(S.normalize({ churchLanguageShown: false }).churchLanguageShown, false, 'switch false survives');
+for (const bad of ['false', 0, 1, null, undefined, {}]) {
+  eq(S.normalize({ churchLanguageShown: bad }).churchLanguageShown, true,
+    `switch ${JSON.stringify(bad)} falls back to on (the language shows)`);
+}
+eq(S.diff({ churchLanguageShown: true }, { churchLanguageShown: false }), ['churchLanguageShown'], 'flipping the switch is a change');
+
 // ---- diff ----
 console.log('diff:');
 eq(S.diff(S.defaults(), S.defaults()), [], 'identical settings diff to []');
@@ -362,6 +373,13 @@ async function storageChecks() {
   S.subscribe((e) => events.push(e));
 
   eq(await S.get(), S.defaults(), 'get() on empty storage returns defaults');
+
+  await S.patch({ churchLanguageShown: false });
+  eq(store.btxSettings.churchLanguageShown, false, 'a write of the language switch survives a patch');
+  eq((await S.get()).churchLanguageShown, false, '...and reads back off');
+  await S.patch({ churchLanguageShown: true });
+  eq((await S.get()).churchLanguageShown, true, '...and back on');
+  events.length = 0; // the switch's round trip is not the notification count below
 
   // Our own write: applied to storage, echoed back flagged as own.
   await S.patch({ citationView: 'verse' });
@@ -529,15 +547,19 @@ for (const chip of ['btx-cit-count', 'btx-cit-range']) {
 const stepRule = /#btx-root \.btx-font-step \{[^}]*\}/.exec(panelCss);
 check(stepRule && !/--btx-size-scale|--btx-body-size/.test(stepRule[0]),
   'the text-size stepper stays fixed-size chrome');
-// Two chrome rows (header: mode control + Settings + Collapse; toolbar: the
-// mode's control + the stepper), each on one line at the minimum panel width.
-// In each row the buttons are rigid and the one wide control yields. These
-// regexes pin the rules that make that true; they cannot measure an overflow,
-// so the 280px check itself is a look at the real panel.
-const rows = /#btx-root \.btx-header,\s*#btx-root \.btx-toolbar \{[^}]*\}/.exec(panelCss);
-check(rows && /flex-wrap: nowrap/.test(rows[0]), 'neither chrome row wraps');
+// The chrome rows (header: mode control + Settings + Collapse; the toolbar's
+// main row: the mode's control + the stepper; in Translation, the language
+// row: the language's name or dropdown + its switch, GLOSSARY: Language row),
+// each on one line at the minimum panel width. In each row the buttons are
+// rigid and the one wide control yields; the switch never does. These regexes
+// pin the rules that make that true; they cannot measure an overflow, so the
+// 280px check itself is a look at the real panel.
+const rows = /#btx-root \.btx-header,\s*#btx-root \.btx-toolbar-row \{[^}]*\}/.exec(panelCss);
+check(rows && /flex-wrap: nowrap/.test(rows[0]), 'no chrome row wraps');
 check(/#btx-root \.btx-btn \{[^}]*flex: 0 0 auto/.test(panelCss), 'the icon and stepper buttons never shrink');
-for (const wide of ['btx-modes', 'btx-select', 'btx-cit-modes']) {
+const switchRule = /#btx-root \.btx-switch \{[^}]*\}/.exec(panelCss);
+check(switchRule && /flex: 0 0 auto/.test(switchRule[0]), 'the language switch never shrinks');
+for (const wide of ['btx-modes', 'btx-select', 'btx-cit-modes', 'btx-lang-name']) {
   const rule = new RegExp(`#btx-root \\.${wide} \\{[^}]*\\}`).exec(panelCss);
   check(rule && /flex: 1 1 auto/.test(rule[0]) && /min-width: 0/.test(rule[0]),
     `.${wide} takes the row's spare width and yields it (a <select>'s floor would otherwise be its widest option)`);

@@ -87,6 +87,16 @@ eq(P.groupRows(['study_intro1', 'p1', 'p2'], has(['p1', 'p2'])),
   [{ id: 'p1', tail: ['study_intro1'] }, { id: 'p2', tail: [] }], 'leading unpaired blocks join the first pair');
 eq(P.groupRows(['p1', 'p2'], has([])), [], 'nothing paired (the page not rendered yet), nothing placed');
 
+// ---- hideLineCopy ----
+// The Hide line heading the split: the language's short name (the
+// orchestrator's churchText.nameFor), then Hide.
+console.log('hideLineCopy:');
+eq(P.hideLineCopy('Español'), { language: 'Español', text: 'Español ·', button: 'Hide', label: 'Hide Español' },
+  'names the language as the page shows it ("Español"), then the Hide button');
+eq(P.hideLineCopy(''), { language: '', text: 'Translation on the page ·', button: 'Hide', label: 'Hide the translation' },
+  'no name falls back to a plain sentence');
+eq(P.hideLineCopy(undefined).button, 'Hide', 'no name at all still reads');
+
 // ---- rowRules ----
 console.log('rowRules:');
 const rows = [{ id: 'p1', eng: 90, tr: 120.4, mb: 16 }, { id: 'p2', eng: 150, tr: 100, mb: 16 }];
@@ -111,7 +121,18 @@ check(/\[id="study_summary1"\] \{ width/.test(P.rowRules(rows, 'columns', true, 
   'columns, measuring: the solo width holds while measuring too, so nothing jumps between passes');
 check(!/study_summary1/.test(P.rowRules(rows, 'interlinear', false, ['study_summary1'])),
   'interlinear: a solo English block is left alone (no gap for a translation that is not there)');
-check(P.rowRules(rows, 'columns', false, ['study_summary1']).split('\n').every((l) => l.startsWith('html[data-btx-split="columns"] article#main ')),
+// The Hide line heads the split: the first pair's English is moved down by
+// the line's room (its own margin + the line + a gap), so both sides of the
+// first row still start level, under the line.
+const head = { id: 'intro1', px: 62.2 };
+check(/html\[data-btx-split="columns"\] article#main \[id="intro1"\] \{ margin-top: 63px !important; \}/.test(P.rowRules(rows, 'columns', false, [], head)),
+  'columns: the first pair is moved down by the Hide line\'s room');
+check(/html\[data-btx-split="interlinear"\] article#main \[id="intro1"\] \{ margin-top: 63px !important; \}/.test(P.rowRules(rows, 'interlinear', false, [], head)),
+  'interlinear: the same room above the first pair');
+check(!/margin-top/.test(P.rowRules(rows, 'columns', true, [], head)) && !/margin-top/.test(P.rowRules(rows, 'interlinear', true, [], head)),
+  'measuring: no room for the line, so the site\'s own margin is what gets measured');
+check(!/margin-top/.test(P.rowRules(rows, 'columns', false)), 'no line, no room');
+check(P.rowRules(rows, 'columns', false, ['study_summary1'], head).split('\n').every((l) => l.startsWith('html[data-btx-split="columns"] article#main ')),
   'every rule is scoped to a mounted split and to the site article');
 eq(P.cssId('p1.2'), 'article#main [id="p1.2"]', 'merged-verse ids (Turkish p1.2) stay one attribute selector');
 eq(P.cssId('a"b'), 'article#main [id="a\\"b"]', 'a quote in an id cannot break out of the selector');
@@ -400,6 +421,18 @@ check(cs.css.includes('src/content/page-split.css'), 'page-split.css is a conten
 check(!cs.js.some((f) => /prototype/.test(f)), 'no prototype ships in the manifest');
 const content = fs.readFileSync(path.join(ROOT, 'src/content/content.js'), 'utf8');
 check(/pageSplit\.wantsSplit\(/.test(content), 'the orchestrator asks the pure rule whether to split');
+check(/function hideLine\([\s\S]*?hideLineCopy\(s\.name\)[\s\S]*?textContent = copy\.text[\s\S]*?textContent = copy\.button/.test(shell),
+  'the Hide line is built from hideLineCopy, as text');
+check(/if \(typeof s\.onHide === 'function'\) s\.layer\.appendChild\(s\.line = hideLine\(/.test(shell),
+  'the Hide line is the first item of the layer, drawn only when show() was given onHide');
+check(!/churchLanguageShown|SETTINGS|__BTX\.settings|chrome\.storage/.test(src), 'the reading layer writes no setting: Hide only calls onHide');
+check(/onHide: \(\{ hadFocus \} = \{\}\) => \{\s*setLanguageShown\(false, \{ anchor: splitAnchor\(\) \}\);\s*if \(hadFocus\) panel\.focusAfterHide\(\);/.test(content)
+  && /function setLanguageShown\(on, \{ anchor, extra \} = \{\}\) \{[\s\S]*?SETTINGS\.patch\(Object\.assign\(\{\}, extra, \{ churchLanguageShown: shown \}\)\)[\s\S]*?syncSplit\(\{ anchor: anchor \|\| splitAnchor\(\) \}\)/.test(content),
+  'the orchestrator\'s onHide turns the switch off through __BTX.settings, the split goes keeping the top paragraph, and a focused Hide hands focus to the panel');
+check(/s\.onHide\(\{ hadFocus: document\.activeElement === button \}\)/.test(shell),
+  'Hide tells onHide whether it had focus (a keyboard Hide), read before the layer goes');
+check(/pageSplit\.show\(\{[\s\S]*?name: churchText\.nameFor\(row\)/.test(content),
+  'the orchestrator names the language for the Hide line (churchText.nameFor)');
 const syncSrc = (content.match(/async function syncSplit\([^)]*\) \{[\s\S]*?\n {2}\}\n/) || [''])[0];
 check(/panel\.arrangement\(\)/.test(syncSrc) && !/effectiveMode|activeId/.test(syncSrc),
   'the split follows the arrangement\'s page language, never the mode or the panel\'s text');
@@ -422,7 +455,7 @@ check(/pageSplit\.start\(\);/.test(content), 'the orchestrator starts the readin
 check(/BLOCKS\(article\)\.filter\(\(el\) => !s\.layer\.contains\(el\)\)/.test(shell)
   && /soloIds\(english, rows\.map\(\(row\) => row\.id\)\)/.test(shell),
   'solo English blocks: the translation\'s block rule walks the article (its own layer excluded), minus every pair');
-check(/rowRules\(rows, s\.effective, true, solo\)/.test(shell) && /rowRules\(measured, s\.effective, false, solo\)/.test(shell),
+check(/rowRules\(rows, s\.effective, true, solo\)/.test(shell) && /rowRules\(measured, s\.effective, false, solo, head\)/.test(shell),
   '...and both passes give them the column width, so nothing jumps between measuring and placing');
 check(/const keep = topIn\(s\.article, anchor\);[\s\S]*?unmount\(\);[\s\S]*?keepAt\(anchor, keep\);/.test(shell),
   'hiding keeps the anchor in place across the unmount');

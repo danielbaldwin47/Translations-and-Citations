@@ -51,3 +51,45 @@ html[data-btx-split="interlinear"] .btx-split-item {
 .btx-split-item rt { font-size: 0.5em; }
 /* The site hides <br> in its reader; poetry lines need theirs. */
 .btx-split-item br { display: inline !important; }
+
+/* The Hide line heading the split: a line of the page, not a bar. The module
+   gives it the first pair's typeface, smaller; here a muted colour and no
+   border or background. Columns: it heads the translation column;
+   interlinear: it sits above the first pair, in line with the translations. */
+.btx-split-line {
+  position: absolute;
+  pointer-events: auto;
+  box-sizing: border-box;
+  margin: 0;
+  line-height: 1.4;
+  color: color-mix(in srgb, currentColor 62%, transparent);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.btx-split-line[hidden] { display: none; }
+html[data-btx-split="columns"] .btx-split-line {
+  left: calc(50% + var(--btx-split-gap) / 2);
+  width: calc(50% - var(--btx-split-gap) / 2);
+}
+html[data-btx-split="interlinear"] .btx-split-line {
+  left: 0;
+  width: 100%;
+  padding-inline-start: 17px; /* the items' border (3px) + padding (14px) */
+}
+.btx-split-hide {
+  appearance: none;
+  background: none;
+  border: 0;
+  margin: 0;
+  padding: 0;
+  font: inherit;
+  letter-spacing: inherit;
+  color: inherit;
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.18em;
+  cursor: pointer;
+}
+.btx-split-hide:hover { text-decoration-thickness: 2px; }
+.btx-split-hide:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; border-radius: 2px; }
