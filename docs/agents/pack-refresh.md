@@ -19,7 +19,9 @@ command from the repo root.
    pack. In a worktree, link the directory:
    `ln -s <main checkout>/source-data source-data`.
    Done when `ls source-data/derived` lists every earlier derived conference
-   (compare with `derived` in `src/citations/data/index.json`).
+   (compare with `derived` in `src/citations/data/index.json`) and
+   `ls source-data/scripture` lists `kjv.txt`, `bom.txt`, `dc1923.txt` and
+   `pgp1929.txt` (the derivation and the build both read them).
 
 2. **Derivation run** for the conference:
 
@@ -33,10 +35,12 @@ command from the repo root.
    conference from a browser into one folder and you run
    `... derive-conference.js YYYY-MM --from-dir <folder>` instead.
    Done when it prints `Wrote source-data/derived/gc-YYYY-MM.json: N talks,
-   M derived cites`, where N is the count the run printed first ("38 talks
-   listed") less the lines marked "not a talk page, skipped" (the sustaining
-   of officers and other business pages), and M is in the hundreds. October
-   2026: 38 listed, 1 skipped, 37 talks, 585 cites.
+   M derived cites (K in a note, F footnote cites)`, where N is the count the
+   run printed first ("38 talks listed") less the lines marked "not a talk
+   page, skipped" (the sustaining of officers and other business pages), M
+   is in the hundreds, and F is roughly 40–50% of K. October 2026: 38
+   listed, 1 skipped, 37 talks, 585 cites, 521 in a note, 235 footnote
+   cites.
 
 3. **Build both packs**, the public one writing its diff report:
 
@@ -48,7 +52,9 @@ command from the repo root.
    Done when each build ends with the diff report showing the conference
    under "Derived conferences", the vintage moved to `YYYY-MM`, G's talks
    and cites grown by the run's N and M with nothing removed, and G's
-   "Footnote cites after" at least its "before" (the footnote flag `fn`).
+   "Footnote cites after" its "before" plus the run's F (footnote cites,
+   `fn`). "Cites in a note" is this build's count, not a change: the
+   2026-10 public build has 25,010 G cites in a note, 8,298 footnote cites.
 
 4. **Validators**: every `node tools/validate-*.js` and
    `node --test tools/test-talk-source.js`. Done when all pass;

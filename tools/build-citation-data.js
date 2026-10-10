@@ -11,7 +11,7 @@
  * Run (Node 22+, built-in SQLite + zlib — no npm install):
  *   node --experimental-sqlite tools/build-citation-data.js [--pack public|personal] [--inclusion E=all,J=all] [--derived DIR] [--report FILE]
  *   (defaults: --pack public --core ./source-data/core.53.db --content ./source-data/content.53.db
- *    --scripture ./source-data/scripture
+ *    --scripture ./source-data/scripture (read by every build; see below)
  *    --out ./src/citations/data for public, ./src/citations/data-personal for personal)
  *
  * Pack mode: `public` builds the committed public pack, `personal` the
@@ -30,10 +30,19 @@
  * gc/YYYY/MM/{slug} talk ids and lists their conferences in the descriptor's
  * `derived`. An input for a conference the base covers stops the build.
  *
- * Diff report: every build prints, after the pack is written, talks added and
- * removed, cites and footnote cites (fn) before and after per corpus, the base stamp and the
+ * Diff report: every build prints, after the pack is written, per corpus the
+ * talks added and removed, cites before and after, this build's cites in a
+ * note, and footnote cites (fn) before and after, then the base stamp and the
  * derived conferences, as Markdown for the refresh PR (--report FILE also
  * writes it to FILE).
+ *
+ * Footnote cites (GLOSSARY.md "Footnote cite"): a cite of a corpus whose
+ * descriptor entry has footnoteFlag gets `fn` when it sits in a note
+ * (inFootnote) and the footnote-cite rule holds (isFootnoteCite;
+ * tools/footnote-cite.js states the rule). The rule reads the scripture
+ * inputs below, so every build loads them and stops before touching the
+ * pack when one is missing. A derived cite carries the fn its derivation
+ * input gives: the rule ran at fetch time.
  *
  * --inclusion: the per-corpus inclusion rule (GLOSSARY.md "Inclusion rule"),
  * a build input recorded in the descriptor: `all` keeps every BYU cite;
@@ -49,9 +58,9 @@
  *   node --experimental-sqlite tools/build-citation-data.js --inclusion E=verbatim,J=verbatim --out /tmp/pack-verbatim
  *   node tools/validate-citations.js --dir /tmp/pack-verbatim
  *
- * The matcher's inputs (--scripture, default ./source-data/scripture/), read
- * only under `verbatim`: four public-domain scripture texts, gitignored build
- * inputs beside the databases, never shipped. Download once, from the repo root
+ * The scripture inputs (--scripture, default ./source-data/scripture/), read
+ * by the footnote-cite rule and the matcher: four public-domain scripture
+ * texts, gitignored build inputs beside the databases, never shipped. Download once, from the repo root
  * (SHA-256 of the copies the matcher's thresholds were measured on):
  *   mkdir -p source-data/scripture && cd source-data/scripture
  *   curl -L -o kjv.txt     https://www.gutenberg.org/cache/epub/10/pg10.txt   # KJV; 0204adaed1f25700aa854218cae63c7172228c41088f335e99167a071eed83c0
@@ -77,9 +86,9 @@
  *   data/citations/{slug}.json { cites:{ [citId]:{t,v,sn?,a?,ec?,fn?} }, index:{ [chap]:{ [verse]:[citId,...] } } }
  *                              sn snippet (bundled excerpt), a paragraph anchor (G) or a J cite's
  *                              page anchor jdp-N, ec excerpt character count (fetched excerpt),
- *                              fn the footnote flag: true when the cite sits in a note (inFootnote),
+ *                              fn the footnote flag: true on a footnote cite (isFootnoteCite),
  *                              only on a corpus whose descriptor entry has footnoteFlag: true (G, E);
- *                              absent means body text, never false
+ *                              absent means no label, never false
  *   data/talks/{talkId}.html.gz  gzipped talk HTML for corpora whose text is bundled (J, the
  *                              Wikisource build's HTML; T in the personal pack)
  *   data/jod-provenance.json   { snapshot, license, talks: { [talkId]: provenance row } }
@@ -95,6 +104,8 @@ const BOOKS = require('../src/shared/books.js'); // { LDS_TO_USFM, BIBLE_NAMES, 
 const { decodeEntities, textOf, blockHtml, paragraphText, replaceElements } = require('../src/citations/talk-source.js');
 const { refPunctuation } = require('../src/citations/talk-view.js');
 const { citedVerses } = require('../src/citations/cit-data.js');
+const matcher = require('./verbatim-matcher.js');
+const footnoteRule = require('./footnote-cite.js');
 
 // ---- args ----
 function arg(name, def) {
@@ -131,7 +142,7 @@ const REPORT = arg('--report');
 //   attribution where the bundled text is from, for the reader's byline:
 //               'wikisource' (the source record's URL is the permalink at its revision)
 //   footnoteFlag true when the corpus's cites may carry the footnote flag `fn`
-//               (inFootnote; issue #130); absent on a corpus that never does.
+//               (a footnote cite; isFootnoteCite below); absent on a corpus that never does.
 //               The General Conference corpora: J has no notes, and T's
 //               footnote list follows the body-passage rule (ADR-0006).
 // Key order is display order of source types (the reader groups in first-seen order).
@@ -192,13 +203,13 @@ function bundlesTalks(corpusEntry) {
 
 // One cite's shard record, shaped by its corpus's descriptor entry (corpusEntry):
 //   facts { t, v, sn, a, ec, fn } -> { t, v, sn? (bundled excerpt), a? (anchor), ec? (fetched excerpt's count),
-//                                      fn? (true: the cite sits in a footnote; only on a footnoteFlag corpus) }
+//                                      fn? (true: a footnote cite; only on a footnoteFlag corpus) }
 function citeRecord(corpusEntry, facts) {
   const rec = { t: facts.t, v: facts.v };
   if (corpusEntry.excerpt === 'bundled') rec.sn = facts.sn;
   if (facts.a) rec.a = facts.a; // G: paragraph anchor for a live deep-link; J: an unplaced cite's page anchor
   if (corpusEntry.excerpt === 'fetched' && Number.isInteger(facts.ec)) rec.ec = facts.ec;
-  if (corpusEntry.footnoteFlag && facts.fn === true) rec.fn = true; // absent means body text
+  if (corpusEntry.footnoteFlag && facts.fn === true) rec.fn = true; // absent means no label
   return rec;
 }
 
@@ -216,17 +227,20 @@ function conferenceOf(d) {
 // they add to the pack. Their provenance is the Church's talk page; a cite is
 // derived exactly when its talk id is a gc/YYYY/MM/{slug} path, and its
 // conference is listed in the descriptor's `derived`.
-//   inputs  [{ conference, talks:[{ id, url, sp, ti, d, lbl, cites:[{ id, book, chapter, v, a, ec, fn? }] }] }]
-//           fn: true when the cite sits in one of the talk page's notes (the derivation run's
-//           rule, #131); absent or anything else is body text
+//   inputs  [{ conference, talks:[{ id, url, sp, ti, d, lbl, cites:[{ id, book, chapter, v, a, ec, note?, fn? }] }] }]
+//           note: true when the cite sits in one of the talk page's notes; fn: true when it
+//           is a footnote cite (the derivation run decides it, tools/footnote-cite.js); absent
+//           or anything else is false. A file from before `note` existed carries fn on every
+//           cite in a note: it keeps those flags until the conference is derived again.
 //   corpusEntry  the G descriptor entry (citeRecord shapes each cite by it)
 //   opts    { books: Set of the pack's slugs, base: { updated:'YYYY-MM-DD', conferences: Set of 'YYYY-MM' } }
-//   -> { sources: { [talkId]: source }, shards: { [slug]: { cites, index } }, conferences: ['YYYY-MM'], errors: [msg] }
+//   -> { sources: { [talkId]: source }, shards: { [slug]: { cites, index } }, conferences: ['YYYY-MM'],
+//        inNote: n (cites with note or fn, for the diff report), errors: [msg] }
 // A conference the base covers, or one not newer than the base stamp, is
 // refused whole (an error, nothing added): the BYU base is frozen and its
 // conferences carry no derived cites. A cite into a book the pack lacks is dropped.
 function derivedCites(inputs, corpusEntry, opts) {
-  const out = { sources: {}, shards: {}, conferences: [], errors: [] };
+  const out = { sources: {}, shards: {}, conferences: [], inNote: 0, errors: [] };
   const stamp = String(opts.base.updated || '').slice(0, 7);
   for (const input of inputs.slice().sort((a, b) => (a.conference < b.conference ? -1 : 1))) {
     const conf = input.conference;
@@ -238,6 +252,7 @@ function derivedCites(inputs, corpusEntry, opts) {
     for (const talk of input.talks) {
       for (const c of talk.cites) {
         if (!opts.books.has(c.book)) continue;
+        if (c.note === true || c.fn === true) out.inNote++;
         const shard = out.shards[c.book] = out.shards[c.book] || { cites: {}, index: {} };
         shard.cites[c.id] = citeRecord(corpusEntry, { t: talk.id, v: c.v, a: c.a, ec: c.ec, fn: c.fn });
         const chap = shard.index[c.chapter] = shard.index[c.chapter] || {};
@@ -269,10 +284,11 @@ function tallyPack(pack) {
 }
 
 // The refresh PR's diff report (spec #69): per corpus, talks before and
-// after, added and removed, cites before and after, footnote cites (`fn`)
-// before and after; the base stamp and the derived conferences. Markdown,
-// printed by the build.
-function diffReport(before, after, descriptor, vintageBefore) {
+// after, added and removed, cites before and after, this build's cites in a
+// note (inNote: { [corpus]: n }; the pack does not record it), footnote
+// cites (`fn`) before and after; the base stamp and the derived
+// conferences. Markdown, printed by the build.
+function diffReport(before, after, descriptor, vintageBefore, inNote = {}) {
   const corpora = [...new Set([...Object.keys(before), ...Object.keys(after)])].sort();
   const empty = { talks: new Set(), cites: 0, footnotes: 0 };
   const lines = [
@@ -281,8 +297,8 @@ function diffReport(before, after, descriptor, vintageBefore) {
     `Vintage ${vintageBefore || '(none)'} -> ${descriptor.vintage}. Base: ${descriptor.base.db}, updated ${descriptor.base.updated}. ` +
       `Derived conferences: ${descriptor.derived.length ? descriptor.derived.join(', ') : 'none'}.`,
     '',
-    '| Corpus | Talks before | Talks after | Added | Removed | Cites before | Cites after | Footnote cites before | Footnote cites after |',
-    '| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |',
+    '| Corpus | Talks before | Talks after | Added | Removed | Cites before | Cites after | Cites in a note | Footnote cites before | Footnote cites after |',
+    '| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |',
   ];
   const changes = [];
   for (const c of corpora) {
@@ -290,7 +306,7 @@ function diffReport(before, after, descriptor, vintageBefore) {
     const a = after[c] || empty;
     const added = [...a.talks].filter((t) => !b.talks.has(t)).sort();
     const removed = [...b.talks].filter((t) => !a.talks.has(t)).sort();
-    lines.push(`| ${c} | ${b.talks.size} | ${a.talks.size} | ${added.length} | ${removed.length} | ${b.cites} | ${a.cites} | ${b.footnotes} | ${a.footnotes} |`);
+    lines.push(`| ${c} | ${b.talks.size} | ${a.talks.size} | ${added.length} | ${removed.length} | ${b.cites} | ${a.cites} | ${inNote[c] || 0} | ${b.footnotes} | ${a.footnotes} |`);
     const list = (ids) => (ids.length > 40 ? `${ids.slice(0, 40).join(', ')} and ${ids.length - 40} more` : ids.join(', '));
     if (added.length) changes.push(`Added (${c}): ${list(added)}`);
     if (removed.length) changes.push(`Removed (${c}): ${list(removed)}`);
@@ -492,7 +508,7 @@ function churchParagraphText(html, citId) {
   return textOf(h) || null;
 }
 
-// Whether a cite sits in a footnote (the shard's `fn`; issue #130): its
+// Whether a cite sits in a note (the first test of the shard's `fn`; issue #130): its
 // citation span — the first, where blockHtml and extractCitation find it —
 // lies inside a note. BYU's copy of a modern talk inlines each note at its
 // marker (<sup class="noteMarker"><a href="#noteN">N</a><span class="footnote">…),
@@ -515,6 +531,76 @@ function inFootnote(html, citId) {
     open.push((tag === 'sup' && /\bnoteMarker\b/.test(cls)) || (tag === 'footer' && /\bnotes\b/.test(cls)));
   }
   return open.includes(true);
+}
+
+// The note holding a cite's first citation span, as the footnote-cite rule's
+// parts (tools/footnote-cite.js): text, and { own, label } for each BYU
+// label (ccontainer or citation span) — own when it holds this cite's span.
+// The note is the innermost sup.noteMarker's footnote, or the footer.notes
+// item, around the span; null when the span sits in neither.
+function byuNote(html, citId) {
+  const at = html.indexOf(`<span class="citation" id="${citId}"`);
+  if (at < 0) return null;
+  const open = [];
+  const TAG = /<(\/?)(sup|footer)\b([^>]*)>/gi;
+  for (let m; (m = TAG.exec(html)) && m.index < at;) {
+    if (m[1]) { open.pop(); continue; }
+    const cls = (/\bclass="([^"]*)"/i.exec(m[3]) || [])[1] || '';
+    const tag = m[2].toLowerCase();
+    open.push({ note: (tag === 'sup' && /\bnoteMarker\b/.test(cls)) || (tag === 'footer' && /\bnotes\b/.test(cls)), tag, start: m.index });
+  }
+  const note = open.filter((o) => o.note).pop();
+  if (!note) return null;
+  let inner;
+  if (note.tag === 'footer') { // the list item holding the span
+    const from = Math.max(html.lastIndexOf('<li', at), html.lastIndexOf('<p', at));
+    const end = html.indexOf('</li>', at);
+    inner = html.slice(from, end < 0 ? at + 400 : end);
+  } else { // the sup's footnote, to the sup's matching close
+    let depth = 0;
+    let end = html.length;
+    const SUP = /<(\/?)sup\b[^>]*>/gi;
+    SUP.lastIndex = note.start;
+    for (let m; (m = SUP.exec(html));) {
+      if (!m[1]) depth++;
+      else if (--depth === 0) { end = m.index; break; }
+    }
+    inner = html.slice(note.start, end);
+    const fn = inner.search(/<span class="footnote/);
+    if (fn >= 0) inner = inner.slice(fn);
+  }
+  const refs = [];
+  const marked = replaceElements(inner, (o) => /^<span\b[^>]*\bclass="(?:ccontainer\b[^"]*|citation)"/i.test(o), (o, body) => {
+    const ids = [...`${o}${body}`.matchAll(/class="citation" id="(\d+)"/g)].map((m) => m[1]);
+    refs.push({ own: ids.includes(String(citId)), label: textOf(body.replace(/<a\b[^>]*>\s*<\/a>/g, '')) });
+    return ` ⟦${refs.length - 1}⟧ `;
+  });
+  const text = textOf(marked).replace(/^\[\s*/, '').replace(/\s*\]$/, '');
+  return text.split(/(⟦\d+⟧)/).filter(Boolean).map((p) => (/^⟦\d+⟧$/.test(p) ? refs[Number(p.slice(1, -1))] : p));
+}
+
+// Whether a cite is a footnote cite (the shard's `fn`; GLOSSARY.md "Footnote
+// cite"): it sits in a note (inFootnote), and the footnote-cite rule
+// (tools/footnote-cite.js, whose header states it) holds over that note and
+// the paragraph around the note's marker. The paragraph is the verbatim
+// matcher's talk text (BYU's insertions, notes included, dropped), split at
+// where the span first stands: the marker.
+//   cite  { slug, ch, verses:[n, …] }   ctx  footnoteContext over the scripture inputs
+//   text  talkText(html), passed in when one talk's cites share it
+function isFootnoteCite(html, citId, cite, ctx, text) {
+  if (!inFootnote(html, citId)) return false;
+  const note = byuNote(html, citId);
+  const tt = text || matcher.talkText(html);
+  const at = tt.citeAt.get(String(citId));
+  if (!note || at === undefined) return false;
+  const start = tt.text.lastIndexOf('\n', at - 1) + 1;
+  let end = tt.text.indexOf('\n', at);
+  if (end < 0) end = tt.text.length;
+  const clean = (s) => s.replace(/\s+/g, ' ').trim();
+  return footnoteRule.footnoteCite({
+    note, before: clean(tt.text.slice(start, at)), after: clean(tt.text.slice(at, end)),
+    slug: cite.slug, ch: cite.ch, verses: cite.verses,
+  }, ctx).fn;
 }
 
 // Human label for a citation's source.
@@ -574,10 +660,8 @@ function inspect(core, content) {
 // the corpora listed (each under rule verbatim). A cite's verses are its
 // `Verses` field, or its citation_verse rows when that is empty, as its
 // shard record's `v` is.
-function verbatimCiteIds(core, content, bookMap, corpusList) {
-  const matcher = require('./verbatim-matcher.js');
+function verbatimCiteIds(core, content, bookMap, corpusList, scripture) {
   const started = Date.now();
-  const scripture = matcher.scriptureIndex(matcher.loadScripture(SCRIPTURE));
   const slugOf = {};
   for (const [slug, b] of Object.entries(bookMap)) slugOf[b.bookId] = slug;
   const rows = core.prepare(`
@@ -671,9 +755,18 @@ function build(core, content, inclusion) {
   }
   console.log(`Derived conferences: ${derived.conferences.join(', ') || 'none'} (inputs in ${DERIVED}).`);
 
+  // The public-domain scripture inputs: the footnote-cite rule reads them for
+  // every corpus that carries the flag (G, E), the matcher for a corpus under
+  // inclusion rule verbatim. A missing input stops the build here, before the
+  // pack is touched.
+  const scriptureStarted = Date.now();
+  const verses = matcher.loadScripture(SCRIPTURE);
+  const footnotes = footnoteRule.footnoteContext(verses);
+  console.log(`Read the scripture inputs (${verses.length} verses) in ${((Date.now() - scriptureStarted) / 1000).toFixed(1)}s.`);
+
   // Inclusion rule verbatim: a corpus under it keeps only re-derived cites.
   const verbatim = Object.keys(corpora).filter((c) => corpora[c].inclusion === 'verbatim');
-  const rederived = verbatim.length ? verbatimCiteIds(core, content, bookMap, verbatim) : null;
+  const rederived = verbatim.length ? verbatimCiteIds(core, content, bookMap, verbatim, footnotes.index) : null;
   const coverage = {}; // corpus under verbatim -> { all: cite ids the `all` build holds, kept: those re-derived }
 
   // The pack is rewritten whole: shards and talk files from an earlier build
@@ -686,6 +779,9 @@ function build(core, content, inclusion) {
 
   const sources = {};        // talkId -> meta
   const talkHtmlCache = {};   // talkId -> decompressed html (for snippets/bundling)
+  const talkTextCache = {};   // talkId -> the matcher's talkText (for the footnote-cite rule)
+  const inNote = {};          // corpus -> BYU cites in a note (the diff report)
+  let footnoteMs = 0;
   const bundledTalks = new Set();
   let totalCitations = 0;
   let skipped = 0;       // citation rows of corpora this pack lacks
@@ -747,7 +843,15 @@ function build(core, content, inclusion) {
           const { snippet, anchor } = extractCitation(html, r.citId);
           const ec = corpusEntry.excerpt === 'fetched' ? excerptChars(html, r.citId, corpusEntry.text) : null;
           if (corpusEntry.excerpt === 'fetched' && ec === null) uncounted++;
-          const fn = inFootnote(html, r.citId); // citeRecord keeps it only on a footnoteFlag corpus
+          // The footnote flag: a cite in a note, kept only when it is a footnote cite.
+          let fn = false;
+          if (corpusEntry.footnoteFlag && inFootnote(html, r.citId)) {
+            const t0 = Date.now();
+            inNote[r.corpus] = (inNote[r.corpus] || 0) + 1;
+            const text = talkTextCache[r.talkId] || (talkTextCache[r.talkId] = matcher.talkText(html));
+            fn = isFootnoteCite(html, r.citId, { slug, ch: r.chapter, verses: [...citedVerses(r.verses || vs)] }, footnotes, text);
+            footnoteMs += Date.now() - t0;
+          }
           cites[r.citId] = citeRecord(corpusEntry, { t: r.talkId, v: r.verses || vs, sn: snippet, a: anchor, ec, fn });
         }
         count++;
@@ -801,6 +905,7 @@ function build(core, content, inclusion) {
     bookCounts.push({ slug, fullName: book.fullName, bookId: book.bookId, citations: count });
     // free per-book html cache to bound memory
     for (const k of Object.keys(talkHtmlCache)) delete talkHtmlCache[k];
+    for (const k of Object.keys(talkTextCache)) delete talkTextCache[k];
   }
 
   Object.assign(sources, derived.sources);
@@ -840,10 +945,13 @@ function build(core, content, inclusion) {
     const pct = cov.all.size ? (100 * cov.kept.size / cov.all.size).toFixed(1) : '0.0';
     console.log(`Inclusion verbatim, ${c}: kept ${cov.kept.size} of the ${cov.all.size} cites the all build holds (${pct}%).`);
   }
+  console.log(`Footnote-cite rule: ${Object.entries(inNote).map(([c, n]) => `${c} ${n} BYU cites in a note`).join(', ') || 'no cite in a note'}; ` +
+    `${derived.inNote} derived cites in a note; ${(footnoteMs / 1000).toFixed(1)}s.`);
   console.log(`Output: ${OUT}`);
 
   // The diff report for the refresh PR (also written to --report FILE).
-  const report = diffReport(tallyPack(before), tallyPack(readPack(OUT)), pack, before && before.vintage);
+  inNote.G = (inNote.G || 0) + derived.inNote;
+  const report = diffReport(tallyPack(before), tallyPack(readPack(OUT)), pack, before && before.vintage, inNote);
   console.log(`\n${report}`);
   if (REPORT) { fs.writeFileSync(REPORT, report + '\n'); console.log(`\nDiff report written to ${REPORT}`); }
 }
@@ -852,7 +960,7 @@ function build(core, content, inclusion) {
 // HTML); decodeEntities and decompressTalk by tools/build-jod-talks.js; the
 // pure rest by tools/validate-citations.js.
 module.exports = {
-  extractCitation, stpjsBodyPassage, decompressTalk, stripTags, toChurchUrl, excerptChars, inFootnote,
+  extractCitation, stpjsBodyPassage, decompressTalk, stripTags, toChurchUrl, excerptChars, inFootnote, isFootnoteCite,
   packDescriptor, parseInclusion, SOURCE_NOTES, citeRecord, bundlesTalks, conferenceOf, PACK_CORPORA,
   buildBookMap, derivedCites, tallyPack, diffReport,
 };
@@ -875,6 +983,7 @@ if (require.main === module) {
     try { build(core, content, inclusion.rules); } catch (e) {
       if (!/^scripture input/.test(e.message)) throw e;
       console.error(`ERROR: ${e.message}`);
+      console.error('Every build reads these public-domain texts: the footnote-cite rule needs them for the G cites in a note.');
       process.exit(2);
     }
   }

@@ -2,8 +2,9 @@
  * The quotation matcher behind inclusion rule `verbatim` (GLOSSARY.md
  * "Inclusion rule"; spec #69, "Build"; issue #72). Productionized from the
  * research tools on `research/cite-verbatim-share` and
- * `research/tpjs-independent-index`. Used by tools/build-citation-data.js;
- * checked by tools/validate-verbatim-matcher.js.
+ * `research/tpjs-independent-index`. Used by tools/build-citation-data.js and,
+ * for its quotation test, by tools/footnote-cite.js; checked by
+ * tools/validate-verbatim-matcher.js.
  *
  * Interface:
  *   loadScripture(dir) -> verses          the four public-domain inputs (Inputs, below), parsed
@@ -12,6 +13,9 @@
  *   verbatimCites(html, cites, index) -> Set of cite ids the matcher re-derives
  *     html   one talk's HTML (BYU's content database, citation spans in place)
  *     cites  [{ id, slug, ch, verses:[v, …] }] that talk's cites
+ *   talkText(html) -> { text, citeAt }    step 1's text, and where each span first stands
+ *   quotedAt(text, at, cite, index) -> whether step 2 joins a quotation to the cite at `at`
+ *   words(text), quotations(text, index)  the word reader and step 1's quotations
  *
  * How a cite is re-derived, in two steps that keep BYU's data out of the
  * matching:
@@ -248,7 +252,10 @@ function shingleKey(stream, p) {
 // The talk's prose without BYU's insertions (the reference label around each
 // citation span, the modern footnote marker, the Journal of Discourses
 // page/column markers and line-end hyphens), as text with '\n' at paragraph
-// ends, and the offset in that text where each citation span stood.
+// ends, and the offset in that text where each citation span first stood. A
+// modern talk carries a note's spans twice, inline at the note's marker and
+// again in the closing footer.notes list: the first is the one in the
+// paragraph the note hangs off.
 function talkText(html) {
   let h = String(html || '');
   const body = h.search(/<body[\s>]/i);
@@ -267,7 +274,7 @@ function talkText(html) {
   let m;
   while ((m = marks.exec(h))) {
     text += h.slice(last, m.index);
-    citeAt.set(m[1], text.length);
+    if (!citeAt.has(m[1])) citeAt.set(m[1], text.length);
     last = marks.lastIndex;
   }
   text += h.slice(last);
@@ -329,6 +336,27 @@ function quotations(text, index) {
   return out;
 }
 
+// The join (header, step 2): whether a cite { slug, ch, verses } standing at
+// offset `at` of `text` is quoted there. quotes: quotations(text, index),
+// passed in when one talk's cites share them.
+function quotedAt(text, at, cite, index, quotes = quotations(text, index)) {
+  const chapter = `${cite.slug}|${cite.ch}`;
+  const verses = new Set(cite.verses.map(Number));
+  let cited = 0;
+  for (const v of verses) cited += index.verseWords.get(`${chapter}|${v}`) || 0;
+  if (!cited) return false;
+  const need = Math.max(SHINGLE, Math.min(MIN_RUN, cited));
+  const paraStart = text.lastIndexOf('\n', at - 1) + 1;
+  const from = Math.max(paraStart, at - WINDOW);
+  for (const q of quotes) {
+    if (q.chapter !== chapter) continue;
+    let n = 0;
+    for (let k = 0; k < q.at.length; k++) if (q.at[k] >= from && q.at[k] < at && verses.has(q.verses[k])) n++;
+    if (n >= need) return true;
+  }
+  return false;
+}
+
 // The cite ids of one talk the matcher re-derives (see the header).
 function verbatimCites(html, cites, index) {
   const { text, citeAt } = talkText(html);
@@ -336,23 +364,12 @@ function verbatimCites(html, cites, index) {
   const kept = new Set();
   for (const c of cites) {
     const at = citeAt.get(String(c.id));
-    if (at === undefined) continue;
-    const chapter = `${c.slug}|${c.ch}`;
-    const verses = new Set(c.verses.map(Number));
-    let cited = 0;
-    for (const v of verses) cited += index.verseWords.get(`${chapter}|${v}`) || 0;
-    if (!cited) continue;
-    const need = Math.max(SHINGLE, Math.min(MIN_RUN, cited));
-    const paraStart = text.lastIndexOf('\n', at - 1) + 1;
-    const from = Math.max(paraStart, at - WINDOW);
-    for (const q of quotes) {
-      if (q.chapter !== chapter) continue;
-      let n = 0;
-      for (let k = 0; k < q.at.length; k++) if (q.at[k] >= from && q.at[k] < at && verses.has(q.verses[k])) n++;
-      if (n >= need) { kept.add(c.id); break; }
-    }
+    if (at !== undefined && quotedAt(text, at, c, index, quotes)) kept.add(c.id);
   }
   return kept;
 }
 
-module.exports = { SHINGLE, MIN_RUN, WINDOW, parseGutenberg, parseOcr, loadScripture, scriptureIndex, verbatimCites };
+module.exports = {
+  SHINGLE, MIN_RUN, WINDOW, words, parseGutenberg, parseOcr, loadScripture, scriptureIndex,
+  talkText, quotations, quotedAt, verbatimCites,
+};

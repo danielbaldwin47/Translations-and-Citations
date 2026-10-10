@@ -118,11 +118,22 @@ The text shown under a citation row: a bundled corpus's snippet, or, for a
 references-only corpus, the cite's target paragraph fetched when the row comes
 on screen inside a source-type group the reader opened. While the fetch is
 pending the row reserves the excerpt's size from a per-cite character count.
-A row whose cite carries the build's `fn` flag (the cite sits in a note of its
-talk) shows the line "Cited in a footnote" under the excerpt, so a reader sees
-why the excerpt may be about something else. The line is part of the row's
-accessible name and outside the excerpt's reserve; opening the row is unchanged.
+A row whose cite is a footnote cite shows the line "Cited in a footnote" under
+the excerpt, so a reader sees why the excerpt may be about something else. The
+line is part of the row's accessible name and outside the excerpt's reserve;
+opening the row is unchanged.
 _Avoid_: preview, teaser
+
+**Footnote cite**:
+A cite in a note of its talk whose excerpt cannot explain it: the note points
+the reader to the verse ("See", "see also", "compare", or a note with words
+beyond its references), and the paragraph the note hangs off neither quotes
+the verse nor shares its distinctive words. The shard marks it `fn: true`. A
+cite in a note that fails this is a plain cite, most often a bare reference
+naming the source of the paragraph's quotation. The rule and its thresholds
+live in `tools/footnote-cite.js`; the build applies it to BYU's cites, the
+derivation run to derived cites at fetch time.
+_Avoid_: footnote flag (the shard's `fn` marks a footnote cite), note cite
 
 **Body passage**:
 In STPJS talks, the sentence(s) the footnote annotates — the text around the
