@@ -777,13 +777,25 @@
 
   // --- talk reader heading ---------------------------------------------------
 
+  // The source's "January 1853" when its date is a real "YYYY-MM" and the
+  // label does not already hold the year; '' otherwise. One rule for every
+  // corpus: a General Conference label names its conference, so it never
+  // repeats; a Journal of Discourses label carries only volume and page.
+  function missingDate(s, lbl) {
+    const m = /^(\d{4})-(\d{2})$/.exec(String(s.d || ''));
+    const month = m && MONTHS[Number(m[2]) - 1];
+    return month && !String(lbl).includes(m[1]) ? `${month} ${m[1]}` : '';
+  }
+
   // What the talk reader's header and byline say for one cite:
   //   title      the talk's title as plain text; Teachings of the Prophet
   //              Joseph Smith has none, so its page label ("…Joseph Smith,
   //              p. 264") stands in
   //   speaker    byline line 1 (null when unknown)
   //   where      byline line 2: the source label whole (longLabel), unless it
-  //              is already the title
+  //              is already the title, then " · " and the source's month and
+  //              year when the label lacks that year ("Journal of Discourses,
+  //              vol. 1, p. 3 · January 1853"); null when both are absent
   //   chip       the cited verses ("vv. 1–5", "Note") and their spoken form for
   //              the button that re-reveals the cited passage
   function talkHeading(source, versesInChapter) {
@@ -794,7 +806,7 @@
     return {
       title,
       speaker: s.sp || null,
-      where: lbl && lbl !== title ? lbl : null,
+      where: [lbl && lbl !== title ? lbl : '', missingDate(s, lbl)].filter(Boolean).join(' · ') || null,
       chip: {
         text: vs ? verseLabel(vs) : 'Cited passage',
         a11yLabel: 'Go to the cited passage' + (vs ? ', ' + spokenVerses(vs) : ''),

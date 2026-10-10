@@ -824,9 +824,24 @@ console.log('Talk heading:');
   eq(VM.talkHeading({ c: 'G', sp: 'A', ti: 'T', lbl: '09 2023 General Conference' }, [1]).where,
     'October 2023 General Conference', 'the byline names a session as the list does');
   eq(VM.talkHeading(jod('Moses Thatcher', 'Discourse', '1885-04', 'Journal of Discourses 26:306'), [5]).where,
-    'Journal of Discourses, vol. 26, p. 306', 'the byline spells a Journal of Discourses place as the list does');
+    'Journal of Discourses, vol. 26, p. 306 · April 1885', 'the byline spells a Journal of Discourses place as the list does');
   eq(VM.talkHeading(jod('X', 'Y', '1885-04', 'Journal of Discourses'), [5]).where,
-    'Journal of Discourses', 'a label with no volume:page is left as it is');
+    'Journal of Discourses · April 1885', 'a label with no volume:page is left as it is');
+  // The date: a label that lacks it gains month and year.
+  eq(VM.talkHeading(jod('Brigham Young', 'Salvation.', '1853-01', 'Journal of Discourses 1:3'), [5]).where,
+    'Journal of Discourses, vol. 1, p. 3 · January 1853', 'a Journal of Discourses heading gains its month and year');
+  eq(VM.talkHeading(gc('David L. Buckner', 'T', 'October 2024'), [1]).where,
+    'October 2024 General Conference', 'a conference label that holds the year is unchanged');
+  eq(VM.talkHeading({ c: 'G', sp: 'A', ti: 'T', d: '2023-10', lbl: '09 2023 General Conference' }, [1]).where,
+    'October 2023 General Conference', 'a session label that holds the year is unchanged');
+  eq(VM.talkHeading({ c: 'J', sp: 'A', ti: 'T', lbl: 'Journal of Discourses 4:12' }, [1]).where,
+    'Journal of Discourses, vol. 4, p. 12', 'a source with no date gains nothing');
+  eq(VM.talkHeading({ c: 'J', sp: 'A', ti: 'T', d: '1853', lbl: 'Journal of Discourses 4:12' }, [1]).where,
+    'Journal of Discourses, vol. 4, p. 12', 'nor does one whose date has no month');
+  eq(VM.talkHeading({ c: 'J', sp: 'A', ti: 'T', d: '1853-13', lbl: 'Journal of Discourses 4:12' }, [1]).where,
+    'Journal of Discourses, vol. 4, p. 12', 'nor one whose month is not a month');
+  eq(VM.talkHeading({ c: 'J', sp: 'A', ti: '', d: '1853-01', lbl: 'Journal of Discourses 4:12' }, [1]).where,
+    'January 1853', 'a label that stands in as the title is not repeated; the date still follows');
   const note = VM.talkHeading(gc('Oliver Cowdery', 'T', '1990-04'), [1000]);
   eq(note.chip.text, 'Note', 'a chip for the note says Note');
   eq(note.chip.a11yLabel, 'Go to the cited passage, the note', 'and its spoken form');
