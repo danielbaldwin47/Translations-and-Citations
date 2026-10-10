@@ -776,20 +776,22 @@
   padding: 0;
   align-items: center;
   justify-content: center;
-  background: var(--btx-accent);
-  color: var(--btx-on-accent);
-  border: none;
+  /* The panel's surface, not the accent: the icon is its own teal tile, which
+     the light theme's accent is almost the colour of. The accent edge keeps
+     the tab seen against a dark page too. */
+  background: var(--btx-bg);
+  border: 1px solid var(--btx-accent);
+  border-right: none;
   border-radius: 8px 0 0 8px;
   cursor: pointer;
   box-shadow: -2px 2px 8px rgba(0, 0, 0, 0.18);
   transition: filter 0.12s;
 }
 #btx-root .btx-tab:hover { filter: brightness(1.08); }
-/* The tab is filled with the accent and sits against the window's edge, so an
-   outer accent ring would vanish into the fill and be cut off on the right:
-   the ring is inset and in the colour of the icon. */
-#btx-root .btx-tab:focus-visible { outline-color: var(--btx-on-accent); outline-offset: -4px; }
-#btx-root .btx-tab svg { display: block; }
+/* The tab sits against the window's edge, where an outer ring would be cut off
+   on the right: the ring is inset, inside the accent edge. */
+#btx-root .btx-tab:focus-visible { outline-offset: -4px; }
+#btx-root .btx-tab-icon { display: block; width: 24px; height: 24px; }
 
 #btx-root.btx-collapsed { width: auto; }
 #btx-root.btx-collapsed .btx-panel { display: none; }

@@ -17,7 +17,7 @@
  *     containers that take focus from a click or from code (tabindex -1);
  *   - a control that sits where an outer ring is cut off or lost (inside the
  *     `overflow: clip` citation cards, the body's own scroll box, the collapsed
- *     tab on the window's edge and filled with the accent) draws it inset.
+ *     tab on the window's edge) draws it inset.
  *
  * What a browser shows (the ring on a real Tab through every mode, in light and
  * dark) is not checked here. Exits non-zero on any failure.
@@ -98,9 +98,6 @@ for (const needle of ['summary.btx-cit-vhead', 'summary.btx-cit-chead', '.btx-ci
   const o = offsetOf(needle);
   check(o !== null && o < 0, `${needle.replace(/:$/, '')} draws its focus ring inset (outline-offset < 0)`);
 }
-// The tab is filled with the accent: an accent ring would vanish into it.
-const tab = focusRulesFor('.btx-tab:')[0];
-check(tab && /outline-color:\s*var\(--btx-on-accent\)/.test(tab.body), 'the collapsed tab rings in the icon colour, not the accent it is filled with');
 
 // ---- Citation cards clip, so nothing inside may rely on an outer ring ----
 check(/\.btx-cit-vgroup\s*\{[^}]*overflow:\s*clip/.test(CIT), 'the citation cards still clip (this check assumes it)');

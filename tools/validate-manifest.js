@@ -78,6 +78,11 @@ const wars = (manifest.web_accessible_resources || []).flatMap((w) => w.resource
 check(wars.includes('src/citations/data/*'), 'the public pack directory is web-accessible');
 check(wars.includes('src/citations/data-personal/*'), 'the personal pack directory is web-accessible');
 check(wars.includes('src/citations/store-stamp.json'), 'the Store stamp is web-accessible (the pack probe reads it first, issue #90)');
+// Every packaged image the reader draws on the page loads through
+// chrome.runtime.getURL, which the page's origin may only do for a listed file.
+const panelSrc = fs.readFileSync(path.join(ROOT, 'src/content/panel.js'), 'utf8');
+const gotUrls = [...panelSrc.matchAll(/getURL\('([^']+)'\)/g)].map((m) => m[1]).concat([...panelSrc.matchAll(/'(icons\/icon-\d+\.png)'/g)].map((m) => m[1]));
+check(gotUrls.length >= 2 && gotUrls.every((f) => wars.includes(f)), `every icon the panel draws is web-accessible (${[...new Set(gotUrls)].join(', ')})`);
 
 console.log('Key (A25):');
 if (manifest.key == null) {
