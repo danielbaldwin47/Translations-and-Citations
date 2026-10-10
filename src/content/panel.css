@@ -14,6 +14,12 @@
      theme.js never touches these. */
   --btx-body-pad-top: 14px;
   --btx-body-pad-x: 16px;
+  /* The keyboard-focus ring's width and its offset outside a control, read by
+     the shared :focus-visible rule below and by citations.css's focused
+     highlight; an inset override changes only the offset. Theme.js never
+     touches these. */
+  --btx-ring-w: 2px;
+  --btx-ring-offset: 1px;
   --btx-bg: #ffffff;
   --btx-header-bg: #f0f0f0;
   --btx-fg: #2a2a2a;
@@ -294,12 +300,12 @@
    own, and none of those has to win a specificity contest. `:focus-visible`,
    so a mouse click shows no ring. validate-focus-rings.js holds this. */
 #btx-root :where(button, select, input, a, summary, [role='button']):focus-visible {
-  outline: 2px solid var(--btx-accent);
-  outline-offset: 1px;
+  outline: var(--btx-ring-w) solid var(--btx-accent);
+  outline-offset: var(--btx-ring-offset);
 }
 /* The body scrolls, so it takes focus; its ring sits inside the panel. */
 #btx-root .btx-body:focus-visible {
-  outline: 2px solid var(--btx-accent);
+  outline: var(--btx-ring-w) solid var(--btx-accent);
   outline-offset: -2px;
 }
 
