@@ -12,7 +12,7 @@
  * Interface:
  *   init(handlers)                 build the DOM, adopt persisted state, wire
  *                                  controls; must be awaited before use
- *   showChapter({ key, texts, picks, languages, layout, dismissed }) -> arrangement
+ *   showChapter({ key, texts, picks, languages, layout, shown, dismissed }) -> arrangement
  *                                  make the panel visible for a chapter and
  *                                  arrange it: `key` names the chapter, the
  *                                  rest are the arrangement's facts (see the
@@ -22,7 +22,7 @@
  *                                  invalidates every cached view; the same
  *                                  one again (a settings change) keeps the
  *                                  click, Citations and the talk
- *   arrange({ texts, picks, languages, layout, dismissed }) -> arrangement
+ *   arrange({ texts, picks, languages, layout, shown, dismissed }) -> arrangement
  *                                  a fact about the chapter showing moved
  *                                  (the chapter check settled, a pick): the
  *                                  arrangement again, no view dropped
@@ -226,7 +226,7 @@
 
   // ---- The arrangement --------------------------------------------------------
   // The one rule for what the panel shows (GLOSSARY: Arrangement). Pure:
-  //   arrangement({ texts, picks, languages, layout, dismissed, mode, click, picked }) -> {
+  //   arrangement({ texts, picks, languages, layout, shown, dismissed, mode, click, picked }) -> {
   //     mode:  'translation' | 'citations'   the effective mode
   //     body:  'citations' | 'loading' | 'setup' | 'beside' | 'text'
   //     text:  row id | null    the row the Translation tab is about ('beside', 'text')
@@ -247,6 +247,9 @@
   //   languages  the enabled Church language codes
   //   layout     churchLanguageLayout: a Church row shows as the beside card
   //              unless it is 'panel'
+  //   shown      the language switch (GLOSSARY), churchLanguageShown; absent =
+  //              on. Off: no page language (so no split and no check for one),
+  //              in either mode, and the no-translation line never shows
   //   dismissed  the reader pressed × on the no-translation line (a synced
   //              setting, noTranslationLineDismissed)
   //   mode       the stored panelMode
@@ -283,7 +286,7 @@
     const chooses = walk && walk.row && walk.row.onRequest && picks.indexOf(walk.row.id) < 0 ? walk.row.id : null;
     // The page's language is the same in either mode (the split stays on the
     // page in Citations).
-    const page = ct.pageLanguage({ texts: o.texts, picks: chooses ? [chooses].concat(picks) : picks, layout: o.layout });
+    const page = ct.pageLanguage({ texts: o.texts, picks: chooses ? [chooses].concat(picks) : picks, layout: o.layout, shown: o.shown });
     const show = (m, body, text, note, noteLang) => ({
       mode: m, body, text: text || null, saves, note: note || null, noteLang: noteLang || null,
       page: page.id, pageNext: page.next, chooses,
@@ -308,7 +311,8 @@
     }
     const anyLanguage = Array.isArray(o.languages) && o.languages.length > 0;
     if (!anyLanguage || click === 'translation') return show('translation', 'setup');
-    if (o.dismissed === true) return show('citations', 'citations');
+    // The switch off: the reader hid the language, so no line about it.
+    if (o.dismissed === true || o.shown === false) return show('citations', 'citations');
     return show('citations', 'citations', null, 'no-translation', noteLanguage(o.picks, o.languages));
   }
 
@@ -391,7 +395,7 @@
   }
 
   function factsOf(c) {
-    return { texts: c.texts, picks: c.picks, languages: c.languages, layout: c.layout, dismissed: c.dismissed === true };
+    return { texts: c.texts, picks: c.picks, languages: c.languages, layout: c.layout, dismissed: c.dismissed === true, shown: c.shown !== false };
   }
 
   // Whether showing `chapter` leaves every cached view valid: the same chapter

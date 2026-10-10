@@ -15,8 +15,13 @@
  *    write through storage.onChanged
  *  - describes the chapter to the panel's arrangement (factsFor: the texts
  *    chapterOffer marked offered, the pick memory, the enabled languages, the
- *    split layout) wherever one of those moves, and applies its answer: the
- *    mode, body and note showing are the arrangement's, never decided here
+ *    split layout, the language switch `churchLanguageShown`) wherever one of
+ *    those moves, and applies its answer: the mode, body and note showing are
+ *    the arrangement's, never decided here. The switch (GLOSSARY: Language
+ *    switch) is not a panel-handled key: a change, from this tab or another,
+ *    arrives through the settings subscriber, which re-asks the arrangement
+ *    (off: no page language, so no split and no chapter check for it; the
+ *    layout setting is untouched, so on returns to it)
  *  - applies the arrangement's note to the panel's note slot (applyNote, after
  *    every mode render and wherever the arrangement moves: it names the
  *    language and the chapter) and writes the no-translation line's dismissal
@@ -80,7 +85,7 @@
   // read it rather than keeping a copy that could drift.
   const PANEL_KEYS = panel.HANDLED_KEYS;
 
-  let enabled = null; // { translations, churchLanguages, churchLanguageLayout, defaultId, provider, hasKey }
+  let enabled = null; // { translations, churchLanguages, churchLanguageLayout, churchLanguageShown, defaultId, provider, hasKey }
   // What the reader last picked, newest first (persisted under C.SELECTION_KEY).
   // A preference, not what is showing: a chapter that doesn't offer the newest
   // pick shows the newest one it does, or a fallback, and rewrites nothing —
@@ -207,6 +212,7 @@
     return {
       texts: offer.texts, picks: preferredIds(), languages: e.churchLanguages, layout: placement(),
       dismissed: e.noTranslationLineDismissed === true,
+      shown: e.churchLanguageShown !== false,
     };
   }
 

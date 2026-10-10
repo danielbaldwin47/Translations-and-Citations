@@ -14,6 +14,10 @@
  *   - change notification (subscribe, which reports *which* keys changed and
  *                        whether this context is the one that wrote them)
  *
+ * Notable keys: `churchLanguageShown` is the language switch (GLOSSARY),
+ * one boolean for every Church language, on unless a stored `false` says
+ * otherwise; it is not a panel-handled key.
+ *
  * Consumers are thin adapters: the content script, the options page and the
  * service worker each just call this module.
  *
@@ -205,6 +209,11 @@
     // ('columns', side by side; 'interlinear', under each verse — see
     // __BTX.pageSplit) or in the side panel ('panel').
     churchLanguageLayout: { def: 'columns', norm: oneOf(['columns', 'interlinear', 'panel'], 'columns') },
+    // The language switch (GLOSSARY: Language switch): whether a Church
+    // language shows at all. One switch for every language, synced so off
+    // stays off on every chapter and computer; off keeps the languages ticked
+    // and the layout chosen. Anything but a stored `false` reads as on.
+    churchLanguageShown: { def: true, norm: bool(true) },
     sidebarWidth: {
       def: SIDEBAR_WIDTH_DEFAULT,
       norm: clampedInt(SIDEBAR_WIDTH_MIN, SIDEBAR_WIDTH_MAX, SIDEBAR_WIDTH_DEFAULT),

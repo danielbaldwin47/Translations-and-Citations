@@ -193,7 +193,8 @@ walk, `firstOffered`, is the arrangement's too); the fetching loops are
 The one pure rule for what the panel body shows (`arrangement` in the
 panel's pure core). Inputs: the chapter's texts, each marked offered or not
 (`chapterOffer`), the pick memory, the enabled Church languages, the split
-layout, whether the **no-translation line** is dismissed, the stored **mode**,
+layout, the **language switch**, whether the **no-translation line** is
+dismissed, the stored **mode**,
 this visit's mode click and this visit's dropdown pick. Answer: the effective
 mode, the body (Citations, loading, the **setup card**, the **beside card**, or
 a text), the text the Translation tab is about, the page's language (the
@@ -211,7 +212,8 @@ and `content.js` adds to the pick memory. With Translation stored:
 - nothing offers it and no Church language is on: the setup card;
 - nothing offers it and languages are on: Citations with the **no-translation
   line**, unless the reader clicked Translation on this visit, which shows the
-  setup card.
+  setup card; with the **language switch** off, no line.
+With the switch off the answer names no page's language, in either mode.
 `content.js` describes the chapter to it wherever an input moves
 (`panel.showChapter`, `panel.arrange`) and applies the answer.
 
@@ -298,6 +300,19 @@ the options page and the worker, *translation* (`enabledTranslations`,
 `defaultTranslationId`) means a Bible version: api.bible's, or the bundled
 World English Bible.
 
+**Language switch**:
+The synced boolean setting `churchLanguageShown` (default on, owned by
+`__BTX.settings`): whether a Church language shows at all. One switch for
+every language. Off hides the language from the page: the **arrangement**
+names no page's language, so there is no **page split** and no chapter check
+for it, and the **no-translation line** never shows. The languages stay
+ticked and `churchLanguageLayout` is untouched, so on returns the language in
+the layout the reader had. It is not a panel-handled key: a change, this
+tab's or another's, re-asks the arrangement through `content.js`'s settings
+subscriber. Unticking a language never writes it; adding one writes it on.
+_Avoid_: toggle, enable (a language is *enabled* by ticking it in settings;
+the switch says whether the enabled ones *show*)
+
 **Page split**:
 A Church-language chapter set into the site's own reading column, each block
 paired with the page's element of the same id (`__BTX.pageSplit`,
@@ -308,8 +323,8 @@ page's language until they choose it — a dropdown pick, or opening
 Translation where the tab shows it (the arrangement's `chooses`, remembered
 in the pick memory). Chosen, the same rules set English into the Spanish
 page. It is independent of the mode: it shows, in Translation and
-Citations alike, while the **split layout** is columns or interlinear and the
-**arrangement** names a page's language (`churchText.pageLanguage`): the
+Citations alike, while the **language switch** is on, the **split layout** is
+columns or interlinear and the **arrangement** names a page's language (`churchText.pageLanguage`): the
 first Church language in the pick memory that offers the chapter; with none,
 the text the Translation tab selects, only when that is a Church language. So
 John 3 with no pick and Español on shows no split (the tab selects the Bible),
@@ -317,7 +332,7 @@ while Alma 5 splits in Español. A Bible version never holds the page, so on
 John 3 NIV can show in the panel with Español on the page. A language whose
 chapter check failed never holds it. The next chapter keeps the language if
 it offers it, else the next pick that does, else no split. Taking it off the
-page is "In the panel" on the **beside card** or its beside-the-page line. The alternative to showing the
+page is the **language switch** (off), or "In the panel" on the **beside card** or its beside-the-page line. The alternative to showing the
 text in the panel.
 _Avoid_: overlay (that's its mechanism, not the feature)
 

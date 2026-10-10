@@ -82,6 +82,7 @@ async function handleGetEnabledTranslations() {
     translations: s.enabledTranslations,
     churchLanguages: s.churchLanguages,
     churchLanguageLayout: s.churchLanguageLayout,
+    churchLanguageShown: s.churchLanguageShown,
     defaultId: s.defaultTranslationId,
     provider: s.provider,
     hasKey: !!s.apiKey,

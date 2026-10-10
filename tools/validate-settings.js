@@ -31,7 +31,7 @@ function eq(actual, expected, msg) {
 // ---- Schema ----
 console.log('Schema:');
 const KEYS = [
-  'apiKey', 'provider', 'enabledTranslations', 'defaultTranslationId', 'churchLanguages', 'churchLanguageLayout',
+  'apiKey', 'provider', 'enabledTranslations', 'defaultTranslationId', 'churchLanguages', 'churchLanguageLayout', 'churchLanguageShown',
   'sidebarWidth', 'fontScale', 'citationView',
   'panelMode', 'panelCollapsed', 'scrollSync', 'noTranslationLineDismissed', 'welcomeSeen',
 ];
@@ -304,6 +304,17 @@ eq(S.defaults().churchLanguageLayout, 'columns', 'a Church language splits the p
 for (const v of ['columns', 'interlinear', 'panel']) eq(S.normalize({ churchLanguageLayout: v }).churchLanguageLayout, v, `${v} is a layout`);
 eq(S.normalize({ churchLanguageLayout: 'sideways' }).churchLanguageLayout, 'columns', 'an unknown layout falls back to columns');
 
+// The language switch (GLOSSARY: Language switch): one synced boolean, on
+// unless a stored `false` says otherwise.
+eq(S.defaults().churchLanguageShown, true, 'the language switch starts on');
+eq(S.normalize({ churchLanguageShown: true }).churchLanguageShown, true, 'switch true survives');
+eq(S.normalize({ churchLanguageShown: false }).churchLanguageShown, false, 'switch false survives');
+for (const bad of ['false', 0, 1, null, undefined, {}]) {
+  eq(S.normalize({ churchLanguageShown: bad }).churchLanguageShown, true,
+    `switch ${JSON.stringify(bad)} falls back to on (the language shows)`);
+}
+eq(S.diff({ churchLanguageShown: true }, { churchLanguageShown: false }), ['churchLanguageShown'], 'flipping the switch is a change');
+
 // ---- diff ----
 console.log('diff:');
 eq(S.diff(S.defaults(), S.defaults()), [], 'identical settings diff to []');
@@ -362,6 +373,13 @@ async function storageChecks() {
   S.subscribe((e) => events.push(e));
 
   eq(await S.get(), S.defaults(), 'get() on empty storage returns defaults');
+
+  await S.patch({ churchLanguageShown: false });
+  eq(store.btxSettings.churchLanguageShown, false, 'a write of the language switch survives a patch');
+  eq((await S.get()).churchLanguageShown, false, '...and reads back off');
+  await S.patch({ churchLanguageShown: true });
+  eq((await S.get()).churchLanguageShown, true, '...and back on');
+  events.length = 0; // the switch's round trip is not the notification count below
 
   // Our own write: applied to storage, echoed back flagged as own.
   await S.patch({ citationView: 'verse' });
