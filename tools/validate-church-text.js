@@ -371,6 +371,40 @@ eq(T.menuFor([SPA_ROW, JPN_ROW], { isBible: false }), [
 ], 'off the Bible: language rows stay unheaded, no Bible group');
 eq(T.menuFor([]), [], 'nothing on offer: an empty menu (the select hides)');
 
+console.log("bibleMenu / languageMenu (the Translation toolbar's two rows, #150):");
+{
+  const mixed = [WEB_ROW, SPA_ROW, NIV, JPN_ROW];
+  eq(T.bibleMenu(mixed, { isBible: true }), [
+    { id: 'bundled:engwebp', label: 'World English Bible (WEB)' },
+    { id: 'niv', label: 'New International Version (NIV)' },
+  ], 'the Bible menu holds the Bible rows only, in input order, as a flat list');
+  eq(T.bibleMenu(mixed, { isBible: false }), [], 'off the Bible the Bible menu is empty');
+  eq(T.bibleMenu([SPA_ROW], { isBible: true }), [], 'no Bible row, no Bible menu');
+  eq(T.bibleMenu([WEB_BUILT, WEB_API], { isBible: true }).map((i) => i.label),
+    ['World English Bible, built in (WEB)', 'World English Bible, api.bible (WEB)'],
+    "labels are labelFor's, twins told apart as in the mixed dropdown");
+  eq(T.languageMenu(mixed, { isBible: true }), [
+    { id: 'church:spa', label: 'Español — Spanish' },
+    { id: 'church:jpn', label: '日本語 — Japanese' },
+  ], 'the language menu holds the Church rows only, in input order');
+  eq(T.languageMenu(mixed, { isBible: false }), T.languageMenu(mixed, { isBible: true }),
+    'the language menu reads the same on and off the Bible');
+  eq(T.languageMenu([WEB_ROW, NIV], { isBible: true }), [], 'no Church row, no language menu');
+  if (ENG) {
+    const onRequest = T.textsFor({ isBible: false, bibleRows: [], languages: ['jpn'], pageLang: 'spa' });
+    eq(T.languageMenu(onRequest, { isBible: false }).map((i) => i.id), ['church:jpn', 'church:eng'],
+      'English offered on request on a page read in Spanish is a language row');
+    eq(T.languageMenu(T.textsFor({ isBible: false, bibleRows: [], languages: ['spa', 'jpn'], pageLang: 'spa' }), { isBible: false }).map((i) => i.id),
+      ['church:jpn', 'church:eng'], "the page's own language is not in the menu");
+  }
+  check(T.languageMenu(mixed).concat(T.bibleMenu(mixed, { isBible: true })).every((i) => Object.keys(i).sort().join() === 'id,label'),
+    'neither menu carries a heading: every entry is an item {id, label}');
+  eq(T.bibleMenu(), [], 'no list, an empty Bible menu');
+  eq(T.languageMenu(), [], '...and an empty language menu');
+  eq(T.menuFor([NIV, SPA_ROW], { isBible: true }).map((g) => g.label), ['Bible versions', 'Languages'],
+    'menuFor is untouched until the panel switches over (#154)');
+}
+
 console.log('languagesToAdd:');
 {
   const bofmLangs = T.languagesToAdd({ collection: 'bofm', pageLang: 'eng', enabled: [] });

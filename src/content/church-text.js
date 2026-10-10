@@ -76,6 +76,14 @@
  *       headed). Any other chapter: no Bible group, the language rows in one
  *       unheaded group. `isBible` is the caller's fact about the chapter, never
  *       inferred from the rows.
+ *     bibleMenu(list, { isBible }) -> [{ id, label }]
+ *     languageMenu(list) -> [{ id, label }]
+ *       the menus the Translation toolbar's two rows read (menuFor feeds the
+ *       one mixed dropdown until the panel switches over, #154). Each is one
+ *       kind of thing: a flat list in `list` order, labels from labelFor, no
+ *       group heading. bibleMenu: the Bible rows, empty off the Bible.
+ *       languageMenu: the Church rows on any chapter, an on-request English
+ *       row included, the page's own language already out (textsFor).
  *     languagesToAdd({ collection, pageLang, enabled }) -> [{ code, label }]
  *       the setup card's list: languages publishing the volume, not yet on,
  *       A–Z by English name and labelled English first ("Spanish — Español")
@@ -372,6 +380,24 @@
     return groups;
   }
 
+  // The two menus the Translation toolbar's rows read. Each is one kind of
+  // thing, so each is a flat list in input order with no group heading.
+  //   -> [{ id, label }]
+  // bibleMenu: the Bible rows (bundled and api.bible), on a Bible chapter only.
+  function bibleMenu(list, opts) {
+    const rows = Array.isArray(list) ? list : [];
+    if (!(opts && opts.isBible)) return [];
+    return rows.filter((r) => r.provider !== PROVIDER).map((r) => ({ id: r.id, label: labelFor(r, rows) }));
+  }
+
+  // languageMenu: the Church rows, wherever the chapter is. The page's own
+  // language is already out of `list` (textsFor), and English on request is
+  // already in it.
+  function languageMenu(list) {
+    const rows = Array.isArray(list) ? list : [];
+    return rows.filter((r) => r.provider === PROVIDER).map((r) => ({ id: r.id, label: labelFor(r, rows) }));
+  }
+
   // The languages the setup card offers to add: every Church language that
   // publishes this chapter's volume, minus the page's own and any already on.
   // One A–Z list by English name, each label English first ("Spanish —
@@ -563,7 +589,7 @@
   }
 
   const CORE = {
-    PROVIDER, ID_PREFIX, MRU_MAX, rowFor, textsFor, pickText, pickOrder, firstOffered, chapterOffer, pageLanguage, mruFrom, rememberPick, rememberTicked, labelFor, menuFor, languagesToAdd,
+    PROVIDER, ID_PREFIX, MRU_MAX, rowFor, textsFor, pickText, pickOrder, firstOffered, chapterOffer, pageLanguage, mruFrom, rememberPick, rememberTicked, labelFor, menuFor, bibleMenu, languageMenu, languagesToAdd,
     chapterUri, apiUrl, chapterFrom, blockElements, servesChapter, dirOf,
   };
 
