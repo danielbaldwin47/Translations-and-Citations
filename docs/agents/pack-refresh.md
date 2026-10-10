@@ -46,14 +46,17 @@ command from the repo root.
    ```
 
    Done when each build ends with the diff report showing the conference
-   under "Derived conferences", the vintage moved to `YYYY-MM`, and G's talks
-   and cites grown by the run's N and M with nothing removed.
+   under "Derived conferences", the vintage moved to `YYYY-MM`, G's talks
+   and cites grown by the run's N and M with nothing removed, and G's
+   "Footnote cites after" at least its "before" (the footnote flag `fn`).
 
 4. **Validators**: every `node tools/validate-*.js` and
    `node --test tools/test-talk-source.js`. Done when all pass;
    `validate-citations.js` checks both packs, including that derived cites
-   exist only for conferences newer than the base and that both packs share
-   the vintage.
+   exist only for conferences newer than the base, that both packs share
+   the vintage, and that the footnote flag `fn` is only ever `true` and only
+   on a corpus whose descriptor entry has `footnoteFlag` (with 1 Nephi 3:7's
+   footnote cites 139829 and 144963 flagged).
 
 5. **Browser check of one new talk.** Pick a chapter a derived talk cites:
 

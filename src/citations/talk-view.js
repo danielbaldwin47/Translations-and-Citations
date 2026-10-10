@@ -18,13 +18,13 @@
  *
  * Layout: a sticky header (Back, verse chip, external link; then the title),
  * then in the scroll body a byline (speaker, source, and talk-source's credit
- * line: the BYU fetch line, or "Text: Wikisource, revision N" linking the
- * permalink), the one-line highlight
- * hint until the first highlight exists, and the article. The cited passage is
- * marked (markCite: btx-cit-highlight tints the target, or its paragraph when
- * the target has no text, as a Journal of Discourses marker or page anchor
- * has none; btx-cit-passage puts the accent bar on that paragraph) and
- * revealed on open; the verse chip reveals it again.
+ * line: the BYU fetch line, "From churchofjesuschrist.org" linking the talk,
+ * or "Text from Wikisource" linking the permalink, revision N on hover), the
+ * one-line highlight hint until the first highlight exists, and the article.
+ * The cited passage is marked (markCite: btx-cit-highlight tints the target,
+ * or its paragraph when the target has no text, as a Journal of Discourses
+ * marker or page anchor has none; btx-cit-passage puts the accent bar on
+ * that paragraph) and revealed on open; the verse chip reveals it again.
  *
  * Re-mount: the panel caches a loaded talk and re-mounts the same DOM at its
  * scroll offset without calling open(), so every listener lives on the view's
@@ -277,11 +277,11 @@
     const a = el('a', cls, text);
     a.href = href;
     a.target = '_blank';
-    a.rel = 'noopener';
+    a.rel = 'noopener noreferrer';
     return a;
   }
 
-  // `credit` is talk-source's { text, href? } naming whose text this is;
+  // `credit` is talk-source's { text, href?, title? } naming whose text this is;
   // with an href the line links it.
   function byline(heading, credit) {
     const b = el('div', 'btx-talk-byline');
@@ -289,7 +289,11 @@
     if (heading.where) b.appendChild(el('div', 'btx-talk-where', heading.where));
     if (credit) {
       const line = el('div', 'btx-talk-credit', credit.href ? null : credit.text);
-      if (credit.href) line.appendChild(externalLink('btx-talk-credit-link', credit.href, credit.text));
+      if (credit.href) {
+        const link = externalLink('btx-talk-credit-link', credit.href, credit.text);
+        if (credit.title) link.title = credit.title;
+        line.appendChild(link);
+      }
       b.appendChild(line);
     }
     return b.childElementCount ? b : null;
