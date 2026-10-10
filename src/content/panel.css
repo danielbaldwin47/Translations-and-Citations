@@ -277,11 +277,14 @@
   font-weight: 600;
 }
 
-/* Consistent keyboard-focus ring on every interactive control in the panel. */
-#btx-root button:focus-visible,
-#btx-root select:focus-visible,
-#btx-root input:focus-visible,
-#btx-root a:focus-visible {
+/* The one keyboard-focus ring: every interactive control in the panel gets it
+   from this rule, so a control added later shows focus without a rule of its
+   own. `:where` keeps the specificity low, so a control whose outer ring would
+   be cut off (inside an `overflow: clip` card, at the window's edge) overrides
+   only `outline-offset` (and the colour, on an accent fill) with a rule of its
+   own, and none of those has to win a specificity contest. `:focus-visible`,
+   so a mouse click shows no ring. validate-focus-rings.js holds this. */
+#btx-root :where(button, select, input, a, summary, [role='button']):focus-visible {
   outline: 2px solid var(--btx-accent);
   outline-offset: 1px;
 }
@@ -530,8 +533,6 @@
 }
 #btx-root .btx-note-near .btx-note-text { flex: 1 1 auto; min-width: 0; }
 #btx-root .btx-note-near .btx-note-x { flex: 0 0 auto; width: 28px; height: 28px; margin: -4px -4px 0 0; padding: 0; }
-#btx-root .btx-note-link:focus-visible,
-#btx-root .btx-note-x:focus-visible { outline: 2px solid var(--btx-accent); outline-offset: 1px; }
 
 /* A text action that reads as a link. */
 #btx-root .btx-link {
@@ -722,7 +723,6 @@
 #btx-root .btx-welcome-back[hidden] { display: none; }
 #btx-root .btx-welcome-skip { margin-right: auto; }
 #btx-root .btx-welcome-next { min-width: 72px; }
-#btx-root .btx-welcome-foot button:focus-visible { outline: 2px solid var(--btx-accent); outline-offset: 2px; }
 
 /* The ring round the step's control (panel.js places it); it glides to the
    next control on a step change, not while a resize re-places it. */
@@ -785,6 +785,10 @@
   transition: filter 0.12s;
 }
 #btx-root .btx-tab:hover { filter: brightness(1.08); }
+/* The tab is filled with the accent and sits against the window's edge, so an
+   outer accent ring would vanish into the fill and be cut off on the right:
+   the ring is inset and in the colour of the icon. */
+#btx-root .btx-tab:focus-visible { outline-color: var(--btx-on-accent); outline-offset: -4px; }
 #btx-root .btx-tab svg { display: block; }
 
 #btx-root.btx-collapsed { width: auto; }
