@@ -10,12 +10,13 @@
  * footer line from the pack vintage (vintageLine, also the options page's About card),
  * both citation-layout orderings, which groups start open, snippet cleaning and
  * quoting, every label (summary, counts, verse, range, screen-reader), and the
- * filter / collapse-all state transitions. It also owns the talk reader's
+ * filter / collapse-all state transitions (the filter's words, FILTER_COPY, and
+ * its verse-query grammar, verseQuery). It also owns the talk reader's
  * heading (talkHeading: title, byline, verse chip). cit-panel is a thin adapter from
  * these descriptors to elements, which keeps this module reachable from Node
  * (tools/validate-cit-view-model.js). The adapter owns only copy that depends
- * on no data: the loading line, the filter placeholder, the Clear filter
- * button and the verse text read from the page.
+ * on no data: the loading line, the Clear filter button and the verse text
+ * read from the page.
  *
  * A **talk** is one citing sermon/discourse (entry.talkId); a cite is one
  * passage of it. Every count and every list shows talks: a talk that cites the
@@ -26,7 +27,8 @@
  * can map element <-> descriptor and the toolbar can key its state off them):
  *
  *   viewModel { layout, empty, emptyText, summary, talks, showTools, groups,
- *               focusUid, footer, footerTitle }   footer: "Citations through April 2026", or null;
+ *               focusUid, footer, footerTitle, chapter }   chapter: opts.chapter as a string (verseQuery's chapter prefix);
+ *               footer: "Citations through April 2026", or null;
  *               footerTitle: its hover text, "Includes talks through the April 2026 general conference", or null
  *   group { uid, kind:'verse'|'sourceType', key, verse, label, title, a11yLabel,
  *           count, countClass, open, focus, children:[group], rows:[row] }
@@ -34,7 +36,8 @@
  *           for its source type ("Sermons by early Church leaders, published 1854–1886");
  *           null on a verse header and when the pack carries no note
  *   row   { uid, citId, talkId, speaker, rangeLabel, rangeTitle, sub, snippet, a11yLabel,
- *           search, entry }   rangeTitle: the badge's hover text ("Cites verses 1 to 5"), null with no badge
+ *           search, verses, entry }   verses: the row's in-chapter verses, ascending (a verse query matches these);
+ *           rangeTitle: the badge's hover text ("Cites verses 1 to 5"), null with no badge
  *
  * By verse fills group.children (verse -> source-type group -> rows); by
  * source hangs rows straight off one group per source type. Only groups are
@@ -442,6 +445,7 @@
       snippet: excerptSource(entry, fetched),
       a11yLabel: [speaker, title, where, rangeVerses && spokenVerses(rangeVerses)].filter(Boolean).join(', '),
       search: haystack.filter(Boolean).join(' ').toLowerCase(),
+      verses: talk.verses,
       entry,
     };
   }
@@ -582,7 +586,58 @@
       groups,
       focusUid: focused ? focused.uid : null,
       footer, footerTitle,
+      chapter: opts.chapter != null ? String(opts.chapter) : null,
     };
+  }
+
+  // --- verse queries ---------------------------------------------------------
+
+  // The filter box's words. The filter also matches source labels and bundled
+  // snippets, but a reader looks for a speaker, a title or a verse. The label
+  // drops the ellipsis a screen reader would speak.
+  const FILTER_COPY = {
+    placeholder: 'Filter by speaker, title or verse…',
+    label: 'Filter by speaker, title or verse',
+  };
+
+  // A filter text made only of verse tokens is a verse query: verseQuery
+  // returns its verses, ascending, and filterPlan matches each row by the
+  // verses its range badge reads (row.verses). Anything else returns null and
+  // is matched as text, so a title with a number ("Doctrine and Covenants 76")
+  // is still found by its words. Case and spacing don't matter. Tokens:
+  //   "v", "v.", "vv.", "verse", "verses"   optional, before any number
+  //   "14:27"     a chapter prefix; counts only when it names this chapter
+  //               (on John 15 "14:27" is text: a Journal of Discourses place)
+  //   "27-29"     a range, with - – or —; a backwards range reads forwards;
+  //               both ends may carry the chapter ("14:27-14:29")
+  //   "27, 29"    a list, separated by commas, semicolons or spaces
+  // Edges, chosen for the reader:
+  //   - "27-" and "27," (mid-keystroke) keep verse 27, so the list doesn't
+  //     flash to text matches between "27" and "27-29";
+  //   - a verse is 1–999: "2006" is a year and "0" no verse, so either
+  //     makes the whole query text ("27 2006" too);
+  //   - "v" or "14:" alone holds no verse, so it is text.
+  const isVerseNumber = (n) => n >= 1 && n < NOTE_VERSE;
+  const VERSE_ITEM = /^(?:(\d+):)?(\d+)(?:-(?:(?:(\d+):)?(\d+))?)?$/;
+
+  function verseQuery(text, chapter) {
+    const t = String(text || '').trim().toLowerCase()
+      .replace(/(^|[\s,;])(?:verses?|vv?)\.?\s*(?=\d)/g, '$1')
+      .replace(/\s*[-–—]\s*/g, '-');
+    const items = t.split(/[\s,;]+/).filter(Boolean);
+    if (!items.length) return null;
+    const verses = new Set();
+    const ch = Number(chapter);
+    for (const item of items) {
+      const m = VERSE_ITEM.exec(item);
+      if (!m) return null;
+      if ((m[1] != null && Number(m[1]) !== ch) || (m[3] != null && Number(m[3]) !== ch)) return null;
+      const a = Number(m[2]);
+      const b = m[4] != null ? Number(m[4]) : a;
+      if (!isVerseNumber(a) || !isVerseNumber(b)) return null;
+      for (let v = Math.min(a, b); v <= Math.max(a, b); v++) verses.add(v);
+    }
+    return Array.from(verses).sort((x, y) => x - y);
   }
 
   // --- toolbar state -------------------------------------------------------
@@ -603,7 +658,8 @@
     return group.rows.concat(group.children.reduce((acc, c) => acc.concat(c.rows), []));
   }
 
-  // Hides rows that miss the query and groups left with no visible row, opens
+  // Hides rows that miss the query (a verse query matches a row's verses, any
+  // other text its search haystack) and groups left with no visible row, opens
   // the survivors, and — on the transition into filtering — captures the open
   // state so clearing the box can restore it. Every plan also carries what the
   // chrome shows for it: per-group counts and screen-reader labels (visible
@@ -617,9 +673,13 @@
     const counts = {};
     const a11y = {};
     const matched = new Set();
+    const verses = filtering ? verseQuery(shown, viewModel.chapter) : null;
+    const matches = verses
+      ? (row) => row.verses.some((v) => verses.includes(v))
+      : (row) => row.search.includes(q);
 
     for (const row of allRows(viewModel)) {
-      const hit = !filtering || row.search.includes(q);
+      const hit = !filtering || matches(row);
       hidden[row.uid] = !hit;
       if (hit) matched.add(row.talkId);
     }
@@ -638,7 +698,9 @@
     });
 
     const anyMatch = matched.size > 0;
-    const noResults = filtering && !anyMatch ? `No talks match “${shown}”.` : null;
+    const noResults = !filtering || anyMatch ? null
+      : verses ? `No talks cite ${verses.length > 1 ? 'verses' : 'verse'} ${formatVerses(verses)}.`
+        : `No talks match “${shown}”.`;
     const plan = {
       filtering, anyMatch, hidden, open, preFilterOpen, counts, a11y,
       summary: filtering
@@ -717,8 +779,8 @@
 
   const VM = {
     formatVerses, verseLabel, anchorVerses, vintageLine, vintageTitle, cleanSnippet, quoteSnippet, excerptText, verseUid,
-    buildView, talkHeading,
-    initialState, filterPlan, applyPlan, collapseAllPlan, collapseLabel, allRows,
+    buildView, talkHeading, verseQuery,
+    FILTER_COPY, initialState, filterPlan, applyPlan, collapseAllPlan, collapseLabel, allRows,
   };
 
   if (typeof module !== 'undefined' && module.exports) module.exports = VM;
