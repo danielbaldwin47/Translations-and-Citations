@@ -416,8 +416,10 @@ validators — go there before changing behaviour.
   changes arrive via `renderMode` instead. Reset `currentKey = null` to force a
   re-render.
 - Citations filter: `citVM.filterPlan` decides what hides/opens and restores
-  pre-filter open state on clear; `cit-panel` mirrors the plan onto
-  `[data-btx-uid]` nodes via a capture-phase `toggle` listener.
+  pre-filter open state on clear; a query made only of verse tokens
+  (`citVM.verseQuery`) filters by the rows' verses, anything else is text;
+  `cit-panel` mirrors the plan onto `[data-btx-uid]` nodes via a
+  capture-phase `toggle` listener.
 - Talk reader header and open citation group headers are `position:sticky`
   inside their `.btx-view`; each sticky `top` and negative top margin must sum
   to zero (mechanism in the CSS comments; nested group headers offset by
