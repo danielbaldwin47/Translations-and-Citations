@@ -10,8 +10,10 @@
  * footer line from the pack vintage (vintageLine, also the options page's About card),
  * both citation-layout orderings, which groups start open, snippet cleaning and
  * quoting, every label (summary, counts, verse, range, screen-reader), and the
- * filter / collapse-all state transitions (the filter's words, FILTER_COPY, and
- * its verse-query grammar, verseQuery). It also owns the talk reader's
+ * filter / collapse-all state transitions (the toolbar's words, FILTER_COPY, its
+ * verse-query grammar, verseQuery, the "incl. v. 27" note a range row shows
+ * under one, matchNote, and the other-chapter no-results line,
+ * otherChapterQuery / otherChapterLine). It also owns the talk reader's
  * heading (talkHeading: title, byline, verse chip). cit-panel is a thin adapter from
  * these descriptors to elements, which keeps this module reachable from Node
  * (tools/validate-cit-view-model.js). The adapter owns only copy that depends
@@ -27,20 +29,26 @@
  * can map element <-> descriptor and the toolbar can key its state off them):
  *
  *   viewModel { layout, empty, emptyText, summary, talks, showTools, groups,
- *               focusUid, footer, footerTitle, chapter }   chapter: opts.chapter as a string (verseQuery's chapter prefix);
+ *               focusUid, footer, footerTitle, chapter, fullName }   chapter: opts.chapter as a string (verseQuery's chapter prefix);
+ *               fullName: the book's name ("John"), for the other-chapter no-results line;
  *               footer: "Citations through April 2026", or null;
  *               footerTitle: its hover text, "Includes talks through the April 2026 general conference", or null
  *   group { uid, kind:'verse'|'sourceType', key, verse, label, title, a11yLabel,
- *           count, countClass, open, focus, children:[group], rows:[row] }
+ *           count, countClass, open, focus, queryOnly, children:[group], rows:[row] }
+ *           queryOnly: By verse only; the group holds query-only rows alone, so it
+ *           counts 0 and shows only under a verse query (verseGroups)
  *           title: a source-type header's hover text, the descriptor's `sourceNote`
  *           for its source type ("Sermons by early Church leaders, published 1854–1886");
  *           null on a verse header and when the pack carries no note
- *   row   { uid, citId, talkId, speaker, rangeLabel, rangeTitle, sub, snippet, footnoteLabel, a11yLabel,
- *           search, verses, entry }   verses: what a verse query matches, ascending: the talk's
- *           in-chapter verses (By verse: only the runs listed at that verse, see rowDesc);
+ *   row   { uid, citId, talkId, speaker, rangeLabel, rangeTitle, sub, snippet, footnote, a11yLabel,
+ *           search, verses, queryOnly, entry }   verses: what a verse query matches, ascending: the
+ *           talk's in-chapter verses (By verse: the group's verse alone, see rowDesc);
+ *           queryOnly: By verse only; a talk that runs through the group's verse without
+ *           being listed there, shown only under a verse query naming that verse;
  *           rangeTitle: the badge's hover text ("Cites verses 1 to 5"), null with no badge
- *           footnoteLabel: "Cited in a footnote" when the row's cite is flagged (entry.inFootnote), else null;
- *           shown under the excerpt and last in a11yLabel
+ *           footnote: { text: "in a footnote", title } when the row's cite is flagged
+ *           (entry.inFootnote), else null; text ends the talk line ("· in a footnote") and
+ *           a11yLabel, title is its hover text
  *
  * By verse fills group.children (verse -> source-type group -> rows); by
  * source hangs rows straight off one group per source type. Only groups are
@@ -432,28 +440,31 @@
 
   // --- descriptors ---------------------------------------------------------
 
-  // The line under a row's excerpt when its cite (the one the row opens) sits
-  // in one of the talk's notes, which is why the excerpt may be about
-  // something else. The build's `fn` flag (entry.inFootnote) decides.
-  const FOOTNOTE_LABEL = 'Cited in a footnote';
+  // What a row's talk line adds when its cite (the one the row opens) sits in
+  // one of the talk's notes, which is why the excerpt may be about something
+  // else: the words after "title · month year", and their hover text. The
+  // build's `fn` flag (entry.inFootnote) decides.
+  const FOOTNOTE_LABEL = 'in a footnote';
+  const FOOTNOTE_TITLE = 'The verse is cited in a footnote; the excerpt is the paragraph the note belongs to.';
 
   // verses.badged: the verses to badge, or null for no badge. verses.listed:
-  // the verses this row stands for in its group, which a verse query matches
-  // (row.verses): the talk's verses in By source; in By verse only the runs
-  // listed at this verse, so a talk citing verses 3 and 27 matches "27" under
-  // Verse 27 alone, not again under Verse 3.
+  // the verses this row stands for, which a verse query matches (row.verses):
+  // the talk's verses in By source; in By verse the group's verse alone, so
+  // a verse query shows a talk under the verses it names and nowhere else.
+  // verses.queryOnly: a By verse row of a talk whose cites only run through
+  // the group's verse, shown under a verse query alone (verseGroups).
   // The filter haystack holds snippet text only for a bundled corpus: a
   // fetched excerpt depends on what has scrolled into view, and filtering
   // must not.
   function rowDesc(talk, type, uidPrefix, i, verses) {
-    const { badged, listed } = verses;
+    const { badged, listed, queryOnly } = verses;
     const entry = talk.entry;
     const s = entry.source || {};
     const where = shortLabel(s);
     const speaker = s.sp || 'Unknown speaker';
     const title = titleOf(s);
     const fetched = type.fetched.includes(corpusOf(entry));
-    const footnoteLabel = entry.inFootnote === true ? FOOTNOTE_LABEL : null;
+    const footnote = entry.inFootnote === true ? { text: FOOTNOTE_LABEL, title: FOOTNOTE_TITLE } : null;
     const haystack = [s.sp, title, s.lbl, where]
       .concat(fetched ? [] : talk.cites.map((c) => cleanSnippet(c.snippet)));
     return {
@@ -465,10 +476,11 @@
       rangeTitle: badged ? citesTitle(badged) : null,
       sub: [title, where].filter(Boolean).join(' · ') || null,
       snippet: excerptSource(entry, fetched),
-      footnoteLabel,
-      a11yLabel: [speaker, title, where, badged && spokenVerses(badged), footnoteLabel].filter(Boolean).join(', '),
+      footnote,
+      a11yLabel: [speaker, title, where, badged && spokenVerses(badged), footnote && footnote.text].filter(Boolean).join(', '),
       search: haystack.filter(Boolean).join(' ').toLowerCase(),
       verses: listed,
+      queryOnly: queryOnly === true,
       entry,
     };
   }
@@ -478,7 +490,7 @@
   function groupDesc(fields) {
     const g = Object.assign({
       uid: '', kind: 'verse', key: '', verse: null, label: '', title: null, count: 0, countClass: null,
-      open: false, focus: false, children: [], rows: [],
+      open: false, focus: false, queryOnly: false, children: [], rows: [],
     }, fields);
     g.a11yLabel = groupA11yLabel(g, g.count);
     return g;
@@ -488,34 +500,34 @@
     return `${group.label}, ${talkCount(count)}`;
   }
 
-  // The verses a by-verse row stands for under Verse v: the run each of its
-  // cites is listed for there.
-  function listedAt(talk, v) {
-    const vs = new Set();
-    for (const c of talk.cites) for (const x of runAt(c.versesInChapter || [], v)) vs.add(x);
-    return Array.from(vs).sort((a, b) => a - b);
-  }
-
   // Layout 'verse': verse -> source-type group -> one row per talk. A spanning
   // cite is listed at each of its anchor verses, badged with its full coverage
   // (e.g. "vv. 3–6, 10–11"). Source-type groups start open, so one click on a
   // verse shows its talks; they stay collapsible for skipping past a long one.
+  // Each group also carries, as query-only rows, the talks whose cites run
+  // through its verse without being listed there (a "vv. 1–31" cite under
+  // Verse 27), newest first among the rest: a verse query shows them, so the
+  // queried verse's group holds every talk that takes it in. A verse only a
+  // run takes in gets a query-only group. Query-only rows and groups count
+  // nothing and never take the focus verse.
   function verseGroups(data, types, focusVerse) {
     const groups = [];
     for (const v of data.verseOrder) {
-      const entries = (data.byVerse[v] || [])
-        .map((id) => data.entries[id])
-        .filter((e) => e && anchorVerses(e.versesInChapter).includes(v));
-      if (!entries.length) continue;
+      const all = (data.byVerse[v] || []).map((id) => data.entries[id]).filter(Boolean);
+      const listed = all.filter((e) => anchorVerses(e.versesInChapter).includes(v));
+      const listedTalks = new Set(listed.map(talkIdOf));
+      const through = all.filter((e) => !listedTalks.has(talkIdOf(e)));
+      if (!all.length) continue;
 
       const uid = verseUid(v);
-      const focus = focusVerse != null && String(v) === String(focusVerse);
       const children = [];
       let count = 0;
       for (const t of types) {
-        const talks = newestFirst(byTalk(entries.filter((e) => t.corpora.includes(corpusOf(e)))));
-        if (!talks.length) continue;
-        count += talks.length;
+        const ofType = (es) => byTalk(es.filter((e) => t.corpora.includes(corpusOf(e))));
+        const own = ofType(listed);
+        const extra = ofType(through).map((talk) => Object.assign(talk, { queryOnly: true }));
+        if (!own.length && !extra.length) continue;
+        count += own.length;
         const childUid = `${uid}/${t.key}`;
         children.push(groupDesc({
           uid: childUid,
@@ -523,19 +535,22 @@
           key: t.key,
           label: t.label,
           title: t.note,
-          count: talks.length,
+          count: own.length,
           countClass: `btx-grp-${t.key}`,
           open: true,
-          rows: talks.map((talk, i) => rowDesc(talk, t, childUid, i, {
+          queryOnly: !own.length,
+          rows: newestFirst(own.concat(extra)).map((talk, i) => rowDesc(talk, t, childUid, i, {
             badged: talk.verses.length > 1 ? talk.verses : null,
-            listed: listedAt(talk, v),
+            listed: [v],
+            queryOnly: talk.queryOnly,
           })),
         }));
       }
 
+      const focus = count > 0 && focusVerse != null && String(v) === String(focusVerse);
       groups.push(groupDesc({
         uid, kind: 'verse', key: String(v), verse: v, label: groupLabel(v),
-        count, open: focus, focus, children,
+        count, open: focus, focus, queryOnly: count === 0, children,
       }));
     }
     return groups;
@@ -621,17 +636,20 @@
       focusUid: focused ? focused.uid : null,
       footer, footerTitle,
       chapter: opts.chapter != null ? String(opts.chapter) : null,
+      fullName: opts.fullName || null,
     };
   }
 
   // --- verse queries ---------------------------------------------------------
 
-  // The filter box's words. The filter also matches source labels and bundled
+  // The toolbar's words. The filter also matches source labels and bundled
   // snippets, but a reader looks for a speaker, a title or a verse. The label
-  // drops the ellipsis a screen reader would speak.
+  // drops the ellipsis a screen reader would speak. `collapse` is the button's
+  // one label, which also sizes its slot while it is hidden (collapseLabel).
   const FILTER_COPY = {
     placeholder: 'Filter by speaker, title or verse…',
     label: 'Filter by speaker, title or verse',
+    collapse: 'Collapse all',
   };
 
   // A filter text made only of verse tokens is a verse query: verseQuery
@@ -674,6 +692,28 @@
     return Array.from(verses).sort((x, y) => x - y);
   }
 
+  // A filter text that is a verse query for another chapter ("15:27" on John
+  // 14, every chapter prefix naming that one chapter): { chapter, verses },
+  // else null. filterPlan asks only when nothing matched it as text.
+  function otherChapterQuery(text, chapter) {
+    const m = /(\d+)\s*:/.exec(String(text || ''));
+    if (!m || Number(m[1]) === Number(chapter)) return null;
+    const verses = verseQuery(text, m[1]);
+    return verses ? { chapter: Number(m[1]), verses } : null;
+  }
+
+  // Its no-results line: why, and a verse number to type instead, one a talk
+  // here cites: the first verse asked for that one does, else the chapter's
+  // first cited verse. "15:27 isn't in John 14. Type a verse number, like 27."
+  function otherChapterLine(viewModel, ref) {
+    const cited = new Set();
+    for (const row of allRows(viewModel)) for (const v of row.verses) if (isVerseNumber(v)) cited.add(v);
+    const tryVerse = ref.verses.find((v) => cited.has(v)) || Math.min.apply(null, Array.from(cited));
+    const here = [viewModel.fullName, viewModel.chapter].filter(Boolean).join(' ') || 'this chapter';
+    return `${ref.chapter}:${formatVerses(ref.verses)} isn’t in ${here}.`
+      + (Number.isFinite(tryVerse) ? ` Type a verse number, like ${tryVerse}.` : '');
+  }
+
   // --- toolbar state -------------------------------------------------------
   // The filter box and Collapse all run on a plain state object —
   // { open: {uid:bool}, preFilterOpen: {uid:bool}|null } — and the adapter
@@ -692,12 +732,24 @@
     return group.rows.concat(group.children.reduce((acc, c) => acc.concat(c.rows), []));
   }
 
+  // Why a By source row matched a verse query, when its badge reads more than
+  // was asked for ("vv. 1–31" for "27"): the verses it matched, shown beside
+  // the badge ("incl. v. 27") and added to the row's screen-reader name.
+  // Null when every verse the row cites was asked for.
+  function matchNote(row, verses) {
+    const hit = row.verses.filter((v) => verses.includes(v));
+    if (hit.length === row.verses.length) return null;
+    return { text: 'incl. ' + verseLabel(hit), a11yLabel: `${row.a11yLabel}, including ${spokenVerses(hit)}` };
+  }
+
   // Hides rows that miss the query (a verse query matches a row's verses, any
   // other text its search haystack) and groups left with no visible row, opens
   // the survivors, and — on the transition into filtering — captures the open
   // state so clearing the box can restore it. Every plan also carries what the
   // chrome shows for it: per-group counts and screen-reader labels (visible
-  // talks), the summary line, the no-results line, and the button label.
+  // talks), the summary line, the no-results line, the button label, and
+  // matchNotes ({ [row uid]: matchNote }, By source under a verse query).
+  // Query-only rows show under a verse query alone.
   function filterPlan(viewModel, query, state) {
     const shown = String(query || '').trim();
     const q = shown.toLowerCase();
@@ -710,12 +762,15 @@
     const verses = filtering ? verseQuery(shown, viewModel.chapter) : null;
     const matches = verses
       ? (row) => row.verses.some((v) => verses.includes(v))
-      : (row) => row.search.includes(q);
+      : (row) => !row.queryOnly && row.search.includes(q);
 
+    const matchNotes = {};
     for (const row of allRows(viewModel)) {
-      const hit = !filtering || matches(row);
+      const hit = filtering ? matches(row) : !row.queryOnly;
       hidden[row.uid] = !hit;
       if (hit) matched.add(row.talkId);
+      const note = hit && verses && viewModel.layout === 'source' && matchNote(row, verses);
+      if (note) matchNotes[row.uid] = note;
     }
 
     const preFilterOpen = filtering
@@ -732,11 +787,13 @@
     });
 
     const anyMatch = matched.size > 0;
+    const elsewhere = !filtering || anyMatch || verses ? null : otherChapterQuery(shown, viewModel.chapter);
     const noResults = !filtering || anyMatch ? null
       : verses ? `No talks cite ${verses.length > 1 ? 'verses' : 'verse'} ${formatVerses(verses)}.`
-        : `No talks match “${shown}”.`;
+        : elsewhere ? otherChapterLine(viewModel, elsewhere)
+          : `No talks match “${shown}”.`;
     const plan = {
-      filtering, anyMatch, hidden, open, preFilterOpen, counts, a11y,
+      filtering, anyMatch, hidden, open, preFilterOpen, counts, a11y, matchNotes,
       summary: filtering
         ? `${matched.size} of ${talkCount(viewModel.talks)} ${matched.size === 1 ? 'matches' : 'match'}`
         : viewModel.summary,
@@ -770,9 +827,10 @@
     return { open };
   }
 
-  // The button's label, or null to hide it when there is nothing to collapse.
+  // The button's label, or null to hide it when there is nothing to collapse
+  // (hidden, it keeps its slot, so the filter box beside it never jumps).
   function collapseLabel(viewModel, state, hidden) {
-    return visibleTop(viewModel, hidden).some((g) => state.open[g.uid]) ? 'Collapse all' : null;
+    return visibleTop(viewModel, hidden).some((g) => state.open[g.uid]) ? FILTER_COPY.collapse : null;
   }
 
   // Every citation row in the tree, in display order. The adapter uses it to

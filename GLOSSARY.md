@@ -119,9 +119,10 @@ references-only corpus, the cite's target paragraph fetched when the row comes
 on screen inside a source-type group the reader opened. While the fetch is
 pending the row reserves the excerpt's size from a per-cite character count.
 A row whose cite carries the build's `fn` flag (the cite sits in a note of its
-talk) shows the line "Cited in a footnote" under the excerpt, so a reader sees
-why the excerpt may be about something else. The line is part of the row's
-accessible name and outside the excerpt's reserve; opening the row is unchanged.
+talk) ends its talk line with "· in a footnote", so a reader sees why the
+excerpt may be about something else; its hover says the excerpt is the
+paragraph the note belongs to. The words are part of the row's accessible name
+and outside the excerpt's reserve; opening the row is unchanged.
 _Avoid_: preview, teaser
 
 **Body passage**:
@@ -134,8 +135,9 @@ A run of consecutive verses covered by one cite (e.g. vv. 3–5).
 
 **Anchor verse**:
 The first verse of each contiguous range a cite covers. In the by-verse layout
-a talk appears once per anchor verse, not under every verse in the range.
-Verse 1000 is a chapter's closing note (JS—H 1), shown as "Note".
+a talk appears once per anchor verse, not under every verse in the range,
+until a verse query: then the queried verse's group holds every talk whose
+cites take it in. Verse 1000 is a chapter's closing note (JS—H 1), shown as "Note".
 
 **uniqueTotal**:
 The count of distinct cites in a chapter. It only decides the empty state; the
