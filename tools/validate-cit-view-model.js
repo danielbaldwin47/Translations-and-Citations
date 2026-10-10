@@ -773,6 +773,20 @@ console.log('Verse queries:');
   eq(v27.summary, plan(bySource, '27').summary, 'both layouts count the same talks');
   eq(v27.counts['v:25'], 1, 'a group counts its matching talks');
 
+  // A cite of verses 3 and 27 is listed under Verse 3 and again under Verse
+  // 27; a "27" query shows it once, where verse 27 is.
+  const split = makeData([
+    { citId: 'u', verses: [3, 27], source: gc('Uchtdorf', 'Strength of Youth', '2022-10') },
+    { citId: 'w', verses: [1, 2, 3], source: gc('Gong', 'Eastertide', '2026-04') },
+  ].concat(FILLER));
+  const splitView = VM.buildView(split, { view: 'verse', fullName: 'John', chapter: '14' });
+  const u27 = VM.filterPlan(splitView, '27', VM.initialState(splitView));
+  deep(splitView.groups.filter((g) => !u27.hidden[g.uid]).map((g) => g.uid), ['v:27'], 'a talk shows under the verse the query names');
+  eq(u27.summary, '1 of 12 talks matches', 'counted once');
+  const u3 = VM.filterPlan(splitView, '3', VM.initialState(splitView));
+  deep(visibleRowIds(splitView, u3), ['w', 'u'], 'verse 3: the 1–3 run (under Verse 1) and the 3 run (under Verse 3)');
+  deep(splitView.groups.filter((g) => !u3.hidden[g.uid]).map((g) => g.uid), ['v:1', 'v:3'], 'each under the verse its run starts at');
+
   // A verse no talk cites: the no-results line names the verse.
   const none = VM.filterPlan(byVerse, '28', state);
   eq(none.anyMatch, false, 'nothing cites verse 28 on its own');

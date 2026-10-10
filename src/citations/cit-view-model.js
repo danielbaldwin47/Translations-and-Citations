@@ -36,7 +36,8 @@
  *           for its source type ("Sermons by early Church leaders, published 1854–1886");
  *           null on a verse header and when the pack carries no note
  *   row   { uid, citId, talkId, speaker, rangeLabel, rangeTitle, sub, snippet, a11yLabel,
- *           search, verses, entry }   verses: the row's in-chapter verses, ascending (a verse query matches these);
+ *           search, verses, entry }   verses: what a verse query matches, ascending: the talk's
+ *           in-chapter verses (By verse: only the runs listed at that verse, see rowDesc);
  *           rangeTitle: the badge's hover text ("Cites verses 1 to 5"), null with no badge
  *
  * By verse fills group.children (verse -> source-type group -> rows); by
@@ -164,6 +165,17 @@
       if (i === 0 || vs[i] !== vs[i - 1] + 1) anchors.push(vs[i]);
     }
     return anchors;
+  }
+
+  // The run of an ascending verse list that starts at anchor v, the verses a
+  // cite is listed for under Verse v: runAt([3,4,5,10,11], 10) -> [10,11];
+  // [] when v is not an anchor of vs.
+  function runAt(vs, v) {
+    const i = (vs || []).indexOf(v);
+    if (i < 0 || (i > 0 && vs[i - 1] === v - 1)) return [];
+    let j = i + 1;
+    while (j < vs.length && vs[j] === vs[j - 1] + 1) j++;
+    return vs.slice(i, j);
   }
 
   // The uid of verse v's group in the by-verse layout, so the adapter can find
@@ -421,11 +433,15 @@
 
   // --- descriptors ---------------------------------------------------------
 
-  // rangeVerses: the verses to badge, or null for no badge.
+  // rangeVerses: the verses to badge, or null for no badge. listedVerses: the
+  // verses this row stands for in its group, which a verse query matches
+  // (row.verses): the talk's verses in By source; in By verse only the runs
+  // listed at this verse, so a talk citing verses 3 and 27 matches "27" under
+  // Verse 27 alone, not again under Verse 3.
   // The filter haystack holds snippet text only for a bundled corpus: a
   // fetched excerpt depends on what has scrolled into view, and filtering
   // must not.
-  function rowDesc(talk, type, uidPrefix, i, rangeVerses) {
+  function rowDesc(talk, type, uidPrefix, i, rangeVerses, listedVerses) {
     const entry = talk.entry;
     const s = entry.source || {};
     const where = shortLabel(s);
@@ -445,7 +461,7 @@
       snippet: excerptSource(entry, fetched),
       a11yLabel: [speaker, title, where, rangeVerses && spokenVerses(rangeVerses)].filter(Boolean).join(', '),
       search: haystack.filter(Boolean).join(' ').toLowerCase(),
-      verses: talk.verses,
+      verses: listedVerses || talk.verses,
       entry,
     };
   }
@@ -463,6 +479,14 @@
 
   function groupA11yLabel(group, count) {
     return `${group.label}, ${talkCount(count)}`;
+  }
+
+  // The verses a by-verse row stands for under Verse v: the run each of its
+  // cites is listed for there.
+  function listedAt(talk, v) {
+    const vs = new Set();
+    for (const c of talk.cites) for (const x of runAt(c.versesInChapter || [], v)) vs.add(x);
+    return Array.from(vs).sort((a, b) => a - b);
   }
 
   // Layout 'verse': verse -> source-type group -> one row per talk. A spanning
@@ -495,7 +519,8 @@
           count: talks.length,
           countClass: `btx-grp-${t.key}`,
           open: true,
-          rows: talks.map((talk, i) => rowDesc(talk, t, childUid, i, talk.verses.length > 1 ? talk.verses : null)),
+          rows: talks.map((talk, i) => rowDesc(talk, t, childUid, i, talk.verses.length > 1 ? talk.verses : null,
+            listedAt(talk, v))),
         }));
       }
 
