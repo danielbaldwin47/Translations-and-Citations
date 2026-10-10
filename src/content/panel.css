@@ -792,17 +792,23 @@
   align-items: center;
   justify-content: center;
   /* The panel's surface, not the accent: the icon is its own teal tile, which
-     the light theme's accent is almost the colour of. The accent edge keeps
-     the tab seen against a dark page too. */
+     the light theme's accent is almost the colour of. The edge is neutral at
+     rest: an accent edge beside the focus ring read as a double outline
+     (#102 C2); the shadow keeps the tab seen against the page. */
   background: var(--btx-bg);
-  border: 1px solid var(--btx-accent);
+  border: 1px solid var(--btx-border);
   border-right: none;
   border-radius: 8px 0 0 8px;
   cursor: pointer;
   box-shadow: -2px 2px 8px rgba(0, 0, 0, 0.18);
-  transition: filter 0.12s;
+  transition: background-color 0.12s, border-color 0.12s;
 }
-#btx-root .btx-tab:hover { filter: brightness(1.08); }
+/* Hover says "press me": a light accent wash and the accent edge. (A
+   brightness filter on a white tab changed nothing.) */
+#btx-root .btx-tab:hover {
+  background: color-mix(in srgb, var(--btx-accent) 14%, var(--btx-bg));
+  border-color: var(--btx-accent);
+}
 /* The tab sits against the window's edge, where an outer ring would be cut off
    on the right: the ring is inset, inside the accent edge. */
 #btx-root .btx-tab:focus-visible { outline-offset: -4px; }

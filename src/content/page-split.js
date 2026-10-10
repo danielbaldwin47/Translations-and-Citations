@@ -69,7 +69,9 @@
  * text runs past the visible reading area (under the docked drawer, under the
  * panel) is placed inside it: the site's padding stays, holding the
  * annotation toolbar and media icons in its gutters, until the text would be
- * under MIN_COLUMN_PX. The column is measured with the fit's rule switched
+ * under MIN_COLUMN_PX, then down to the gutter the site's chapter arrows need
+ * (arrowGutter: sticky controls just inside the area's edges, found by
+ * probing, no class names). The column is measured with the fit's rule switched
  * off, so the rule never feeds its own input. Below about 1200px the site's
  * drawer is a modal over a scrim spanning the page: nothing is docked then.
  *
@@ -106,6 +108,13 @@
   const FLOAT_GUTTER_PX = 72;
   // The least padding a column narrowed into the reading area keeps each side (#89).
   const FIT_PAD_PX = 16;
+  // The text a fitted column keeps at least, whatever the chapter arrows' gutter
+  // would take (about four words a line): the gutter gives way below this.
+  const MIN_TEXT_PX = 220;
+  // A control within ARROW_EDGE_PX of the reading area's edge is a chapter
+  // arrow (they sit 8px in); ARROW_BREATH_PX is the gap kept past it.
+  const ARROW_EDGE_PX = 24;
+  const ARROW_BREATH_PX = 8;
 
   // Whether the page should be split right now: `row` is the page's language
   // (the panel's arrangement answers it, in either mode), `visible` whether
@@ -113,6 +122,23 @@
   function wantsSplit({ visible, row, layout }) {
     return visible === true && !!row && row.provider === 'church'
       && (layout === 'columns' || layout === 'interlinear');
+  }
+
+  // The room the site's ‹ › chapter arrows take beside the text (#102 C3).
+  // They hang sticky just inside the visible reading area's edges (8px in,
+  // 40px wide: a column fitted to the area would put verse text under them).
+  // `arrows` are their rects, { left, right } px, as the shell found them;
+  // `area` is { left, right }. -> the px each side of the area to keep clear:
+  // the wider side's reach plus a breathing gap, the same on both sides so the
+  // column does not shift from chapter to chapter (the first and last
+  // chapters have one arrow). 0 with no arrow (a narrow window shows none).
+  function arrowGutter(area, arrows) {
+    let reach = 0;
+    for (const a of Array.isArray(arrows) ? arrows : []) {
+      if (a.left - area.left <= ARROW_EDGE_PX) reach = Math.max(reach, a.right - area.left);
+      else if (area.right - a.right <= ARROW_EDGE_PX) reach = Math.max(reach, area.right - a.left);
+    }
+    return reach > 0 ? Math.ceil(reach) + ARROW_BREATH_PX : 0;
   }
 
   // The right edge of the visible reading area in a `width`-wide page: the
@@ -190,13 +216,17 @@
   //     area (under the docked drawer, under the panel) narrows to the area.
   //     The text narrows; the site's padding stays (its gutters hold the
   //     annotation toolbar and the media icons) until the text would be
-  //     under MIN_COLUMN_PX, then gives way down to FIT_PAD_PX a side.
+  //     under MIN_COLUMN_PX, then gives way down to the chapter arrows'
+  //     `gutter` (arrowGutter, px each side; 0 when none) and no further,
+  //     unless the text would then be under MIN_TEXT_PX: the gutter gives way
+  //     down to FIT_PAD_PX a side. Text under the arrows, even inside the
+  //     area, is a box too: it is moved clear of them (#102 C3).
   //   - Otherwise no box: the site's own layout, untouched. With the panel
   //     collapsed the site lays the column out for the window itself.
   //   -> { effective, collapseFits, box }  `effective` is the split's layout
   //      actually shown (null with no split); `box` { left, width, padLeft,
   //      padRight } in px, or null
-  function fitColumn({ layout, area, column, width, reserve }) {
+  function fitColumn({ layout, area, column, width, reserve, gutter }) {
     const split = layout === 'columns' || layout === 'interlinear';
     const center = (column.left + column.right) / 2;
     const pad = 40 + column.padRight; // the columns' padding: 40px left, the site's own right
@@ -210,15 +240,20 @@
         return { effective, collapseFits: roomier, box: { left: Math.round(center - w / 2), width: w, padLeft: 40, padRight: column.padRight } };
       }
     }
-    const fits = column.left + column.padLeft >= area.left && column.right - column.padRight <= area.right;
+    const gut = Math.max(0, gutter || 0);
+    const fits = column.left + column.padLeft >= area.left + gut && column.right - column.padRight <= area.right - gut;
     if (!(reserve > 0) || fits) return { effective, collapseFits: roomier, box: null };
     const left = Math.ceil(Math.max(column.left, area.left));
     const w = Math.max(0, Math.floor(Math.min(column.right, area.right)) - left);
-    const give = Math.max(FIT_PAD_PX, Math.floor((w - MIN_COLUMN_PX) / 2));
+    // The least padding a side keeps: the arrows' gutter, unless that would
+    // leave under MIN_TEXT_PX of text; never under FIT_PAD_PX.
+    const floor = Math.max(FIT_PAD_PX, Math.min(gut, Math.floor((w - MIN_TEXT_PX) / 2)));
+    const give = Math.max(floor, Math.floor((w - MIN_COLUMN_PX) / 2));
+    const padOf = (site) => Math.min(gut > 0 ? Math.max(site, floor) : site, give);
     return {
       effective,
       collapseFits: roomier,
-      box: { left, width: w, padLeft: Math.min(column.padLeft, give), padRight: Math.min(column.padRight, give) },
+      box: { left, width: w, padLeft: padOf(column.padLeft), padRight: padOf(column.padRight) },
     };
   }
 
@@ -286,16 +321,16 @@
   // without resizing anything the observers watch — opening a footnote slides
   // it left, closing the navigation drawer widens the room beside it — so the
   // watch compares where it was fitted with where it is now. `geo` is
-  // { left, width } of section#content and the reading area's `areaLeft` and
-  // `areaRight`, in px; null (never fitted) always differs.
+  // { left, width } of section#content and the reading area's `areaLeft`,
+  // `areaRight` and the chapter arrows' `gutter`, in px; null (never fitted) always differs.
   function moved(prev, next) {
     if (!prev || !next) return prev !== next;
-    return ['left', 'width', 'areaLeft', 'areaRight'].some((k) => Math.abs((Number(prev[k]) || 0) - (Number(next[k]) || 0)) > 1);
+    return ['left', 'width', 'areaLeft', 'areaRight', 'gutter'].some((k) => Math.abs((Number(prev[k]) || 0) - (Number(next[k]) || 0)) > 1);
   }
 
   const CORE = {
     GAP_PX, MIN_COLUMN_PX, MAX_SECTION_PX, FLOAT_GUTTER_PX, FIT_PAD_PX, TAIL_GAP_PX: 8,
-    wantsSplit, readingRight, readingEdges, collapseFits, fitWidth, effectiveLayout, fitColumn, fitRule, groupRows, soloIds, rowRules, cssId, moved,
+    MIN_TEXT_PX, wantsSplit, readingRight, readingEdges, arrowGutter, collapseFits, fitWidth, effectiveLayout, fitColumn, fitRule, groupRows, soloIds, rowRules, cssId, moved,
   };
 
   if (typeof module !== 'undefined' && module.exports) module.exports = CORE;
@@ -402,7 +437,7 @@
     if (!section) return null;
     const r = section.getBoundingClientRect();
     const area = readingArea(section);
-    return { left: r.left, width: r.width, areaLeft: area.left, areaRight: area.right };
+    return { left: r.left, width: r.width, areaLeft: area.left, areaRight: area.right, gutter: area.gutter };
   }
 
   // The first mount keeps show's `anchor` where it was; a re-mount is the
@@ -487,7 +522,27 @@
     });
     const edge = readingRight({ width, reserve });
     const { left, right } = readingEdges({ width, reserve, leftStack: stack(4), rightStack: stack(edge - 4) });
-    return { left, right, width, reserve };
+    return { left, right, width, reserve, gutter: arrowGutter({ left, right }, chapterArrows(section, left, right)) };
+  }
+
+  // The site's chapter arrows: the controls sticky at mid-height just inside
+  // the reading area's edges (the same hook-free probe as the edges: what
+  // sits at the arrow's centre, 28px in), outside the reading column and the
+  // panel. -> [{ left, right }]
+  function chapterArrows(section, left, right) {
+    const out = [];
+    for (const x of [left + 28, right - 28]) {
+      for (const n of document.elementsFromPoint(x, innerHeight / 2)) {
+        if (n.closest('#btx-root') || section.contains(n) || n.contains(section)) continue;
+        const control = n.closest('a, button');
+        if (control && /^(sticky|fixed)$/.test(getComputedStyle(control).position)) {
+          const r = control.getBoundingClientRect();
+          out.push({ left: r.left, right: r.right });
+        }
+        break;
+      }
+    }
+    return out;
   }
 
   // Fit the reading column to the visible reading area (fitColumn), and with
@@ -506,7 +561,7 @@
       const cs = getComputedStyle(section);
       const column = { left: r.left, right: r.right, padLeft: parseFloat(cs.paddingLeft) || 0, padRight: parseFloat(cs.paddingRight) || 0 };
       const area = readingArea(section);
-      res = fitColumn({ layout: split ? split.layout : null, area, column, width: area.width, reserve: area.reserve });
+      res = fitColumn({ layout: split ? split.layout : null, area, column, width: area.width, reserve: area.reserve, gutter: area.gutter });
       css = fitRule(res.box, r.left - (parseFloat(cs.marginLeft) || 0));
       if (fitStyle) fitStyle.disabled = false;
     }

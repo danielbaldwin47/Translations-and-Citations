@@ -308,6 +308,55 @@ for (const [win, drawerOpen, panel, width, reserve, aL, aR, cL, cR] of MATRIX) {
   if (plain.box) fittedRows++;
 }
 check(fittedRows >= 10, `the matrix exercises the fit (${fittedRows} rows fitted)`);
+// The same matrix with the chapter arrows' 56px gutter (#102 C3): with the
+// panel open, no row leaves text under an arrow unless the area is so narrow
+// that the gutter gave way to MIN_TEXT_PX of text, and the text never narrows
+// below what the area allows.
+let clearRows = 0;
+for (const [win, drawerOpen, panel, width, reserve, aL, aR, cL, cR] of MATRIX) {
+  if (!(reserve > 0)) continue;
+  const name = `${win}px, drawer ${drawerOpen ? 'open' : 'closed'}, panel ${panel}, arrows`;
+  const column = { left: cL, right: cR, ...GEN };
+  const { box } = P.fitColumn({ layout: null, area: { left: aL, right: aR }, column, width, reserve, gutter: 56 });
+  const text = box ? [box.left + box.padLeft, box.left + box.width - box.padRight] : [cL + GEN.padLeft, cR - GEN.padRight];
+  check(text[0] >= aL && text[1] <= aR, `${name}: no verse text clipped (text ${text}, area ${aL}-${aR})`);
+  if (aR - aL - 112 >= P.MIN_TEXT_PX) {
+    check(text[0] >= aL + 56 && text[1] <= aR - 56, `${name}: text ${text} clear of the arrows' gutter in ${aL}-${aR}`);
+    clearRows++;
+  } else {
+    check(text[1] - text[0] >= Math.min(P.MIN_TEXT_PX, aR - aL - 32), `${name}: too narrow for the gutter, the gutter gives way (text ${text[1] - text[0]}px)`);
+  }
+}
+check(clearRows >= 20, `the arrows' matrix exercises the gutter (${clearRows} rows)`);
+
+// The site's ‹ › chapter arrows (#102 C3): sticky 8px inside the visible
+// reading area's edges, 40px wide, so the text keeps their gutter clear. The
+// shell measures them; arrowGutter turns their rects into one px figure.
+console.log('arrowGutter / fitColumn with the arrows:');
+const AREA_545 = { left: 320, right: 880 }; // 1440px window, drawer docked, panel 545 (measured live on nt/john/3)
+const ARROWS = [{ left: 328, right: 368 }, { left: 832, right: 872 }];
+eq(P.arrowGutter(AREA_545, ARROWS), 56, "the arrows' real width and offset (8 + 40) plus a breathing gap, the same on both sides");
+eq(P.arrowGutter(AREA_545, [ARROWS[1]]), 56, 'one arrow alone (the first chapter of a book) keeps the same gutter, so the column does not shift from chapter to chapter');
+eq(P.arrowGutter(AREA_545, [{ left: 322, right: 350 }, ARROWS[1]]), 56, 'the wider side decides');
+eq(P.arrowGutter(AREA_545, []), 0, 'no arrows (a narrow window shows none): no gutter');
+eq(P.arrowGutter(AREA_545, [{ left: 600, right: 640 }]), 0, 'a sticky control that is not at an edge is not an arrow');
+const GUT = P.arrowGutter(AREA_545, ARROWS);
+const john545 = P.fitColumn({ layout: null, area: AREA_545, column: { left: 280, right: 920, ...GEN }, width: 1425, reserve: 545, gutter: GUT });
+check(john545.box && john545.box.left + john545.box.padLeft >= ARROWS[0].right && john545.box.left + john545.box.width - john545.box.padRight <= ARROWS[1].left,
+  `John 3 at 545px: the site's text (344-856) ran under the arrows; the fitted text clears them (box ${JSON.stringify(john545.box)})`);
+eq(P.fitColumn({ layout: null, area: AREA_545, column: { left: 320, right: 880, padLeft: 24, padRight: 24 }, width: 1425, reserve: 545, gutter: GUT }).box,
+  { left: 320, width: 560, padLeft: 56, padRight: 56 }, "text inside the area but under the arrows: still a box, its padding the gutter");
+eq(P.fitColumn({ layout: null, area: AREA_545, column: { left: 320, right: 880, ...GEN }, width: 1425, reserve: 545, gutter: GUT }).box,
+  null, 'text already clear of the arrows: no box');
+eq(P.fitColumn({ layout: null, area: { left: 0, right: 369 }, column: { left: 0, right: 640, ...GEN }, width: 1009, reserve: 640, gutter: 56 }).box,
+  { left: 0, width: 369, padLeft: 56, padRight: 56 }, 'narrow: the padding gives way only down to the gutter, the text narrows instead (257px)');
+eq(P.fitColumn({ layout: null, area: { left: 320, right: 525 }, column: { left: 160, right: 800, ...GEN }, width: 1425, reserve: 900, gutter: 56 }).box,
+  { left: 320, width: 205, padLeft: P.FIT_PAD_PX, padRight: P.FIT_PAD_PX },
+  'so little room that the text would be under MIN_TEXT_PX: the gutter gives way, to FIT_PAD_PX, before the text becomes unreadable');
+eq(P.fitColumn({ layout: null, area: AREA_545, column: { left: 280, right: 920, ...GEN }, width: 1425, reserve: 0, gutter: GUT }).box,
+  null, 'panel collapsed: the site lays itself out for the window, arrows far from the text');
+eq(P.fitColumn({ layout: 'interlinear', area: AREA_545, column: { left: 280, right: 920, ...GEN }, width: 1425, reserve: 545, gutter: GUT }).box,
+  john545.box, 'under each verse: the same fitted column as no split');
 
 // The rule that places the box. The column's container is translated right by
 // half the drawer (x 160) and wider than the page; the rule places the column
@@ -359,7 +408,7 @@ check((shell.match(/if \(moved\(geo, geometry\(\)\)\) schedule\(\);/g) || []).le
   'both watches (split and fit) refit when the column moved since the last fit, measured after the fit\'s own writes');
 // The fit (#89): the same rule with or without a split, measured from the
 // site's own column, and nothing left once no box is wanted.
-check(/fitStyle\.disabled = true;[\s\S]{0,400}fitColumn\(\{ layout: split \? split\.layout : null, area, column, width: area\.width, reserve: area\.reserve \}\)[\s\S]{0,200}fitStyle\.disabled = false;/.test(shell),
+check(/fitStyle\.disabled = true;[\s\S]{0,400}fitColumn\(\{ layout: split \? split\.layout : null, area, column, width: area\.width, reserve: area\.reserve, gutter: area\.gutter \}\)[\s\S]{0,200}fitStyle\.disabled = false;/.test(shell),
   'the fit measures the column with its own rule switched off, and asks fitColumn with or without a split');
 check(/if \(fitStyle && !css\) \{ fitStyle\.remove\(\); fitStyle = null; \}/.test(shell),
   'no box, no rule: the style element goes with it');
