@@ -88,16 +88,14 @@ eq(P.groupRows(['study_intro1', 'p1', 'p2'], has(['p1', 'p2'])),
 eq(P.groupRows(['p1', 'p2'], has([])), [], 'nothing paired (the page not rendered yet), nothing placed');
 
 // ---- hideLineCopy ----
-// The Hide line heading the split: the language's own name, then Hide.
+// The Hide line heading the split: the language's short name (the
+// orchestrator's churchText.nameFor), then Hide.
 console.log('hideLineCopy:');
-const SPA_ROW = { id: 'church:spa', provider: 'church', lang: 'spa', abbr: 'Español', name: 'Spanish' };
-eq(P.hideLineCopy(SPA_ROW), { language: 'Español', text: 'Español ·', button: 'Hide', label: 'Hide Español' },
+eq(P.hideLineCopy('Español'), { language: 'Español', text: 'Español ·', button: 'Hide', label: 'Hide Español' },
   'names the language as the page shows it ("Español"), then the Hide button');
-eq(P.hideLineCopy({ id: 'church:eng', provider: 'church', lang: 'eng', abbr: '', name: 'English' }).text, 'English ·',
-  'a language whose own name is its English name (no abbr) is named by that name');
-eq(P.hideLineCopy({ id: 'church:x', provider: 'church' }), { language: '', text: 'Translation on the page ·', button: 'Hide', label: 'Hide the translation' },
-  'a row with no name falls back to a plain sentence');
-eq(P.hideLineCopy(null).button, 'Hide', 'no row at all still reads');
+eq(P.hideLineCopy(''), { language: '', text: 'Translation on the page ·', button: 'Hide', label: 'Hide the translation' },
+  'no name falls back to a plain sentence');
+eq(P.hideLineCopy(undefined).button, 'Hide', 'no name at all still reads');
 
 // ---- rowRules ----
 console.log('rowRules:');
@@ -423,14 +421,18 @@ check(cs.css.includes('src/content/page-split.css'), 'page-split.css is a conten
 check(!cs.js.some((f) => /prototype/.test(f)), 'no prototype ships in the manifest');
 const content = fs.readFileSync(path.join(ROOT, 'src/content/content.js'), 'utf8');
 check(/pageSplit\.wantsSplit\(/.test(content), 'the orchestrator asks the pure rule whether to split');
-check(/function hideLine\([\s\S]*?hideLineCopy\(s\.row\)[\s\S]*?textContent = copy\.text[\s\S]*?textContent = copy\.button/.test(shell),
+check(/function hideLine\([\s\S]*?hideLineCopy\(s\.name\)[\s\S]*?textContent = copy\.text[\s\S]*?textContent = copy\.button/.test(shell),
   'the Hide line is built from hideLineCopy, as text');
 check(/if \(typeof s\.onHide === 'function'\) s\.layer\.appendChild\(s\.line = hideLine\(/.test(shell),
   'the Hide line is the first item of the layer, drawn only when show() was given onHide');
 check(!/churchLanguageShown|SETTINGS|__BTX\.settings|chrome\.storage/.test(src), 'the reading layer writes no setting: Hide only calls onHide');
-check(/onHide: \(\) => setLanguageShown\(false, \{ anchor: splitAnchor\(\) \}\)/.test(content)
-  && /function setLanguageShown\(on, \{ anchor \} = \{\}\) \{[\s\S]*?SETTINGS\.patch\(\{ churchLanguageShown: shown \}\)[\s\S]*?syncSplit\(\{ anchor: anchor \|\| splitAnchor\(\) \}\)/.test(content),
-  'the orchestrator\'s onHide turns the switch off through __BTX.settings, and the split goes keeping the top paragraph');
+check(/onHide: \(\{ hadFocus \} = \{\}\) => \{\s*setLanguageShown\(false, \{ anchor: splitAnchor\(\) \}\);\s*if \(hadFocus\) panel\.focusAfterHide\(\);/.test(content)
+  && /function setLanguageShown\(on, \{ anchor, extra \} = \{\}\) \{[\s\S]*?SETTINGS\.patch\(Object\.assign\(\{\}, extra, \{ churchLanguageShown: shown \}\)\)[\s\S]*?syncSplit\(\{ anchor: anchor \|\| splitAnchor\(\) \}\)/.test(content),
+  'the orchestrator\'s onHide turns the switch off through __BTX.settings, the split goes keeping the top paragraph, and a focused Hide hands focus to the panel');
+check(/s\.onHide\(\{ hadFocus: document\.activeElement === button \}\)/.test(shell),
+  'Hide tells onHide whether it had focus (a keyboard Hide), read before the layer goes');
+check(/pageSplit\.show\(\{[\s\S]*?name: churchText\.nameFor\(row\)/.test(content),
+  'the orchestrator names the language for the Hide line (churchText.nameFor)');
 const syncSrc = (content.match(/async function syncSplit\([^)]*\) \{[\s\S]*?\n {2}\}\n/) || [''])[0];
 check(/panel\.arrangement\(\)/.test(syncSrc) && !/effectiveMode|activeId/.test(syncSrc),
   'the split follows the arrangement\'s page language, never the mode or the panel\'s text');

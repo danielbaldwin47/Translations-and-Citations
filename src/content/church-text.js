@@ -5,7 +5,7 @@
  *
  *   which texts can sit beside this chapter, and which one shows?
  *     textsFor({ isBible, collection, bibleRows, languages, pageLang }) -> [row]
- *       api.bible rows (Bible chapters only) followed by one synthetic row per
+ *       api.bible rows (Bible chapters only: `isBible` true) followed by one synthetic row per
  *       enabled Church language that publishes this collection (its `vols` in
  *       C.CHURCH_LANGUAGES), minus the language the page is already in.
  *       A Church row is { id:'church:spa', provider:'church', lang, abbr, name }
@@ -75,11 +75,15 @@
  *       written before the abbreviation so the cut spares it:
  *       "World English Bible Updated, Protestant (WEBU)", "…, 2 (WEBU)"
  *     bibleMenu(list, { isBible }) -> [{ id, label }]
+ *     versionRow(list, { isBible, showing, picks }) -> { menu, selected }
  *     languageMenu(list) -> [{ id, label }]
  *       the menus the Translation toolbar's two rows read (the panel's
  *       version row and language row, GLOSSARY: Language row). Each is one
  *       kind of thing: a flat list in `list` order, labels from labelFor, no
- *       group heading. bibleMenu: the Bible rows, empty off the Bible.
+ *       group heading. bibleMenu: the Bible rows, empty off the Bible (a
+ *       missing isBible reads as off). versionRow: bibleMenu and the id it
+ *       selects, the version `showing` when it is a Bible row, else the
+ *       newest Bible pick in `picks`.
  *       languageMenu: the Church rows on any chapter, an on-request English
  *       row included, the page's own language already out (textsFor).
  *     languagesToAdd({ collection, pageLang, enabled }) -> [{ code, label }]
@@ -173,7 +177,7 @@
 
   function textsFor(opts) {
     const o = opts || {};
-    const bible = o.isBible !== false && Array.isArray(o.bibleRows) ? o.bibleRows : [];
+    const bible = o.isBible === true && Array.isArray(o.bibleRows) ? o.bibleRows : [];
     const ticked = Array.isArray(o.languages) ? o.languages : [];
     // English on a page read in another language (header).
     const english = o.pageLang && o.pageLang !== ENGLISH && ticked.indexOf(ENGLISH) < 0 ? [ENGLISH] : [];
@@ -377,8 +381,19 @@
   // bibleMenu: the Bible rows (bundled and api.bible), on a Bible chapter only.
   function bibleMenu(list, opts) {
     const rows = Array.isArray(list) ? list : [];
-    if (!(opts && opts.isBible)) return [];
+    if (!(opts && opts.isBible === true)) return [];
     return rows.filter((r) => r.provider !== PROVIDER).map((r) => ({ id: r.id, label: labelFor(r, rows) }));
+  }
+
+  // versionRow: the Bible menu and the version it selects — `showing` when
+  // that is one of its rows, else the newest Bible pick (pickText over the
+  // menu), so a Church language in the panel never blanks it.
+  function versionRow(list, opts) {
+    const o = opts || {};
+    const menu = bibleMenu(list, o);
+    if (!menu.length) return { menu, selected: null };
+    const selected = menu.some((i) => i.id === o.showing) ? o.showing : pickText(menu, o.picks);
+    return { menu, selected };
   }
 
   // languageMenu: the Church rows, wherever the chapter is. The page's own
@@ -580,7 +595,7 @@
   }
 
   const CORE = {
-    PROVIDER, ID_PREFIX, MRU_MAX, rowFor, textsFor, pickText, pickOrder, firstOffered, chapterOffer, pageLanguage, mruFrom, rememberPick, rememberTicked, nameFor, labelFor, bibleMenu, languageMenu, languagesToAdd,
+    PROVIDER, ID_PREFIX, MRU_MAX, rowFor, textsFor, pickText, pickOrder, firstOffered, chapterOffer, pageLanguage, mruFrom, rememberPick, rememberTicked, nameFor, labelFor, bibleMenu, versionRow, languageMenu, languagesToAdd,
     chapterUri, apiUrl, chapterFrom, blockElements, servesChapter, dirOf,
   };
 
