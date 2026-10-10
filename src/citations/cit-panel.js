@@ -371,7 +371,7 @@
       collapse.hidden = !label;
       if (had && collapse.hidden) {
         const first = wrap.querySelector('.btx-cit-vgroup:not(.btx-cit-hidden) > summary');
-        (first || input).focus();
+        (first || input).focus({ preventScroll: true });
       }
     }
 
@@ -404,7 +404,7 @@
     input.addEventListener('keydown', (e) => {
       if (e.key === 'Escape' && input.value) { e.stopPropagation(); input.value = ''; applyFilter(); }
     });
-    clear.addEventListener('click', () => { input.value = ''; applyFilter(); input.focus(); });
+    clear.addEventListener('click', () => { input.value = ''; applyFilter(); input.focus({ preventScroll: true }); });
     collapse.addEventListener('click', () => {
       const plan = vm().collapseAllPlan(viewModel, state, hidden);
       applyOpen(plan.open, nodeMap(wrap));

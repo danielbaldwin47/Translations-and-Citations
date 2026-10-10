@@ -1795,8 +1795,8 @@
     // keyboard user mid-adjustment, so hand focus to the other end of the
     // stepper — which is by definition still live, since the two ends cannot
     // both be spent.
-    if (document.activeElement === ui.smaller && ui.smaller.disabled) ui.larger.focus();
-    else if (document.activeElement === ui.larger && ui.larger.disabled) ui.smaller.focus();
+    if (document.activeElement === ui.smaller && ui.smaller.disabled) ui.larger.focus({ preventScroll: true });
+    else if (document.activeElement === ui.larger && ui.larger.disabled) ui.smaller.focus({ preventScroll: true });
   }
 
   function persist(partial) {
@@ -1851,7 +1851,7 @@
     state.collapsed = c;
     applyCollapsedUI(); // an expand may bring the welcome back, which takes focus
     const target = hadFocus ? focusOnToggle(state) : null;
-    if (target) (target === 'tab' ? ui.tab : ui.collapse).focus();
+    if (target) (target === 'tab' ? ui.tab : ui.collapse).focus({ preventScroll: true });
     persist({ panelCollapsed: c });
   }
 
@@ -2163,7 +2163,7 @@
     if (shownNote === was) {
       was.replaceWith(node);
       shownNote = node;
-      focusPressedLayout(control, { preventScroll: true });
+      focusPressedLayout(control);
     }
   }
 
@@ -2189,7 +2189,7 @@
   function placeNote() {
     if (!ui) return;
     if (shownNote) {
-      if (shownNote.contains(document.activeElement)) ui.body.focus();
+      if (shownNote.contains(document.activeElement)) ui.body.focus({ preventScroll: true });
       shownNote.remove();
       shownNote = null;
     }
@@ -2428,11 +2428,11 @@
     return { group: segmented('btx-seg', label || 'Where to show it', choices), choices, press };
   }
 
-  // `opts` is focus()'s: { preventScroll } where the control replaces what
-  // the reader pressed in place, so moving focus must not move the body.
-  function focusPressedLayout(control, opts) {
+  // Like every focus the panel moves, it never scrolls: not the page, and not
+  // the body, whose one writer is writeBodyScroll.
+  function focusPressedLayout(control) {
     const pressed = control.choices.find((b) => b.getAttribute('aria-pressed') === 'true');
-    if (pressed) pressed.focus(opts);
+    if (pressed) pressed.focus({ preventScroll: true });
   }
 
   function buildBeside(card) {
@@ -2560,7 +2560,7 @@
     const talks = button('btx-link', copy.talks, () => {
       const hadFocus = document.activeElement === talks;
       onModeClick('citations');
-      if (hadFocus) ui.modeCitations.focus();
+      if (hadFocus) ui.modeCitations.focus({ preventScroll: true });
     });
     card.appendChild(talks);
     host.appendChild(card);

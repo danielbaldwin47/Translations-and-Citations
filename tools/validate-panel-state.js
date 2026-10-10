@@ -1532,6 +1532,21 @@ check(/focusOnToggle\(state\)/.test((panelSrcText.match(/function setCollapsed\(
 check(/PANEL_HANDLED_KEYS = \[[^\]]*'welcomeSeen'/.test(panelSrcText),
   'welcomeSeen is panel-handled: a write from another context shows or hides the welcome, no re-render');
 
+// Focus the panel moves itself never scrolls (#137). A scrolling focus would
+// be a second, unplanned writer of the body's scroll (writeBodyScroll is the
+// one writer; a reveal goes through panel.scrollIntoView), and the page's
+// scroll must never move for a panel action.
+for (const file of ['src/content/panel.js', 'src/citations/cit-panel.js', 'src/citations/talk-view.js']) {
+  const src = fs.readFileSync(path.join(ROOT, file), 'utf8');
+  const scrolling = [];
+  src.split('\n').forEach((line, i) => {
+    const code = line.replace(/\/\/.*$/, '');
+    const calls = code.match(/\.focus\([^)]*\)/g) || [];
+    for (const c of calls) if (c !== '.focus({ preventScroll: true })') scrolling.push(`${i + 1}: ${c}`);
+  });
+  eq(scrolling, [], `${file}: every focus the panel moves is .focus({ preventScroll: true })`);
+}
+
 if (failures) {
   console.error(`\n${failures} check(s) failed.`);
   process.exit(1);
