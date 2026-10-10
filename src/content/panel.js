@@ -1191,6 +1191,16 @@
     return Math.max(0, Math.round(Number(o.bottom) || 0));
   }
 
+  // How a width drag ends. The panel follows the pointer during the drag; a
+  // release (commit) keeps and saves where it ended, a cancel (pointercancel)
+  // puts back the width the drag began at and saves nothing.
+  //   from    the panel's width at pointer-down, px
+  //   at      the width under the pointer at the end, px
+  //   -> { width, save }
+  function resizeEnd({ from, at, commit }) {
+    return commit ? { width: at, save: true } : { width: from, save: false };
+  }
+
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = {
       createState, arrangement, layoutChoice, arrangementOf, effectiveMode, selectMode, selectText, selectCitationView, setChapter, sameChapter,
@@ -1200,7 +1210,7 @@
       createViews, saveViewScroll, selectView, keepView, settleView, dropViews, SAME_CHAPTER_VIEWS,
       viewRestoresScroll, wantsScrollSync,
       scrollStep, easeRamp, floorStep, carryScroll, realignmentDone, isForeignScroll,
-      revealTop, keptScrollTop, panelTop,
+      revealTop, keptScrollTop, panelTop, resizeEnd,
       SCROLL_TAU_MS, SCROLL_RAMP_MS, SCROLL_MIN_STEP_PX, SCROLL_LIMITS,
       SCROLL_REVEAL_FRACTION, SCROLL_REVEAL_CLEAR_PX,
     };
@@ -2981,6 +2991,8 @@
   // mouse-down and select-start defaults are cancelled for the drag's length.
   function noSelect(e) { e.preventDefault(); }
 
+  let dragFrom = null; // the panel's width at pointer-down (resizeEnd)
+
   function endResize(e, commit) {
     const grip = ui.resize;
     grip.removeEventListener('pointermove', onResizeMove);
@@ -2989,10 +3001,10 @@
     document.removeEventListener('selectstart', noSelect, true);
     try { grip.releasePointerCapture(e.pointerId); } catch (_) { /* already released */ }
     ui.rootEl.classList.remove('btx-resizing');
-    if (!commit) return;
-    const w = widthFromEvent(e);
-    applyWidth(w);
-    persist({ sidebarWidth: w });
+    const end = resizeEnd({ from: dragFrom, at: widthFromEvent(e), commit });
+    dragFrom = null;
+    applyWidth(end.width);
+    if (end.save) persist({ sidebarWidth: end.width });
   }
 
   function onResizeUp(e) { endResize(e, true); }
@@ -3002,6 +3014,7 @@
     if (e.button != null && e.button !== 0) return;
     ensureRoot();
     const grip = ui.resize;
+    dragFrom = parseFloat(ui.rootEl.style.getPropertyValue('--btx-width')) || ui.rootEl.getBoundingClientRect().width;
     ui.rootEl.classList.add('btx-resizing');
     try { grip.setPointerCapture(e.pointerId); } catch (_) { /* synthetic event */ }
     grip.addEventListener('pointermove', onResizeMove);

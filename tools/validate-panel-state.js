@@ -1378,6 +1378,14 @@ eq(P.panelTop({ reserve: 380, overflows: false, bottom: 113 }), 0, 'a header tha
 eq(P.panelTop({ reserve: 0, overflows: true, bottom: 113 }), 0, 'no page reserve (collapsed, hidden, the bottom sheet): nothing to clear');
 eq(P.panelTop(undefined), 0, 'nothing known: the top');
 
+// ---- How a width drag ends ----
+// The panel follows the pointer during a drag; only a release saves. A
+// cancelled drag (pointercancel: a touch taken over by the browser, a lost
+// capture) puts the panel back at the width it had when the drag began.
+console.log('resizeEnd:');
+eq(P.resizeEnd({ from: 380, at: 520, commit: true }), { width: 520, save: true }, 'a release keeps and saves the dragged width');
+eq(P.resizeEnd({ from: 380, at: 520, commit: false }), { width: 380, save: false }, 'a cancel goes back to the width at pointer-down, saving nothing');
+
 // ---- DOM shell contracts ----
 // Rules the shell keeps that a Node run cannot execute, read from the source.
 console.log('DOM shell:');
