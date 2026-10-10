@@ -35,10 +35,12 @@
  *           title: a source-type header's hover text, the descriptor's `sourceNote`
  *           for its source type ("Sermons by early Church leaders, published 1854–1886");
  *           null on a verse header and when the pack carries no note
- *   row   { uid, citId, talkId, speaker, rangeLabel, rangeTitle, sub, snippet, a11yLabel,
+ *   row   { uid, citId, talkId, speaker, rangeLabel, rangeTitle, sub, snippet, footnoteLabel, a11yLabel,
  *           search, verses, entry }   verses: what a verse query matches, ascending: the talk's
  *           in-chapter verses (By verse: only the runs listed at that verse, see rowDesc);
  *           rangeTitle: the badge's hover text ("Cites verses 1 to 5"), null with no badge
+ *           footnoteLabel: "Cited in a footnote" when the row's cite is flagged (entry.inFootnote), else null;
+ *           shown under the excerpt and last in a11yLabel
  *
  * By verse fills group.children (verse -> source-type group -> rows); by
  * source hangs rows straight off one group per source type. Only groups are
@@ -433,6 +435,11 @@
 
   // --- descriptors ---------------------------------------------------------
 
+  // The line under a row's excerpt when its cite (the one the row opens) sits
+  // in one of the talk's notes, which is why the excerpt may be about
+  // something else. The build's `fn` flag (entry.inFootnote) decides.
+  const FOOTNOTE_LABEL = 'Cited in a footnote';
+
   // rangeVerses: the verses to badge, or null for no badge. listedVerses: the
   // verses this row stands for in its group, which a verse query matches
   // (row.verses): the talk's verses in By source; in By verse only the runs
@@ -448,6 +455,7 @@
     const speaker = s.sp || 'Unknown speaker';
     const title = titleOf(s);
     const fetched = type.fetched.includes(corpusOf(entry));
+    const footnoteLabel = entry.inFootnote === true ? FOOTNOTE_LABEL : null;
     const haystack = [s.sp, title, s.lbl, where]
       .concat(fetched ? [] : talk.cites.map((c) => cleanSnippet(c.snippet)));
     return {
@@ -459,7 +467,8 @@
       rangeTitle: rangeVerses ? citesTitle(rangeVerses) : null,
       sub: [title, where].filter(Boolean).join(' · ') || null,
       snippet: excerptSource(entry, fetched),
-      a11yLabel: [speaker, title, where, rangeVerses && spokenVerses(rangeVerses)].filter(Boolean).join(', '),
+      footnoteLabel,
+      a11yLabel: [speaker, title, where, rangeVerses && spokenVerses(rangeVerses), footnoteLabel].filter(Boolean).join(', '),
       search: haystack.filter(Boolean).join(' ').toLowerCase(),
       verses: listedVerses || talk.verses,
       entry,

@@ -205,8 +205,8 @@ async function chapterDataChecks() {
     'src/citations/data/index.json': { pack: { flavor: 'public', corpora: { G: { sourceType: 'General Conference' } } } },
     'src/citations/data/citations/alma.json': {
       fullName: 'Alma',
-      cites: { 900001: { t: 'gc/2026/10/12holland', v: '14', ec: 312 }, 15674: { t: 2000, v: '14', a: 'p21', ec: 88 } },
-      index: { 5: { 14: [900001, 15674] } },
+      cites: { 900001: { t: 'gc/2026/10/12holland', v: '14', ec: 312 }, 15674: { t: 2000, v: '14', a: 'p21', ec: 88 }, 15675: { t: 2000, v: '14', a: 'p22', ec: 40, fn: true } },
+      index: { 5: { 14: [900001, 15674, 15675] } },
     },
     'src/citations/data/sources.json': { 'gc/2026/10/12holland': { c: 'G', d: '2026-10' }, 2000: { c: 'G', d: '1971-04' } },
   };
@@ -227,6 +227,8 @@ async function chapterDataChecks() {
     eq(derived && derived.excerptChars, 312, 'the cite\'s excerpt character count reaches the entry');
     eq(base && base.talkId, 2000, 'a base talk keeps its numeric id');
     deep(base && [base.anchor, base.excerptChars, base.snippet], ['p21', 88, undefined], 'a references-only cite has an anchor and a count, no snippet');
+    eq(data && data.entries[15675] && data.entries[15675].inFootnote, true, 'a cite’s footnote flag (fn) reaches the entry as inFootnote');
+    eq(base && base.inFootnote, false, 'a cite without the flag is not in a footnote');
   } finally {
     global.chrome = saved.chrome;
     global.fetch = saved.fetch;
