@@ -1398,6 +1398,7 @@
     citViewSource.addEventListener('click', () => onCitViewClick('source'));
     citViewVerse.addEventListener('click', () => onCitViewClick('verse'));
     resize.addEventListener('pointerdown', onResizeDown);
+    resize.addEventListener('mousedown', noSelect);
     // Show the scrollbar while scrolling, fade it ~1s after it stops.
     body.addEventListener('scroll', () => {
       onBodyScrolled();
@@ -2971,20 +2972,38 @@
     applyWidth(widthFromEvent(e));
   }
 
-  function onResizeUp(e) {
-    document.removeEventListener('pointermove', onResizeMove);
+  // A drag selects no page text: the grip captures the pointer (every move and
+  // the release come to it, wherever the pointer is), and the browser's own
+  // mouse-down and select-start defaults are cancelled for the drag's length.
+  function noSelect(e) { e.preventDefault(); }
+
+  function endResize(e, commit) {
+    const grip = ui.resize;
+    grip.removeEventListener('pointermove', onResizeMove);
+    grip.removeEventListener('pointerup', onResizeUp);
+    grip.removeEventListener('pointercancel', onResizeCancel);
+    document.removeEventListener('selectstart', noSelect, true);
+    try { grip.releasePointerCapture(e.pointerId); } catch (_) { /* already released */ }
     ui.rootEl.classList.remove('btx-resizing');
+    if (!commit) return;
     const w = widthFromEvent(e);
     applyWidth(w);
     persist({ sidebarWidth: w });
   }
 
+  function onResizeUp(e) { endResize(e, true); }
+  function onResizeCancel(e) { endResize(e, false); }
+
   function onResizeDown(e) {
     if (e.button != null && e.button !== 0) return;
     ensureRoot();
+    const grip = ui.resize;
     ui.rootEl.classList.add('btx-resizing');
-    document.addEventListener('pointermove', onResizeMove);
-    document.addEventListener('pointerup', onResizeUp, { once: true });
+    try { grip.setPointerCapture(e.pointerId); } catch (_) { /* synthetic event */ }
+    grip.addEventListener('pointermove', onResizeMove);
+    grip.addEventListener('pointerup', onResizeUp);
+    grip.addEventListener('pointercancel', onResizeCancel);
+    document.addEventListener('selectstart', noSelect, true);
     e.preventDefault();
   }
 
