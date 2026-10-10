@@ -608,7 +608,7 @@
     ] },
     { id: 'translation', control: 'translation-tab', title: 'Translation', lines: [
       { text: 'Read scripture in another language, like Spanish or Japanese, or the Bible in another version.' },
-      { text: 'A language you add appears on the page with the English, verse by verse.' },
+      { text: 'Add a language in Settings and it appears on the page beside the English, verse by verse.' },
     ] },
     { id: 'settings', control: 'settings', title: 'Settings', lines: [
       { text: 'Add languages and Bible versions, and change the text size.' },
