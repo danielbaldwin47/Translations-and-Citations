@@ -161,9 +161,9 @@ source-data/               GITIGNORED build input, filled from the owner's priva
   note and the paragraph around its marker. Only corpora whose descriptor
   entry has `footnoteFlag: true` carry it (G and E; BYU's E text has no
   notes, so E flags none). Modern talks put most references in notes, mostly
-  bare references naming a quotation's source: of 51,045 G cites, 25,010 sit
-  in a note and 8,298 are footnote cites (8,063 BYU, 235 derived; a 2026-10
-  public build). A derived cite carries the `fn` its derivation input gives:
+  bare references naming a quotation's source: of the public pack's 51,045 G
+  cites, 25,010 sit in a note and 8,298 are footnote cites (8,063 BYU, 235
+  derived). A derived cite carries the `fn` its derivation input gives:
   the rule needs the Church page's text, so it runs at fetch time.
 
 ## Build / test / verify
