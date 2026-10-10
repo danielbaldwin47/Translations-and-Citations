@@ -5,7 +5,7 @@
   "description": "Read each scripture chapter beside another Bible translation or Church language, and see the talks that cite every verse.",
   "permissions": ["storage"],
   "host_permissions": [
-    "https://api.scripture.api.bible/*",
+    "https://rest.api.bible/*",
     "https://fums.api.bible/*",
     "https://scriptures.byu.edu/*"
   ],
@@ -19,6 +19,7 @@
         "src/shared/constants.js",
         "src/shared/settings.js",
         "src/shared/books.js",
+        "src/shared/rate-copy.js",
         "src/content/sanitize.js",
         "src/content/church-text.js",
         "src/content/page-split.js",

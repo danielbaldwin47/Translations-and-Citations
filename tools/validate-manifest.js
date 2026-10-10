@@ -7,7 +7,7 @@
  *     Chrome's 75-character limit;
  *   - the description is at most 132 characters and names both modes
  *     (translation, citations);
- *   - host_permissions are exactly api.bible, its FUMS reporting host and
+ *   - host_permissions are exactly rest.api.bible, its FUMS reporting host and
  *     scriptures.byu.edu, all in version 1 (a host added in an update
  *     disables every install until the reader accepts it); `storage` is the
  *     only API permission;
@@ -24,7 +24,16 @@
  *     names, carries the Limited Use statement verbatim and the BYU source
  *     line, names every host the manifest reaches as a party, and covers
  *     synced vs device storage, deletion (uninstall), and no analytics, sale
- *     or ads.
+ *     or ads;
+ *   - every host the manifest reaches is also named, by the same literal
+ *     match, in settings' "Your data" sites list (C.ABOUT.yourData.sites);
+ *   - the policy's device-storage list matches the code (#101): the chapter
+ *     cache as fewer than C.CACHE_MAX_VERSES verses of api.bible text, least
+ *     recently read first; the monthly count, a count never a limit; the
+ *     month the near-limit line was last shown;
+ *   - the listing's description and the policy say the one analytics
+ *     sentence (NO_ANALYTICS) word for word, and mention analytics nowhere
+ *     else.
  * Run: node tools/validate-manifest.js   Exits non-zero on failure.
  */
 'use strict';
@@ -56,7 +65,7 @@ check(/translation/i.test(desc), 'the description names Translation mode');
 check(/\bcit(e|es|ation|ations)\b/i.test(desc), 'the description names Citations mode');
 
 console.log('Permissions (A23):');
-const HOSTS = ['https://api.scripture.api.bible/*', 'https://fums.api.bible/*', 'https://scriptures.byu.edu/*'];
+const HOSTS = ['https://rest.api.bible/*', 'https://fums.api.bible/*', 'https://scriptures.byu.edu/*'];
 check(same(manifest.host_permissions || [], HOSTS),
   `host_permissions are exactly ${HOSTS.join(', ')} (got ${JSON.stringify(manifest.host_permissions)})`);
 check(!manifest.optional_host_permissions, 'no optional host permissions: every host ships in version 1');
@@ -128,11 +137,37 @@ check(policy.includes(C.ABOUT.citationSource), 'the policy carries the BYU sourc
 // Every host the manifest lets the extension reach is a named party.
 const hosts = [...(manifest.host_permissions || []), ...scriptMatches].map((p) => new URL(p.replace(/\*$/, '')).hostname);
 for (const h of hosts) check(policy.includes(h), `the policy names ${h} as a party contacted`);
+// The same hosts, by the same literal match, in settings' "Your data" sites list.
+const sitesText = JSON.stringify((C.ABOUT.yourData && C.ABOUT.yourData.sites) || null);
+for (const h of hosts) check(sitesText.includes(h), `"Your data"'s sites list (C.ABOUT.yourData.sites) names ${h}`);
+// One analytics sentence, word for word, in the listing and the policy (#128).
+const NO_ANALYTICS = 'No analytics of our own. Only api.bible\'s required usage report, and only once you connect a key.';
+const oneLine = (t) => t.replace(/\s*\n\s*/g, ' ');
+check(oneLine(storeDesc).includes(NO_ANALYTICS), `the Store description says "${NO_ANALYTICS}"`);
+check(oneLine(policy).includes(NO_ANALYTICS), `the policy says "${NO_ANALYTICS}"`);
+for (const [what, text] of [['the Store description', storeDesc], ['the policy', policy]]) {
+  eq((oneLine(text).match(/no analytics/gi) || []).length, 1, `${what} states analytics once`);
+}
+// The old api.bible host still answers but is no longer the one the extension names.
+check(C.API_BIBLE_BASE === 'https://rest.api.bible/v1', `the api.bible base is https://rest.api.bible/v1 (got ${C.API_BIBLE_BASE})`);
+const OLD_HOST = 'api.scripture.api.bible';
+for (const [what, text] of [['the manifest', JSON.stringify(manifest)], ['the Store listing', listing], ['the privacy policy', policy]]) {
+  check(!text.includes(OLD_HOST), `${what} does not name ${OLD_HOST}`);
+}
 for (const word of [/\bsync\b/i, /\bdevice\b/i, /\buninstall/i]) {
   check(word.test(policy), `the policy covers ${word} (where data is stored, and how to delete it)`);
 }
 check(/no analytics/i.test(policy) && /\bsell|\bsold|\bsale\b/i.test(policy) && /\bads?\b/i.test(policy),
   'the policy states no analytics, no sale, no ads');
+// What the device keeps matches the code (#101): the cache's verse cap, the
+// monthly count (a count, never a limit), the near line's month.
+check(oneLine(policy).includes(`fewer than ${C.CACHE_MAX_VERSES} verses of api.bible text`) && !/500 chapters/.test(oneLine(policy)),
+  `the policy states the cache's cap as fewer than ${C.CACHE_MAX_VERSES} verses of api.bible text, not a chapter count`);
+check(/least recently read/i.test(oneLine(policy)), '...dropping the least recently read first');
+check(/this month's count of this browser's api\.bible requests/i.test(oneLine(policy)) && /a count, never a limit/i.test(oneLine(policy)),
+  'the policy names the monthly count, and says it is a count, never a limit');
+check(/the month you last saw that warning/i.test(oneLine(policy)), 'the policy names the month the near-limit line was last shown');
+check(!/counters of recent api\.bible requests|daily/i.test(oneLine(policy)), 'the policy no longer describes daily counters');
 
 if (failures) {
   console.error(`\n${failures} check(s) failed.`);

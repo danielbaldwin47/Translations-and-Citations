@@ -7,7 +7,10 @@
  *                               languages, default, hasKey, …)
  *   GET_CHAPTER              -> one chapter as IR. api.bible: cache first,
  *                               rate-limited; a rejected key also drops the
- *                               cached version list. Every api.bible display,
+ *                               cached version list. Every api.bible answer,
+ *                               a cache hit or an error too, carries `rate`:
+ *                               the month's state (ratelimit.js rateState),
+ *                               counted after this call. Every api.bible display,
  *                               a cache hit too, sends a FUMS usage report
  *                               (fums.js) with the token cached beside the
  *                               chapter; the reply carries neither the token
@@ -21,7 +24,10 @@
  *                               page's explicit Connect). A `partial` list
  *                               (a copyright lookup failed) is passed on but
  *                               never cached. One refresh costs 1 + one call
- *                               per version (~39) against a monthly quota.
+ *                               per version (~39) against a monthly quota,
+ *                               added to the month's count. The answer carries
+ *                               `rate` too, so a Connect refused in a paused
+ *                               month can say so.
  *                               A list for a named `key` is the options page's
  *                               Connect: once it succeeds, the FUMS device id
  *                               exists (the click was the consent).
@@ -40,7 +46,9 @@
  * the options page instead on a tab without our content script, and on a
  * Gospel Library page showing no chapter (the reply says `shown: false`); a
  * fresh install (reason `install`, never an update) opens Alma 5 in a new tab;
- * an update (reason `update`) marks the welcome seen (`welcomeSeen`).
+ * an update (reason `update`) marks the welcome seen (`welcomeSeen`) and
+ * removes the daily api.bible counters from before the monthly count
+ * (ratelimit.js forgetDaily).
  *
  * Classic (non-module) worker so a single IIFE authoring style works everywhere;
  * dependencies are pulled in with importScripts in dependency order.
@@ -91,11 +99,12 @@ async function handleListBibles(msg) {
     result = { bibles: cached };
   } else {
     result = await API.listBibles(key);
+    if (result.calls) await RATE.addCalls(result.calls, RATE.answerOf(result));
     if (!result.error && result.bibles && !result.partial) await CACHE.setBibles(result.bibles, key);
   }
   // A Connect that succeeded (the options page named its key), cached or not.
   if (!result.error && msg.key) await FUMS.connected();
-  return result;
+  return withRate(result);
 }
 
 async function handleGetChapter(msg) {
@@ -112,24 +121,28 @@ async function handleGetChapter(msg) {
   // Cache first (does not count against rate limits). An api.bible chapter
   // is cached with its FUMS token, reported on every display.
   const cached = await CACHE.getChapter(provider, bibleId, chapterId);
-  if (cached) return displayed(cached);
+  if (cached) return withRate(await displayed(cached));
 
   const s = await SETTINGS.get();
-  if (!s.apiKey) return { error: { code: C.ERR.NO_KEY, message: 'No API key set' } };
+  if (!s.apiKey) return withRate({ error: { code: C.ERR.NO_KEY, message: 'No API key set' } });
   const gate = await RATE.check();
   if (!gate.ok) {
-    return { error: { code: C.ERR.RATE_LIMITED, message: gate.reason, retryAfterMs: gate.retryAfterMs } };
+    return withRate({ error: { code: C.ERR.RATE_LIMITED, message: gate.reason, retryAfterMs: gate.retryAfterMs } });
   }
   const result = await API.fetchApiBibleChapter(s.apiKey, bibleId, chapterId);
-  await RATE.consume();
+  await RATE.consume(RATE.answerOf(result));
   // The stored key stopped working: its cached version list would still tell
   // the options page "Connected", so the page fetches afresh and says why.
   if (result.error && result.error.code === C.ERR.INVALID_KEY) await CACHE.dropBibles();
 
-  if (result.error) return result;
+  if (result.error) return withRate({ error: result.error });
   const entry = result.fumsToken ? Object.assign({}, result.payload, { fumsToken: result.fumsToken }) : result.payload;
   await CACHE.setChapter(provider, bibleId, chapterId, entry);
-  return displayed(entry);
+  return withRate(await displayed(entry));
+}
+
+async function withRate(reply) {
+  return Object.assign({}, reply, { rate: await RATE.state() });
 }
 
 // A chapter on its way to the page: report its token, then hand back the
@@ -231,5 +244,8 @@ chrome.runtime.onInstalled.addListener((details) => {
   const reason = details && details.reason;
   const logged = (what) => (e) => console.warn(`[BTX] ${what}:`, e);
   if (reason === 'install') openWelcome().catch(logged('could not open the welcome tab'));
-  else if (reason === 'update') SETTINGS.patch({ welcomeSeen: true }).catch(logged('could not mark the welcome seen'));
+  else if (reason === 'update') {
+    SETTINGS.patch({ welcomeSeen: true }).catch(logged('could not mark the welcome seen'));
+    RATE.forgetDaily().catch(logged('could not remove the old daily counters'));
+  }
 });

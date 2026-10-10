@@ -400,6 +400,8 @@
 #btx-root .btx-error .btx-state-text { color: var(--btx-fg); font-weight: 600; }
 #btx-root .btx-state-hint { margin: 0; font-size: 13px; max-width: 30em; }
 #btx-root .btx-state .btx-cta { margin-top: 4px; }
+/* A key problem's api.bible dashboard link, under its Open settings. */
+#btx-root .btx-state .btx-card-link { align-self: center; }
 /* A cached chapter arrives within a frame or two: the spinner only shows for
    a load that is actually slow, so fast ones don't flash. */
 #btx-root .btx-loading { animation: btx-appear 0.15s ease-out 0.2s both; }
@@ -496,18 +498,38 @@
 /* After a click on Side by side that has no room: why, in its own line. */
 #btx-root .btx-note-hint { flex: 1 1 100%; margin-top: 6px; }
 #btx-root .btx-note-hint[hidden] { display: none; }
+/* × keeps a 24px target (WCAG 2.5.8) without growing the line: its excess
+   height hangs into the line's leading. */
 #btx-root .btx-note-x {
   appearance: none;
-  margin-inline-start: 6px;
+  min-width: 24px;
+  min-height: 24px;
+  margin: -3px 0 -3px 6px;
   padding: 0 4px;
+  vertical-align: middle;
   border: 0;
   border-radius: 4px;
   background: none;
   color: inherit;
   font: inherit;
+  font-size: 16px;
+  line-height: 1;
   cursor: pointer;
 }
 #btx-root .btx-note-x:hover { color: var(--btx-fg); background: var(--btx-border); }
+/* The near line: its own row with the × at the end, at a roomier 28px (the
+   text it sits beside is the first verse's neighbour), and set off from the
+   chapter below by a rule. */
+#btx-root .btx-note-near {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-bottom: 16px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--btx-border);
+}
+#btx-root .btx-note-near .btx-note-text { flex: 1 1 auto; min-width: 0; }
+#btx-root .btx-note-near .btx-note-x { flex: 0 0 auto; width: 28px; height: 28px; margin: -4px -4px 0 0; padding: 0; }
 #btx-root .btx-note-link:focus-visible,
 #btx-root .btx-note-x:focus-visible { outline: 2px solid var(--btx-accent); outline-offset: 1px; }
 

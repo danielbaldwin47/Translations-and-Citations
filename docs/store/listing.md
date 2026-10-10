@@ -37,7 +37,7 @@ Citations
 
 The panel follows the site's theme, font and text size, scrolls with the page, and can be resized or collapsed.
 
-Free, no ads, no account, no analytics. The privacy policy lists what is stored and what is sent where.
+Free, no ads, no account. No analytics of our own. Only api.bible's required usage report, and only once you connect a key. The privacy policy lists what is stored and what is sent where.
 
 Citation data compiled with reference to the BYU Scripture Citation Index. Not affiliated with or endorsed by BYU or The Church of Jesus Christ of Latter-day Saints.
 ```
@@ -53,7 +53,7 @@ Scripture study on churchofjesuschrist.org/study: for the chapter being read, sh
 One line per dashboard field.
 
 - `storage`: Saves the reader's settings (synced through Chrome) and, on this device only, highlights, cached api.bible chapters and the api.bible usage-report device id.
-- `https://api.scripture.api.bible/*`: Fetches the version list and the chapter being read from api.bible, with the reader's own key, for the translations that key unlocks.
+- `https://rest.api.bible/*`: Fetches the version list and the chapter being read from api.bible, with the reader's own key, for the translations that key unlocks.
 - `https://fums.api.bible/*`: Sends api.bible's required anonymous usage report for each api.bible chapter shown, which the api.bible licence asks every app to send.
 - `https://scriptures.byu.edu/*`: Fetches an early General Conference talk (1942 to 1970) from BYU, its publisher, when the reader opens it or opens the citation list that shows its excerpt.
 - `https://www.churchofjesuschrist.org/study*`: Runs the panel on the scripture chapter being read, and fetches from the same site the chapter in a Church language the reader added and the talks the reader opens.

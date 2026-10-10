@@ -13,13 +13,22 @@
 
   const CONST = {
     // --- API endpoints ---
-    API_BIBLE_BASE: 'https://api.scripture.api.bible/v1',
+    API_BIBLE_BASE: 'https://rest.api.bible/v1',
     // api.bible usage reports (background/fums.js); a host permission.
     FUMS_BASE: 'https://fums.api.bible',
 
     // --- Providers ---
     PROVIDER_APIBIBLE: 'api.bible',
     PROVIDER_BUNDLED: 'bundled', // packaged with the extension: no key, no rate limit, no reporting
+
+    // --- api.bible's own pages, linked from settings (verified 2026-10-09) ---
+    // `signUp` makes the free account; `dashboard` shows the key (top right)
+    // and the Bibles on it, through the menus API_BIBLE_ADD_BIBLES names.
+    // options.html's setup steps carry the same addresses, and the page fills
+    // its add-later line from API_BIBLE_ADD_BIBLES
+    // (tools/validate-options-form.js).
+    API_BIBLE_PAGES: { signUp: 'https://api.bible/sign-up', dashboard: 'https://api.bible/team' },
+    API_BIBLE_ADD_BIBLES: 'Plan, then Edit Plan, then Edit Bible Licenses',
 
     // --- The bundled Bible: the World English Bible (ebible.org `engwebp`) ---
     // Its `enabledTranslations` row ({ id, abbr, name, provider }, guaranteed by
@@ -82,16 +91,53 @@
     },
 
     // --- The options page's About card (spec #69) ---
-    // Source lines and links, shown as text (options.js aboutCopy). The Store
-    // description (docs/store/listing.md) carries `citationSource` word for
-    // word (tools/validate-options-form.js). The two URLs are owner decisions:
-    // the privacy policy's published address (#81) and the support channel.
+    // Source lines, links and "Your data", shown as text (options.js
+    // aboutCopy). The Store description (docs/store/listing.md) carries
+    // `citationSource` word for word (tools/validate-options-form.js). The two
+    // URLs are owner decisions: the privacy policy's published address (#81)
+    // and the support channel.
+    //
+    // `yourData` (#128) is what the code stores and contacts, in plain words:
+    // a change to what is kept in chrome.storage.local or .sync, or to a host
+    // the extension fetches from, changes these lines and docs/privacy.md
+    // together. A site line is { text, hosts }: what it is for, then its full
+    // hostnames; tools/validate-manifest.js checks every manifest host is one.
     ABOUT: {
       citationSource: 'Citation data compiled with reference to the BYU Scripture Citation Index. '
         + 'Not affiliated with or endorsed by BYU or The Church of Jesus Christ of Latter-day Saints.',
       jodSource: 'Journal of Discourses text: Wikisource, public domain',
       privacyUrl: 'https://github.com/danielbaldwin47/Translations-and-Citations/blob/main/docs/privacy.md',
       supportUrl: 'https://github.com/danielbaldwin47/Translations-and-Citations/issues',
+      yourData: {
+        local: {
+          head: 'On this computer',
+          items: [
+            'Your highlights, and whether to keep showing the highlighting tip',
+            'api.bible chapters you’ve read, so they open faster',
+            'The list of translations your api.bible key unlocks',
+            'A random id that api.bible’s usage report uses',
+            'This computer’s own count of api.bible requests this month, and the times of the last few',
+            'The month you last saw the api.bible limit notice',
+            'The translation or language you picked last',
+          ],
+        },
+        synced: {
+          head: 'Synced through your Chrome account',
+          items: [
+            'Your settings, including your api.bible key and your languages',
+            'Anyone signed in to Chrome with this account can see your api.bible key',
+          ],
+        },
+        sites: {
+          head: 'Sites it contacts',
+          items: [
+            { text: 'Church languages and General Conference talks', hosts: ['www.churchofjesuschrist.org'] },
+            { text: 'Early conference talks', hosts: ['scriptures.byu.edu'] },
+            { text: 'Only once you connect a key: Bible chapters, your list of translations, and the usage report',
+              hosts: ['rest.api.bible', 'fums.api.bible'] },
+          ],
+        },
+      },
     },
 
     // --- First run ---
@@ -113,7 +159,12 @@
     CACHE_INDEX_KEY: 'btxCacheIndex',
     BIBLES_CACHE_KEY: 'btxBiblesCache',
     RATE_RECENT_KEY: 'btxRateRecent',
-    RATE_DAILY_PREFIX: 'btxRateDaily::',
+    // This browser's api.bible calls this calendar month, and whether
+    // api.bible's last answer was a 429 (background/ratelimit.js).
+    RATE_MONTH_KEY: 'btxRateMonth',
+    // The month ('YYYY-MM') the panel last showed the near-limit line, so it
+    // shows once a month (content/panel.js nearLine).
+    NEAR_LINE_KEY: 'btxNearLineMonth',
     // The FUMS device id: created on the first successful Connect, this
     // device only (background/fums.js).
     FUMS_DEVICE_KEY: 'btxFumsDeviceId',
@@ -126,11 +177,21 @@
     // "Check for new translations" refreshes on demand).
     BIBLES_TTL_MS: 7 * 24 * 60 * 60 * 1000, // 7 days
     CACHE_MAX_ENTRIES: 500,
+    // api.bible's terms: a cache holds fewer than 500 verses of its text
+    // (cache.js dropKeys evicts the least recently read chapters to stay under).
+    CACHE_MAX_VERSES: 500,
 
     // --- Rate limits (api.bible) ---
     RATE_WINDOW_MS: 30 * 1000,
     RATE_WINDOW_MAX: 15, // 15 requests / 30s
-    RATE_DAILY_MAX: 5000, // 5000 requests / day
+    // The free Starter plan's calls a month. Never a cap: the count only
+    // names a state (near from RATE_MONTH_NEAR; paused once api.bible answers
+    // 429 at or past RATE_MONTH_FREE), so a paid plan is never cut short.
+    RATE_MONTH_FREE: 5000,
+    RATE_MONTH_NEAR: 4000, // about 80% of the free plan
+    // A 429 whose Retry-After is shorter than this is api.bible pacing a
+    // burst, not the month used up (ratelimit.js answerOf).
+    RATE_BURST_WAIT_MS: 60 * 60 * 1000,
 
     // --- Which translation becomes the default, in order of preference ---
     // The options page picks the first of these the reader has turned on, and

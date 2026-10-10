@@ -701,7 +701,7 @@
     if (panel.effectiveMode() !== 'translation') return; // user toggled to citations mid-load
 
     if (!res || res.error) {
-      handleError((res && res.error) || { code: C.ERR.UNKNOWN }, tr);
+      handleError((res && res.error) || { code: C.ERR.UNKNOWN }, tr, res && res.rate);
       return;
     }
     retries = { key: null, n: 0 };
@@ -709,6 +709,7 @@
       kind: 'content',
       blocks: res.blocks,
       copyright: res.copyright || tr.copyright || '',
+      rate: res.rate, // the month's api.bible state (panel.js isPaused); absent for the bundled Bible
     });
   }
 
@@ -747,7 +748,10 @@
     });
   }
 
-  function handleError(error, tr) {
+  // `rate`: the month's api.bible state the worker attached to the answer
+  // (a paused month is never retried by itself, and has its own line).
+  function handleError(failure, tr, rate) {
+    const error = Object.assign({}, failure, { rate });
     // A short, stated rate-limit wait is not an error to the reader: a wait,
     // with a countdown to the retry — a few times at most (panel.retryWait).
     const key = transKey();
@@ -766,8 +770,15 @@
       chapter: current ? chapterLabel(current) : '',
       church: tr.provider === churchText.PROVIDER,
       alternatives: texts.length > 1,
+      // What still works in a paused month (panel pausedHint): no api.bible.
+      others: {
+        bundled: texts.some((t) => t.provider === C.PROVIDER_BUNDLED),
+        church: texts.filter((t) => t.provider === churchText.PROVIDER).length,
+        apiBible: texts.filter((t) => t.provider === C.PROVIDER_APIBIBLE).length,
+      },
       remote: error.remote === true,
       retryAfterMs: error.retryAfterMs,
+      rate,
     });
   }
 

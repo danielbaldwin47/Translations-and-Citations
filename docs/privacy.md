@@ -9,9 +9,10 @@ later; the version you have is shown on the About card of the extension's
 settings page.
 
 The extension has no server of its own. Nothing you do in it is sent to the
-developer. There is no analytics, no ads, no account, and no data is sold or
-shared with anyone beyond the parties named below, each of which is contacted
-only for the request described.
+developer. No analytics of our own. Only api.bible's required usage report,
+and only once you connect a key. There are no ads and no account, and no data
+is sold or shared with anyone beyond the parties named below, each of which is
+contacted only for the request described.
 
 The use of information received by this extension will adhere to the Chrome Web Store User Data Policy, including the Limited Use requirements.
 
@@ -40,11 +41,19 @@ One settings object holding:
 - highlights you make in the talk reader: for each one, the talk, where it
   sits in the talk, and the highlighted text; plus a flag that you have made
   one (so the one-line hint stops showing);
-- cached api.bible chapters you have displayed, for up to 30 days and at most
-  500 chapters, each with the usage-report token api.bible returned for it;
+- cached api.bible chapters you have displayed, each with the usage-report
+  token api.bible returned for it: fewer than 500 verses of api.bible text in
+  all (the least recently read chapter is dropped first), each kept for up to
+  30 days;
 - the cached list of translations your api.bible key unlocks, for up to seven
   days, filed under a hash of the key (not the key itself);
-- counters of recent api.bible requests, for the extension's own rate limit;
+- the times of your last few api.bible requests, so the extension never sends
+  more than 15 in 30 seconds;
+- this month's count of this browser's api.bible requests, and whether
+  api.bible's last answer said the month's limit was reached. It is a count,
+  never a limit: the extension uses it only to tell you when you near the
+  free plan's monthly limit, or have reached it;
+- the month you last saw that warning, so it shows once a month;
 - an api.bible usage-report device id: a random identifier created the first
   time an api.bible key connects successfully, used only in reports to
   api.bible (below);
@@ -69,13 +78,13 @@ Every request below is made over HTTPS. Requests to the Church site and to
 BYU are made without cookies (`credentials: 'omit'`), so they carry no sign-in
 and no identity.
 
-### api.bible (`api.scripture.api.bible`), only if you connect a key
+### api.bible (`rest.api.bible`), only if you connect a key
 
 Bible translations beyond the built-in World English Bible come from
-api.bible with your own free key, which you create at scripture.api.bible
-and paste into settings. The sentence beside Connect says what connecting
-sends; clicking Connect is your consent. Until you connect, no request goes
-to api.bible.
+api.bible with your own free key, which you create at api.bible
+(<https://api.bible/sign-up>) and paste into settings. The sentence beside
+Connect says what connecting sends; clicking Connect is your consent. Until
+you connect, no request goes to api.bible.
 
 - When you connect or check for new translations: your key, to list the
   translations it unlocks.

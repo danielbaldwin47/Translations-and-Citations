@@ -13,11 +13,12 @@ Doctrine and Covenants, Pearl of Great Price) it shows, in a panel beside the pa
   paragraph; each talk reads inline, opened at the cited passage.
 
 Citations and the World English Bible need no setup. Church languages need no
-key. Other Bible translations need a free key from scripture.api.bible.
+key. Other Bible translations need a free key from api.bible.
 
 **Current version: 1.0.0** — see [CHANGELOG.md](CHANGELOG.md). Free, no ads, no
-account, no analytics; the [privacy policy](docs/privacy.md) lists what is
-stored and what is sent where.
+account. No analytics of our own. Only api.bible's required usage report, and
+only once you connect a key. The [privacy policy](docs/privacy.md) lists what
+is stored and what is sent where.
 
 ## Install
 
@@ -68,11 +69,14 @@ one is loaded.
 ### Bible translations beyond the World English Bible (optional)
 
 Copyrighted translations can't be bundled, so the extension reads them from
-**[scripture.api.bible](https://scripture.api.bible/)** with your own free key:
+**[api.bible](https://api.bible/sign-up)** with your own free key:
 
-1. Create a free account at <https://scripture.api.bible/> and add the
-   translations you want to your key (NIV, NKJV and NIrV, for example).
-2. Open the extension's settings (the gear in the panel, or the toolbar icon on
+1. Create a free account at <https://api.bible/sign-up>. Sign-up asks about
+   your app, such as what it's for and how many people use it, and your
+   organisation. Pick up to 3 Bibles, such as NIV, on the free plan. Bibles
+   can be added later from your [api.bible dashboard](https://api.bible/team):
+   Plan, then Edit Plan, then Edit Bible Licenses.
+2. Copy the key from the top right of the dashboard. Open the extension's settings (the gear in the panel, or the toolbar icon on
    any page that isn't showing a chapter) and paste the key under **Bible
    translations**. Connecting sends the chapters you open, your key, and an
    anonymous usage report to API.Bible (the sentence beside Connect says so;
@@ -183,6 +187,7 @@ map of every module; the table below is the tour.
 | `src/shared/constants.js` | message types, storage keys, API bases, limits, the bundled Bible, disclosures, About-card text and URLs, the Church-language table |
 | `src/shared/settings.js` | the one owner of synced settings: schema, defaults, normalizers, get/patch/replace, change subscriptions |
 | `src/shared/books.js` | slug maps: 66 Bible (→ USFM/name) + Book of Mormon / D&C / PGP |
+| `src/shared/rate-copy.js` | the api.bible monthly-limit lines, shared by the panel and the settings page |
 | `src/background/service-worker.js` | message router, toolbar icon, first-install page |
 | `src/background/api.js` | api.bible fetch + normalization; the packaged World English Bible |
 | `src/background/cache.js`, `ratelimit.js`, `fums.js` | chapter/version cache, api.bible rate limiting, api.bible usage report |
