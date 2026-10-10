@@ -176,7 +176,7 @@
   color: var(--btx-fg);
 }
 /* The rested version dropdown (#155): visibly out of reach. */
-#btx-root .btx-select:disabled { opacity: 0.5; }
+#btx-root .btx-select[aria-disabled='true'] { opacity: 0.5; cursor: default; }
 
 /* The language row's one language, as plain text: the select's place, its
    size and its inset, so the row reads the same with one language or two. */
@@ -242,15 +242,15 @@
 }
 /* Greyed (no ticked language has the chapter): the track loses its accent
    whatever the setting, so it never reads as showing anything. */
-#btx-root .btx-switch:disabled {
+#btx-root .btx-switch[aria-disabled='true'] {
   opacity: 0.45;
   cursor: default;
 }
-#btx-root .btx-switch:disabled::before {
+#btx-root .btx-switch[aria-disabled='true']::before {
   background: var(--btx-border);
   border-color: var(--btx-border);
 }
-#btx-root .btx-switch:disabled::after {
+#btx-root .btx-switch[aria-disabled='true']::after {
   background: var(--btx-muted);
   box-shadow: none;
 }

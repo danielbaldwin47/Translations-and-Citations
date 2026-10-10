@@ -16,11 +16,11 @@
  *                          The fit's rule exists only while the site's own
  *                          column would be clipped: none with the panel
  *                          collapsed or narrow enough.
- *   show({ key, chapter, row, layout, uri, onLayout, onHide, anchor })
+ *   show({ key, chapter, name, layout, uri, onLayout, onHide, anchor })
  *                          split the page.
  *                          `chapter` is a __BTX.churchText load result (blocks
- *                          carry ids), `row` its churchText row (the Hide
- *                          line names it), `layout` 'columns' | 'interlinear',
+ *                          carry ids), `name` the language's short name
+ *                          (the Hide line's), `layout` 'columns' | 'interlinear',
  *                          `uri` the chapter's /scriptures/… path. Same key as
  *                          the split showing: nothing happens. Waits, as long
  *                          as it takes, for the site to render that chapter
@@ -35,8 +35,10 @@
  *                          actually on the page ('columns' | 'interlinear'),
  *                          `collapseFits` whether collapsing the open panel
  *                          would give columns room (collapseFits, pure).
- *                          `onHide()` is the Hide line's click; without it
- *                          the split has no Hide line.
+ *                          `onHide({ hadFocus })` is the Hide line's click
+ *                          (`hadFocus`: the button had focus, so the
+ *                          orchestrator places it); without it the split has
+ *                          no Hide line.
  *   hide({ anchor })       remove every trace of the split: layer, its CSS,
  *                          the <html> attribute; the column is fitted again
  *                          without it in the same reflow. `anchor` (optional)
@@ -75,7 +77,8 @@
  * background. Its room is an id rule moving the first pair's English down
  * (rowRules' `head`), so the first row still pairs. Hide calls show's
  * `onHide`: the layer writes no setting; the orchestrator turns the language
- * switch off and hides the split, which takes the line with it.
+ * switch off and hides the split, which takes the line with it, and puts a
+ * keyboard Hide's focus in the panel.
  *
  * The fit (fitColumn, fitRule): with no split, or interlinear, a column whose
  * text runs past the visible reading area (under the docked drawer, under the
@@ -136,13 +139,12 @@
       && (layout === 'columns' || layout === 'interlinear');
   }
 
-  // The Hide line's words for the page's language `row` (a churchText row):
-  // the language's own name as the dropdown shows it ("Español"), then the
-  // Hide button, whose accessible name says what it hides.
-  //   -> { language, text, button, label }
-  function hideLineCopy(row) {
-    const r = row || {};
-    const language = r.abbr || r.name || '';
+  // The Hide line's words for the page's language, by the short name the
+  // orchestrator gives (churchText.nameFor: "Español"), then the Hide
+  // button, whose accessible name says what it hides.
+  //   hideLineCopy(name) -> { language, text, button, label }
+  function hideLineCopy(name) {
+    const language = typeof name === 'string' ? name : '';
     return {
       language,
       text: language ? `${language} ·` : 'Translation on the page ·',
@@ -511,9 +513,9 @@
 
   // The Hide line (hideLineCopy): the language's name, then a Hide button
   // that hands the reader's click to show's `onHide` — the layer itself
-  // writes no setting. Text nodes only.
+  // writes no setting and moves no focus. Text nodes only.
   function hideLine(lang) {
-    const copy = hideLineCopy(s.row);
+    const copy = hideLineCopy(s.name);
     const line = document.createElement('div');
     line.className = 'btx-split-line';
     const name = document.createElement('span');
@@ -524,7 +526,9 @@
     button.className = 'btx-split-hide';
     button.textContent = copy.button;
     button.setAttribute('aria-label', copy.label);
-    button.addEventListener('click', () => { if (s && s.onHide) s.onHide(); });
+    // Read before the layer goes: a keyboard Hide's focus is the
+    // orchestrator's to place (it would otherwise drop to the page's body).
+    button.addEventListener('click', () => { if (s && s.onHide) s.onHide({ hadFocus: document.activeElement === button }); });
     line.append(name, ' ', button);
     return line;
   }

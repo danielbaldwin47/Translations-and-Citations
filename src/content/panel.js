@@ -148,8 +148,10 @@
  *                                  A− / A+ stepper; while the arrangement's
  *                                  `versionRests` names a language (In the
  *                                  panel on a Bible chapter) the dropdown
- *                                  rests: disabled, titled "Español is in the
- *                                  panel" (restsTitle). The language row, whenever
+ *                                  rests: greyed and aria-disabled, still
+ *                                  focusable, titled "Español is in the
+ *                                  panel" (restsTitle); it neither opens nor
+ *                                  changes (guardRested). The language row, whenever
  *                                  `row` (languageRow's answer) has a form: the
  *                                  language's name as plain text, or the
  *                                  language dropdown (`languages`,
@@ -162,12 +164,16 @@
  *                                  row shows (toolbarRows). The switch is
  *                                  restated in place, so focus stays on it
  *                                  through a flip
+ *   focusAfterHide()               a keyboard Hide on the page took the
+ *                                  focused Hide button away: focus the way
+ *                                  back (hideFocus: the switch, else the
+ *                                  Translation mode button, else the tab)
  *   retryWait(error, attempts)     pure: whether a rate-limited load retries by
  *                                  itself (ms to wait) or shows the error card
  *                                  (null)
  *   getRootEl()
  *
- * handlers: { renderMode(mode), onTranslationChange(id), onLanguagePick(id, patch),
+ * handlers: { renderMode(mode), onTranslationChange(id), onLanguagePick(id, turnOn),
  *   onLanguageShown(on), onGear(section), onRetry, onAddLanguage(code),
  *   onLayoutChange(layout), onDismissNote, onShowLanguage, askToolbarPin }.
  *   `renderMode` fires whenever the panel invalidated its own body content
@@ -180,9 +186,10 @@
  *   no-translation line's Add a language; none
  *   from the header's Settings button).
  *   `onTranslationChange` is a pick in the Bible version dropdown,
- *   `onLanguagePick` one in the language dropdown (`patch` is languagePick's:
+ *   `onLanguagePick` one in the language dropdown (`turnOn` is languagePick's:
  *   the switch on, while it is off), `onLanguageShown` a flip of the
- *   language row's switch.
+ *   language row's switch. Turning the switch on (either of these, or the
+ *   off card's Show) is this visit's Translation click (turnLanguageOn).
  *   `onAddLanguage`, `onLayoutChange`, `onDismissNote` and `onShowLanguage`
  *   (the off card's Show: turn the language switch on) are the cards' and
  *   the note's picks; the panel writes no setting for any of these, the
@@ -495,9 +502,9 @@
   // What a pick in the language row's dropdown writes: the pick memory (as
   // any pick does), then, while the switch is off, the switch on — a pick
   // shows what it picked.
-  //   languagePick(row, id) -> { pick: id, patch: { churchLanguageShown: true } | null }
+  //   languagePick(row, id) -> { pick: id, turnOn: boolean }
   function languagePick(row, id) {
-    return { pick: id, patch: row && row.on === false ? { churchLanguageShown: true } : null };
+    return { pick: id, turnOn: !!row && row.on === false };
   }
 
   // What a flip of the row's switch writes; the greyed switch writes nothing.
@@ -505,6 +512,29 @@
   function switchFlip(row) {
     if (!row || !row.enabled) return null;
     return { churchLanguageShown: row.on === false };
+  }
+
+  // The reader turning the language switch on (the language row's switch,
+  // a pick in its dropdown while off, the off card's Show) is this visit's
+  // Translation click: the tab stays on Translation whatever the language
+  // has, so a chapter it lacks lands on the not-available card, never
+  // Citations. True when the stored mode moved (the shell persists it).
+  //   turnLanguageOn(state) -> boolean
+  function turnLanguageOn(s) {
+    const before = s.mode;
+    selectMode(s, 'translation');
+    return s.mode !== before;
+  }
+
+  // Where focus goes when the keyboard Hides the language from the page (the
+  // Hide line goes with the layer): the language row's switch, the way back,
+  // when the row shows; else the Translation mode button; the tab while the
+  // panel is collapsed.
+  //   hideFocus({ collapsed, mode, language }) -> 'switch' | 'mode' | 'tab'
+  //   language: toolbarRows' `language` (the row shows)
+  function hideFocus(o) {
+    if (o.collapsed) return 'tab';
+    return o.mode === 'translation' && o.language ? 'switch' : 'mode';
   }
 
   // The switch's accessible name: what turning it on does.
@@ -845,7 +875,7 @@
   //   -> { view, language, text, actions: [{ id, label, title? }] } or null
   // `view` is the named view the line sits above: it is shown only while that
   // view is mounted. `language` is the name the line uses. The actions' ids
-  // are the shell's verbs: 'add' opens the setup card for this visit,
+  // are the shell's verbs: 'add' opens Settings at the languages section,
   // 'dismiss' is the ×, 'change' opens the layout control in the line's place.
   // Every kind names the language by its short native name, as the language
   // row and the cards do (churchText.nameFor: "Español", "Mahsen en Pohnpei"):
@@ -1461,7 +1491,7 @@
 
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = {
-      createState, arrangement, languageRow, languagePick, switchFlip, switchLabel, toolbarRows, arrangementOf, effectiveMode, selectMode, selectText, selectCitationView, setChapter, sameChapter,
+      createState, arrangement, languageRow, languagePick, switchFlip, turnLanguageOn, hideFocus, switchLabel, toolbarRows, arrangementOf, effectiveMode, selectMode, selectText, selectCitationView, setChapter, sameChapter,
       welcomeDue, setWelcomeSeen, welcomeTakesFocus, focusOnToggle, byKeyboard, CONTROL_NAMES, WELCOME_COPY, WELCOME_STEPS, welcomeSteps, welcomeStepView, welcomeFactsFrom, lineParts,
       CALLOUT_GEOMETRY, calloutPlacement, unionRect,
       stepFontScale, setupCopy, noteCopy, offCopy, notAvailableCopy, restsTitle, besideCopy, pressedLayout, layoutClick, roomHint, errorCopy, pausedLine, nearLine, retryWait, LAYOUTS, RETRY_MAX_WAIT_MS, RETRY_MAX,
@@ -1672,7 +1702,10 @@
     }
 
     // Wire controls.
+    select.addEventListener('mousedown', guardRested);
+    select.addEventListener('keydown', guardRested);
     select.addEventListener('change', () => {
+      if (restsName !== null) { select.value = bibleSelected; showSelectedTitle(); return; } // rested: a change that slipped past the guard is undone
       showSelectedTitle();
       selectText(state, select.value);
       if (cbs.onTranslationChange) cbs.onTranslationChange(select.value);
@@ -2514,7 +2547,7 @@
       fillNote();
       if (note.control) {
         pressNote();
-        refocusLayout = false; // restated in place: focus never left
+        refocusView = false; // restated in place: focus never left
       }
       return;
     }
@@ -2706,16 +2739,17 @@
   // without rebuilding it under a keyboard user's focus.
   let beside = null;
   // A keyboard pick that rebuilds the view — a layout moving the text between
-  // the page and the panel, or a language added from the setup card — would
-  // drop focus out of the panel with the control it was on. The rebuilt view's
-  // layout control (its pressed choice, on the beside card or above the text
-  // in the panel) takes it instead.
-  let refocusLayout = false;
+  // the page and the panel, a language added from the setup card, the off
+  // card's Show — would drop focus out of the panel with the control it was
+  // on. The rebuilt view's layout control (its pressed choice, on the beside
+  // card or above the text in the panel) takes it instead, or the
+  // not-available card's link when Show finds the chapter lacking.
+  let refocusView = false;
 
   // The pick goes to the orchestrator, which writes the layout alone: the
   // layout and the language row's pick are independent.
   function pickLayout(value) {
-    refocusLayout = !!ui && ui.rootEl.contains(document.activeElement);
+    refocusView = !!ui && ui.rootEl.contains(document.activeElement);
     if (cbs.onLayoutChange) cbs.onLayoutChange(value);
   }
 
@@ -2805,7 +2839,10 @@
     if (c.effective !== undefined) splitFit.effective = c.effective;
     if (c.collapseFits !== undefined) splitFit.collapseFits = c.collapseFits;
     const moved = before[0] !== splitFit.effective || before[1] !== splitFit.collapseFits;
-    refocusLayout = false; // restated in place: focus never left
+    // A card restated in place kept the reader's focus. With none on screen
+    // yet (the split mounted while the view still loads), a pending refocus
+    // is the coming view's.
+    if (was) refocusView = false;
     if (was) {
       Object.assign(was, splitFit);
       if (moved) was.nudged = false;
@@ -2840,7 +2877,7 @@
     add.disabled = true;
     function commit() {
       if (!select.value || select.disabled) return;
-      refocusLayout = row.contains(document.activeElement); // read before disabling drops it
+      refocusView = row.contains(document.activeElement); // read before disabling drops it
       select.disabled = true; // one pick; the chapter re-renders with it
       add.disabled = true;
       if (cbs.onAddLanguage) cbs.onAddLanguage(select.value);
@@ -2889,14 +2926,15 @@
   // visit's Translation click, so the tab stays put whatever the language
   // has (the not-available card if it lacks the chapter), then the
   // orchestrator turns the switch on. A keyboard user's focus follows to the
-  // layout control of the card that replaces this one.
+  // layout control of the view that replaces this one, or to the
+  // not-available card's link.
   function renderOff(host, st) {
     const copy = offCopy(st.row);
     const card = el('div', 'btx-card btx-off');
     card.appendChild(el('p', 'btx-card-title', copy.text));
     const show = button('btx-btn-outline', copy.show, () => {
-      refocusLayout = document.activeElement === show;
-      selectMode(state, 'translation');
+      refocusView = document.activeElement === show;
+      languageOnClick();
       if (cbs.onShowLanguage) cbs.onShowLanguage();
     });
     labelled(show, copy.showLabel);
@@ -2905,13 +2943,15 @@
   }
 
   // The not-available card: no ticked language has the chapter. Its link
-  // opens settings at the languages card.
+  // opens settings at the languages card. -> the link (focus may land on it)
   function renderNotAvailable(host, st) {
     const copy = notAvailableCopy(st.row, st.chapter);
     const card = el('div', 'btx-card btx-not-available');
     card.appendChild(el('p', 'btx-card-title', copy.text));
-    card.appendChild(button('btx-link', copy.add, () => cbs.onGear && cbs.onGear('languages')));
+    const add = button('btx-link', copy.add, () => cbs.onGear && cbs.onGear('languages'));
+    card.appendChild(add);
     host.appendChild(card);
+    return add;
   }
 
   function renderError(host, st) {
@@ -2960,9 +3000,9 @@
       const layouts = layoutControl(() => 'panel');
       tools.appendChild(layouts.group);
       host.appendChild(tools);
-      if (refocusLayout) focusPressedLayout(layouts);
+      if (refocusView) focusPressedLayout(layouts);
     }
-    refocusLayout = false;
+    refocusView = false;
     const article = el('div', 'btx-article');
     if (st.lang) article.lang = st.lang;
     if (st.dir) article.dir = st.dir;
@@ -3018,7 +3058,7 @@
     const host = viewNode();
     const kind = st && st.kind;
     clearBody();
-    if (kind !== 'loading' && kind !== 'beside' && kind !== 'content') refocusLayout = false;
+    if (kind !== 'loading' && kind !== 'beside' && kind !== 'content' && kind !== 'not-available') refocusView = false;
     // Only a finished chapter is worth re-mounting; every other state must
     // render again (a spinner, an error to retry, a card that re-checks).
     keepView(views, kind === 'content');
@@ -3042,10 +3082,13 @@
         setCard('off');
         renderOff(host, st);
         return;
-      case 'not-available':
+      case 'not-available': {
         setCard('not-available');
-        renderNotAvailable(host, st);
+        const add = renderNotAvailable(host, st);
+        if (refocusView) add.focus({ preventScroll: true });
+        refocusView = false;
         return;
+      }
       case 'error':
         renderError(host, st);
         return;
@@ -3062,8 +3105,8 @@
         buildBeside(beside);
         fillBeside(beside);
         host.appendChild(beside.node);
-        if (refocusLayout) focusPressedLayout(beside.parts.layouts);
-        refocusLayout = false;
+        if (refocusView) focusPressedLayout(beside.parts.layouts);
+        refocusView = false;
         return;
       }
       case 'content':
@@ -3083,6 +3126,7 @@
   // language menu. The switch's own flips restate `row.on` at once.
   let toolbarFeed = { bible: [], row: languageRow(null), languages: [] };
   let bibleShown = null;
+  let bibleSelected = '';
   let languagesShown = null;
 
   // The toolbar's two menus (churchText.bibleMenu / languageMenu) and the
@@ -3097,6 +3141,7 @@
     const languages = Array.isArray(f.languages) ? f.languages : [];
     toolbarFeed = { bible, row: f.row || languageRow(null), languages };
     bibleShown = fillSelect(ui.select, bible, f.selected, bibleShown);
+    bibleSelected = ui.select.value;
     ui.select.hidden = !bible.length;
     languagesShown = fillSelect(ui.langSelect, languages, toolbarFeed.row.id, languagesShown);
     showSelectedTitle();
@@ -3133,6 +3178,14 @@
   // The language resting the version dropdown, by its short name, or null.
   let restsName = null;
 
+  // The resting version dropdown stays focusable (aria-disabled, not
+  // disabled), so keyboard and screen-reader users reach its title ("Español
+  // is in the panel"); it neither opens nor changes. Tab and Escape pass.
+  const PASS_KEYS = ['Tab', 'Escape', 'Shift', 'Control', 'Alt', 'Meta'];
+  function guardRested(e) {
+    if (restsName !== null && (e.type === 'mousedown' || !PASS_KEYS.includes(e.key))) e.preventDefault();
+  }
+
   // The toolbar's rows from the feed and the mode showing (toolbarRows): which
   // rows show, where the stepper sits, and the language row restated in
   // place — the switch is never rebuilt, so focus stays on it.
@@ -3145,7 +3198,8 @@
     // layout back into the page wakes it.
     const rests = arrangementOf(state).versionRests;
     restsName = rests ? churchText().nameFor(churchText().rowFor(rests)) : null;
-    ui.select.disabled = !!rests;
+    if (rests) ui.select.setAttribute('aria-disabled', 'true');
+    else ui.select.removeAttribute('aria-disabled');
     showSelectedTitle();
     ui.main.hidden = !rows.main;
     ui.langRow.hidden = !rows.language;
@@ -3167,9 +3221,25 @@
     ui.langRow.toggleAttribute('data-btx-lang-absent', !row.enabled);
     labelled(ui.langSwitch, switchLabel(row.name));
     ui.langSwitch.setAttribute('aria-checked', row.on ? 'true' : 'false');
-    ui.langSwitch.disabled = !row.enabled;
+    // Greyed, never natively disabled: focus survives the check greying it.
     if (row.enabled) ui.langSwitch.removeAttribute('aria-disabled');
     else ui.langSwitch.setAttribute('aria-disabled', 'true');
+  }
+
+  // The reader turned the language switch on (turnLanguageOn): this visit's
+  // Translation click, the stored mode saved when it moved.
+  function languageOnClick() {
+    if (turnLanguageOn(state)) persist({ panelMode: state.mode });
+  }
+
+  // A keyboard Hide on the page (content.js): the focused button went with
+  // the layer, so focus lands on hideFocus's control, never the page's body.
+  function focusAfterHide() {
+    if (!ui) return;
+    const rows = toolbarRows({ mode: effectiveMode(state), isBible: !!(state.facts && state.facts.isBible), row: toolbarFeed.row.form });
+    const where = hideFocus({ collapsed: state.collapsed, mode: effectiveMode(state), language: rows.language });
+    const target = where === 'tab' ? ui.tab : where === 'switch' ? ui.langSwitch : ui.modeTranslation;
+    target.focus({ preventScroll: true });
   }
 
   // A pick in the language dropdown: this visit's pick (as the version
@@ -3179,19 +3249,22 @@
     showSelectedTitle();
     const w = languagePick(toolbarFeed.row, id);
     selectText(state, w.pick);
-    if (w.patch) {
+    if (w.turnOn) {
+      languageOnClick();
       toolbarFeed.row = Object.assign({}, toolbarFeed.row, { on: true });
       applyToolbarUI();
     }
-    if (cbs.onLanguagePick) cbs.onLanguagePick(w.pick, w.patch);
+    if (cbs.onLanguagePick) cbs.onLanguagePick(w.pick, w.turnOn);
   }
 
   // The switch: flipped on screen at once and handed to the orchestrator,
   // which writes the setting and re-arranges the chapter (the panel writes
-  // no setting for it). Focus stays where it is: on the switch.
+  // no setting for it). Focus stays where it is: on the switch. The greyed
+  // switch stays focusable (aria-disabled) and switchFlip refuses it.
   function onLanguageSwitch() {
     const patch = switchFlip(toolbarFeed.row);
     if (!patch) return;
+    if (patch.churchLanguageShown) languageOnClick();
     toolbarFeed.row = Object.assign({}, toolbarFeed.row, { on: patch.churchLanguageShown });
     applyToolbarUI();
     if (cbs.onLanguageShown) cbs.onLanguageShown(patch.churchLanguageShown);
@@ -3469,6 +3542,7 @@
       setNote,
       updateBeside,
       populateTranslations,
+      focusAfterHide,
       getRootEl,
     },
   });

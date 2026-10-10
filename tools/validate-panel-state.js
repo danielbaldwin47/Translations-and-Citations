@@ -219,6 +219,16 @@ const ARRANGEMENT_CASES = [
     [{ chapter: chapter('dc-testament/dc/85', [church('pon', false)], ['pon']) },
       { mode: 'citations', body: 'citations', note: 'no-translation', noteLang: 'pon', saved: 'translation' }], // the next chapter: the fall to Citations
   ] },
+  // The language row's switch flipped on (the off card shows it too): a
+  // Translation click, so a chapter the language lacks lands on the
+  // not-available card, never Citations.
+  { name: 'switch off, Doctrine and Covenants 84 not asked yet, the language row\'s switch flipped on: the not-available card, not Citations', init: { mode: 'translation' }, steps: [
+    [{ chapter: chapter('dc-testament/dc/84', [church('pon', null)], ['pon'], { shown: false }) },
+      { mode: 'translation', body: 'off', bodyLang: 'pon' }],
+    [{ flip: true }, { mode: 'translation', body: 'loading' }],
+    [{ chapter: chapter('dc-testament/dc/84', [church('pon', false)], ['pon']) },
+      { mode: 'translation', body: 'not-available', bodyLang: 'pon', note: null, saved: 'translation' }],
+  ] },
   { name: 'switch off, saved Citations: Citations, no line', init: {}, steps: [
     [{ chapter: chapter('dc-testament/dc/84', [church('pon', false)], ['pon'], { shown: false }) },
       { mode: 'citations', body: 'citations', note: null, noteLang: null }],
@@ -474,11 +484,20 @@ for (const c of ARRANGEMENT_CASES) {
     if (act.chapter) P.setChapter(s, act.chapter);
     if (act.click) P.selectMode(s, act.click);
     if (act.show) {
-      // The off card's Show, as the panel and content.js apply it: a
-      // Translation click on this visit, the switch written on, and the same
-      // chapter arranged again.
-      P.selectMode(s, 'translation');
+      // The switch turned on by the reader (the off card's Show, the
+      // language row's switch, a pick in its dropdown while off), as the panel
+      // and content.js apply it: turnLanguageOn (a Translation click on this
+      // visit), the switch written on, and the same chapter arranged again.
+      P.turnLanguageOn(s);
       P.setChapter(s, Object.assign({ key: s.chapter }, s.facts, { shown: true }));
+    }
+    if (act.flip) {
+      // The language row's switch, as the panel applies it: switchFlip over
+      // languageRow, turnLanguageOn when it writes the switch on, then the
+      // same chapter arranged again with the switch as written.
+      const w = P.switchFlip(P.languageRow(s.facts));
+      if (w.churchLanguageShown) P.turnLanguageOn(s);
+      P.setChapter(s, Object.assign({ key: s.chapter }, s.facts, { shown: w.churchLanguageShown }));
     }
     if (act.pick) {
       // A dropdown pick, as content.js applies it: remembered, then the
@@ -564,13 +583,20 @@ eq(langRow({ texts: [church('jpn', true), engAsked(null)], picks: [], languages:
 
 console.log('languagePick / switchFlip / switchLabel / toolbarRows:');
 // A dropdown pick writes the pick memory, then (while off) the switch on.
-eq(P.languagePick({ on: false }, 'church:jpn'), { pick: 'church:jpn', patch: { churchLanguageShown: true } },
+eq(P.languagePick({ on: false }, 'church:jpn'), { pick: 'church:jpn', turnOn: true },
   'a pick while off: the pick, and the switch on');
-eq(P.languagePick({ on: true }, 'church:jpn'), { pick: 'church:jpn', patch: null }, 'a pick while on: the pick alone');
+eq(P.languagePick({ on: true }, 'church:jpn'), { pick: 'church:jpn', turnOn: false }, 'a pick while on: the pick alone');
 eq(P.switchFlip({ enabled: true, on: true }), { churchLanguageShown: false }, 'the switch on: a flip writes it off');
 eq(P.switchFlip({ enabled: true, on: false }), { churchLanguageShown: true }, 'the switch off: a flip writes it on');
 eq(P.switchFlip({ enabled: false, on: true }), null, 'the greyed switch writes nothing');
 eq(P.switchLabel('Español'), 'Show Español', 'the switch\'s name says what it does');
+// Where focus goes when the reader's keyboard Hides the language from the
+// page (its line goes with it): the switch that brings it back, else the
+// Translation mode button, else the collapsed panel's tab.
+eq(P.hideFocus({ collapsed: false, mode: 'translation', language: true }), 'switch', 'Translation with the language row: its switch');
+eq(P.hideFocus({ collapsed: false, mode: 'citations', language: false }), 'mode', 'Citations: the Translation mode button');
+eq(P.hideFocus({ collapsed: false, mode: 'translation', language: false }), 'mode', 'Translation with no language row: the Translation mode button');
+eq(P.hideFocus({ collapsed: true, mode: 'translation', language: true }), 'tab', 'collapsed: the tab');
 eq(P.switchLabel(''), 'Show the language', '...a plain fallback without a name');
 // Which rows the toolbar shows, and which holds the A− / A+ stepper.
 eq(P.toolbarRows({ mode: 'citations', isBible: true, row: 'menu' }), { main: true, language: false, stepper: 'main' },
@@ -1693,7 +1719,7 @@ check(/effective: \(\) => card\.effective/.test(bodyOf('buildBeside')) && /effec
   'the beside card and the line\'s Change control both give the control the split fit');
 check(/function updateBeside[\s\S]*?pressNote\(\)/.test(panelSrc) && /splitFit\.effective = c\.effective/.test(bodyOf('updateBeside')),
   'a fit reported by the page split reaches the open Change control too, even with no beside card on screen');
-check(!/refocusLayout = true/.test(bodyOf('pressNote')) && /pressNote\(\);\s*refocusLayout = false/.test(panelSrc),
+check(!/refocusView = true/.test(bodyOf('pressNote')) && /pressNote\(\);\s*refocusView = false/.test(panelSrc),
   'restating the open Change control keeps its node (and so keyboard focus)');
 // The beside-the-page line names the layout the page shows (#155): its words
 // follow the split's fit in place, and a layout pick never rebuilds the line
@@ -1709,8 +1735,11 @@ check(/id === 'add'[^\n]*cbs\.onGear\('languages'\)/.test(bodyOf('onNoteAction')
   "the no-translation line's Add a language opens Settings at the languages section");
 // In the panel on a Bible chapter: the version dropdown rests (versionRests),
 // disabled and titled, wherever the toolbar is restated.
-check(/versionRests/.test(bodyOf('applyToolbarUI')) && /ui\.select\.disabled = /.test(bodyOf('applyToolbarUI')),
-  'the toolbar rests the version dropdown on the arrangement\'s versionRests');
+check(/versionRests/.test(bodyOf('applyToolbarUI')) && /ui\.select\.setAttribute\('aria-disabled', 'true'\)/.test(bodyOf('applyToolbarUI'))
+  && !/ui\.select\.disabled/.test(panelSrc),
+  'the toolbar rests the version dropdown on the arrangement\'s versionRests: aria-disabled, still focusable');
+check(/restsName !== null/.test(bodyOf('guardRested')) && /preventDefault\(\)/.test(bodyOf('guardRested')),
+  '...and a resting dropdown neither opens nor changes');
 check(/restsTitle\(/.test(bodyOf('showSelectedTitle')), "a resting dropdown's title says why, whatever else retitles it");
 
 // Orchestrator wiring for the talk reader and the citation list.
@@ -1799,8 +1828,17 @@ const toolbarUiSrc = (panelSrcText.match(/function applyToolbarUI\(\) \{[\s\S]*?
 check(/ui\.langSwitch\.setAttribute\('aria-checked', row\.on \? 'true' : 'false'\)/.test(toolbarUiSrc)
   && /labelled\(ui\.langSwitch, switchLabel\(row\.name\)\)/.test(toolbarUiSrc),
   'the switch says its state (aria-checked) and its name ("Show Español")');
-check(/ui\.langSwitch\.disabled = !row\.enabled/.test(toolbarUiSrc) && /setAttribute\('aria-disabled', 'true'\)/.test(toolbarUiSrc),
-  'the greyed switch is disabled and aria-disabled');
+check(!/langSwitch\.disabled/.test(panelSrcText) && /setAttribute\('aria-disabled', 'true'\)/.test(toolbarUiSrc),
+  'the greyed switch is aria-disabled, never natively disabled: focus survives the check greying it');
+check(/\.btx-switch\[aria-disabled='true'\]/.test(fs.readFileSync(path.join(ROOT, 'src/content/panel.css'), 'utf8')),
+  '...greyed by its aria-disabled');
+// Turning the switch on is a Translation click (turnLanguageOn): the
+// switch, a pick while off, and the off card's Show.
+check(/turnLanguageOn\(state\)/.test(bodyOf('languageOnClick'))
+  && /if \(patch\.churchLanguageShown\) languageOnClick\(\)/.test(bodyOf('onLanguageSwitch'))
+  && /if \(w\.turnOn\) \{\s*languageOnClick\(\)/.test(bodyOf('onLanguagePick'))
+  && /languageOnClick\(\);\s*if \(cbs\.onShowLanguage\)/.test(bodyOf('renderOff')),
+  'the switch turned on, a pick while off and the off card\'s Show are each this visit\'s Translation click');
 check(!/createElement|el\('button'/.test(toolbarUiSrc), 'the language row is restated in place, never rebuilt (focus stays on the switch)');
 const switchSrc = (panelSrcText.match(/function onLanguageSwitch\(\) \{[\s\S]*?\n {2}\}\n/) || [''])[0]
   + (panelSrcText.match(/function onLanguagePick\(id\) \{[\s\S]*?\n {2}\}\n/) || [''])[0];
@@ -1808,10 +1846,21 @@ check(switchSrc && !/persist\(|SETTINGS\(\)/.test(switchSrc) && !/persist\(\{ ch
   'the panel never writes the language switch itself: its callbacks hand the write to content.js');
 check(/onLanguageShown: \(on\) => setLanguageShown\(on\)/.test(contentSrc) && /onLanguagePick: pickLanguage/.test(contentSrc),
   'content.js routes the switch and the language pick to its one write');
+// One isBible default: a missing fact reads as not the Bible, everywhere.
+check(!/isBible !== false|isBible === false/.test(contentSrc) && /isBible: !!current && current\.isBible === true/.test(contentSrc),
+  'content.js reads isBible one way: missing is not the Bible (=== true), factsFor included');
+const toolbarSrc = (contentSrc.match(/function populateToolbar\([^)]*\) \{[\s\S]*?\n {2}\}\n/) || [''])[0];
+check(/churchText\.versionRow\(/.test(toolbarSrc) && !/provider|pickText|bibleMenu/.test(toolbarSrc),
+  'the version row\'s selection is the pure churchText.versionRow, not a rule of the orchestrator\'s');
 const pickSrc = (contentSrc.match(/async function pickLanguage\([^)]*\) \{[\s\S]*?\n {2}\}\n/) || [''])[0];
 check(/const stored = remember\(id\);[\s\S]*await stored;\s*setLanguageShown\(true\)/.test(pickSrc),
   'a language pick while off writes the pick memory first, then the switch on');
-check(/SETTINGS\.patch\(\{ churchLanguageShown: shown \}\)/.test(contentSrc), 'setLanguageShown patches the switch through __BTX.settings');
+check(/SETTINGS\.patch\(Object\.assign\(\{\}, extra, \{ churchLanguageShown: shown \}\)\)/.test(contentSrc), 'setLanguageShown patches the switch through __BTX.settings, with any `extra` fields in the same patch');
+check((contentSrc.match(/SETTINGS\.patch\([^;]*churchLanguageShown/g) || []).length === 1,
+  '...the one write of the switch in content.js');
+const addSrc = (contentSrc.match(/async function addLanguage\([^)]*\) \{[\s\S]*?\n {2}\}\n/) || [''])[0];
+check(/setLanguageShown\(true, \{ extra: \{ churchLanguages:/.test(addSrc) && !/SETTINGS\.patch/.test(addSrc),
+  'the setup card\'s Add writes the language and the switch on in one patch, through setLanguageShown');
 check(!/menuFor/.test(contentSrc) && !/menuFor/.test(panelSrcText), 'the mixed dropdown (menuFor) is gone from the panel and the orchestrator');
 
 // The off card and the not-available card: states like the setup card (never
@@ -1824,8 +1873,14 @@ for (const fn of ['renderOff', 'renderNotAvailable']) {
   check(src && !/innerHTML/.test(src), `${fn} is built from text nodes, never markup`);
 }
 const offSrc = (panelSrcText.match(/function renderOff\(host, st\) \{[\s\S]*?\n {2}\}\n/) || [''])[0];
-check(/offCopy\(st\.row\)/.test(offSrc) && /selectMode\(state, 'translation'\)/.test(offSrc) && /cbs\.onShowLanguage\(\)/.test(offSrc),
+check(/offCopy\(st\.row\)/.test(offSrc) && /languageOnClick\(\)/.test(offSrc) && /cbs\.onShowLanguage\(\)/.test(offSrc),
   'the off card\'s Show is a Translation click on this visit, then the orchestrator\'s');
+check(/case 'not-available': \{[\s\S]*?const add = renderNotAvailable\(host, st\);\s*if \(refocusView\) add\.focus\(\{ preventScroll: true \}\)/.test(panelSrcText),
+  'Show from the keyboard, the chapter found lacking: focus lands on the not-available card\'s link');
+check(/if \(was\) refocusView = false;/.test(bodyOf('updateBeside')) && !/^ {4}refocusView = false;/m.test(bodyOf('updateBeside')),
+  'a split laying out before the beside card mounts leaves a keyboard pick\'s pending refocus to the coming card');
+check(/hideFocus\(/.test(bodyOf('focusAfterHide')) && /focus\(\{ preventScroll: true \}\)/.test(bodyOf('focusAfterHide')),
+  'a keyboard Hide on the page puts focus on hideFocus\'s control in the panel');
 const naSrc = (panelSrcText.match(/function renderNotAvailable\(host, st\) \{[\s\S]*?\n {2}\}\n/) || [''])[0];
 check(/notAvailableCopy\(st\.row, st\.chapter\)/.test(naSrc) && /cbs\.onGear\('languages'\)/.test(naSrc),
   'the not-available card\'s link opens settings at the languages card');
@@ -1834,7 +1889,7 @@ check(/case 'off':[\s\S]*?renderOff\(host, st\)/.test(panelSrcText) && /case 'no
 check(/onShowLanguage: \(\) => setLanguageShown\(true\)/.test(contentSrc),
   'content.js routes the off card\'s Show to the switch');
 const shownSrc = (contentSrc.match(/function setLanguageShown\(on[^)]*\) \{[\s\S]*?\n {2}\}\n/) || [''])[0];
-check(/SETTINGS\.patch\(\{ churchLanguageShown: (on|shown) \}\)/.test(shownSrc),
+check(/SETTINGS\.patch\(Object\.assign\(\{\}, extra, \{ churchLanguageShown: shown \}\)\)/.test(shownSrc),
   '...which writes it through __BTX.settings');
 check(/shown\.body === 'off'/.test(contentSrc) && /shown\.body === 'not-available'/.test(contentSrc),
   'content.js renders the arrangement\'s off and not-available bodies');

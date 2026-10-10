@@ -407,6 +407,19 @@ console.log("bibleMenu / languageMenu (the Translation toolbar's two rows, #150)
     { id: 'church:spa', label: 'Español — Spanish' },
     { id: 'church:jpn', label: '日本語 — Japanese' },
   ], 'off the Bible: the language rows, as they read today');
+  // The version row's selection: the version showing when it is a Bible
+  // row of the menu, else the newest Bible pick (a Church language in the
+  // panel never blanks it).
+  eq(T.versionRow(mixed, { isBible: true, showing: 'niv', picks: ['bundled:engwebp'] }),
+    { menu: T.bibleMenu(mixed, { isBible: true }), selected: 'niv' }, 'the version row: the Bible menu at the version showing');
+  eq(T.versionRow(mixed, { isBible: true, showing: 'church:spa', picks: ['church:spa', 'niv'] }).selected, 'niv',
+    '...a Church language showing: the newest Bible pick');
+  eq(T.versionRow(mixed, { isBible: true, showing: null, picks: [] }).selected, 'bundled:engwebp',
+    '...no Bible pick: the first Bible row');
+  eq(T.versionRow(mixed, { isBible: false, showing: 'church:spa', picks: ['niv'] }), { menu: [], selected: null },
+    'off the Bible: no menu, nothing selected');
+  eq(T.versionRow(mixed, { showing: 'niv' }), { menu: [], selected: null }, 'isBible missing reads as not the Bible');
+  eq(T.textsFor({ bibleRows: [NIV], languages: [] }), [], 'textsFor: isBible missing reads as not the Bible (no Bible rows)');
   check(typeof T.menuFor === 'undefined', 'the mixed dropdown (menuFor) is retired: the two rows read the two menus (#154)');
 }
 

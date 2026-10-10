@@ -313,8 +313,9 @@ the page shows, as the pressed segment does. Change swaps the line for the
 same split-layout control, in its place. A layout pick writes
 `churchLanguageLayout` alone; the language row's pick is independent of it.
 "In the panel" there shows the language in the Bible version's place with the
-control above it, and the version dropdown rests: disabled, titled "Español is
-in the panel" (the arrangement's `versionRests`). Side by side or Under each
+control above it, and the version dropdown rests: greyed and `aria-disabled`,
+still focusable, titled "Español is in the panel" (the arrangement's
+`versionRests`); it neither opens nor changes. Side by side or Under each
 verse puts the language back on the page and wakes the dropdown. The
 **arrangement** answers the line (`note: 'beside-page'`); the panel's note slot
 renders it.
@@ -352,11 +353,14 @@ for it, and the **no-translation line** never shows. The languages stay
 ticked and `churchLanguageLayout` is untouched, so on returns the language in
 the layout the reader had. It is not a panel-handled key: a change from
 another tab re-asks the arrangement through `content.js`'s settings
-subscriber; this tab's writers (the **Hide line**, the **language row**'s
-switch and a pick in its dropdown while off) go through `content.js`'s
-`setLanguageShown`, which re-arranges itself. Adding a language writes it on,
-in the same patch as the language: a tick in settings (`commitPatch`, after
-the pick-memory move) and the setup card's Add (`addLanguage`). Unticking a
+subscriber; this tab's writers (the **Hide line**, the **off card**'s Show,
+the **language row**'s switch and a pick in its dropdown while off, the setup
+card's Add) go through `content.js`'s `setLanguageShown`, which re-arranges
+itself. Turning it on from the panel counts as a Translation click on this
+visit, as the off card's Show does (`turnLanguageOn`). Adding a language
+writes it on, in the same patch as the language: a tick in settings
+(`commitPatch`, after the pick-memory move) and the setup card's Add
+(`setLanguageShown`'s `extra`). Unticking a
 language never writes it. The options form has no control for it; the
 checklist is the settings-side control.
 _Avoid_: toggle, enable (a language is *enabled* by ticking it in settings;
@@ -372,7 +376,9 @@ two or more are a dropdown at the newest pick; none offering the chapter is
 the name nearest the front of the pick memory with the switch greyed (an
 absence reads as "not translated yet"). No language ticked: no row, and the
 toolbar is the one row it always was. The switch is a `role="switch"` button
-named "Show Español", restated in place so focus stays on it. A dropdown
+named "Show Español", restated in place so focus stays on it; greyed, it is
+`aria-disabled`, never natively disabled, so focus survives the check
+greying it. A dropdown
 pick goes to the pick memory, and turns the switch on while it is off.
 Off the Bible the version row goes and the A− / A+ stepper sits here.
 _Avoid_: language bar, toggle row
@@ -409,7 +415,9 @@ In columns it heads the translation column; interlinear, it sits above the
 first pair. A line of the page, not a bar: a verse's typeface, smaller and
 muted, no border or background. Hide turns the **language switch** off
 (`show`'s `onHide`, written by `content.js`; the layer writes no setting), and
-the split goes with the paragraph at the top of the screen kept in place.
+the split goes with the paragraph at the top of the screen kept in place. A
+keyboard Hide's focus goes to the panel: the language row's switch, else the
+Translation mode button, else the collapsed tab (`hideFocus`).
 _Avoid_: bar, strip, banner
 
 **Reading layer**:
