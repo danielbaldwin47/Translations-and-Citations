@@ -77,29 +77,38 @@
   box-shadow: -4px 0 18px rgba(0, 0, 0, 0.12);
 }
 
-/* ---- Drag-to-resize grip (left inner edge) ---- */
+/* ---- Drag-to-resize edge (the panel's left edge) ----
+   The grab zone is 8px wide and straddles the edge, the border line at its
+   centre (left is measured from inside the 1px border, hence -5px). A short
+   grip, centred on the edge, shows on hover and for the whole drag
+   (`.btx-resizing` on the root, set by onResizeDown, removed on pointerup or
+   pointercancel). The cursor is ew-resize on the zone only. */
 #btx-root .btx-resize {
   position: absolute;
   top: 0;
-  left: 0;
-  width: 7px;
+  left: -5px;
+  width: 8px;
   height: 100%;
   cursor: ew-resize;
   z-index: 5;
   touch-action: none;
+  user-select: none;
 }
 #btx-root .btx-resize::before {
   content: '';
   position: absolute;
-  top: 0;
-  left: 2px;
-  width: 1px;
-  height: 100%;
-  background: transparent;
-  transition: background 0.12s;
+  top: 50%;
+  left: 50%;
+  width: 4px;
+  height: 48px;
+  transform: translate(-50%, -50%);
+  border-radius: 2px;
+  background: var(--btx-accent);
+  opacity: 0;
+  transition: opacity 0.12s;
 }
 #btx-root .btx-resize:hover::before,
-#btx-root.btx-resizing .btx-resize::before { background: var(--btx-accent); }
+#btx-root.btx-resizing .btx-resize::before { opacity: 1; }
 #btx-root.btx-resizing { user-select: none; }
 
 /* ---- Chrome: two rows, fixed px ----
