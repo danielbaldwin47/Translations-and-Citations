@@ -46,8 +46,7 @@
  *  - writes the cards' picks through __BTX.settings (a Church language added
  *    from the setup card, the layout control's layout) and renders them
  *    itself, since its settings subscriber skips its own writes; a layout
- *    pick that names a row (the panel's layoutChoice) also goes to the front
- *    of the pick memory
+ *    pick writes the layout alone, never the pick memory
  *  - keeps the page split (__BTX.pageSplit) on the arrangement's page's
  *    language, in either mode (syncSplit), running the chapter check for it
  *    when the arrangement names one unchecked (`pageNext`), in Citations too,
@@ -520,7 +519,7 @@
       ++reqToken;
       clearTimeout(retryTimer);
       showChecking();
-      offer = await runCheck(parsed, rows, (o) => o.next, stale);
+      offer = await runCheck(parsed, rows, (o) => panel.arrangement(factsFor(e, o)).textNext, stale);
       if (!offer) return;
       shown = panel.arrange(factsFor(e, offer));
     }
@@ -887,19 +886,17 @@
 
   // The layout control: on the beside card, in the beside-the-page line's
   // place (its Change), and above a language read in the panel (the way back
-  // into the page). `pick` is the row the choice makes the pick (the panel's
-  // layoutChoice): "In the panel" from the line moves the page's language
-  // into the panel in the Bible version's place, so it leads the pick memory
-  // and the dropdown selects it. Between the two in-page layouts only the
-  // split, the card and the line's control move; into or out of the panel,
-  // the view itself changes.
-  function changeLayout(layout, pick) {
+  // into the page). It writes the layout alone: the layout and the language
+  // row's pick are independent. Between the two in-page layouts only the
+  // split, the card and the line move; into or out of the panel, the view
+  // itself changes (on a Bible chapter, In the panel puts the language in the
+  // Bible version's place and rests the version dropdown).
+  function changeLayout(layout) {
     const before = placement();
     if (enabled) enabled = Object.assign({}, enabled, { churchLanguageLayout: layout });
     const after = placement();
     SETTINGS.patch({ churchLanguageLayout: layout });
     if (!current || panel.effectiveMode() !== 'translation' || after === before) return;
-    if (pick) remember(pick);
     if (before !== 'panel' && after !== 'panel') {
       // The layout is one of the arrangement's facts (the page's language
       // needs an in-page one).

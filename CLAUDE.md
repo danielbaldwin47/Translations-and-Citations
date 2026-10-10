@@ -389,14 +389,16 @@ validators — go there before changing behaviour.
   navigation drawer move it without a resize). The reading area ends at the
   site's footnote panel and its floating buttons. Columns give way to
   interlinear while each column would be under `MIN_COLUMN_PX`. In
-  Translation, when the tab's text is the page's language, the panel shows
-  the `beside` card: where the text is, the Side by side |
-  Under each verse | In the panel control (writes `churchLanguageLayout`), and
-  "Collapse panel for wider columns" when `collapseFits`; its In the panel is
-  how the reader takes the language off the page. A Bible version in the
-  panel meanwhile carries the beside-the-page line (GLOSSARY: Beside card),
-  whose Change opens the same control in its place; what each pick there
-  writes is the pure `layoutChoice`. Both hosts press the layout the page
+  Translation off the Bible, when the tab's text is the page's language, the
+  panel shows the `beside` card: the Side by side | Under each verse | In the
+  panel control, the room hint, and "Collapse panel for wider columns" when
+  `collapseFits`. On a Bible chapter the panel shows a Bible version, with the
+  beside-the-page line naming the layout the page shows ("Español is side by
+  side · Change"; GLOSSARY: Beside card), whose Change opens the same control
+  in its place. Every pick on the control writes `churchLanguageLayout` alone.
+  In the panel is a layout, not the way off: on a Bible chapter it shows the
+  language in the version's place and the version dropdown rests (the
+  arrangement's `versionRests`, applied by the panel's toolbar). Both hosts press the layout the page
   *shows* (`pressedLayout`; columns wanted without room presses Under each
   verse) while the setting stays what the reader chose, so side by side
   returns by itself; a click is judged against the setting (`layoutClick`),

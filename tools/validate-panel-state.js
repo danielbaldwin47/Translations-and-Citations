@@ -126,10 +126,12 @@ const ARRANGEMENT_CASES = [
   { name: 'saved Translation, some text offers the chapter: the latest pick it offers, in the page or the panel', init: { mode: 'translation' }, steps: [
     [{ chapter: chapter('nt/john/3', [WEB, NIV, church('spa', true)], ['spa'], { picks: ['niv'] }) },
       { mode: 'translation', body: 'text', text: 'niv', saved: 'translation' }],
+    // A Bible chapter shows a Bible version, whatever leads the pick memory:
+    // the language picked goes to the page (#155).
     [{ chapter: chapter('nt/john/3', [WEB, NIV, church('spa', true)], ['spa'], { picks: ['church:spa', 'niv'] }) },
-      { mode: 'translation', body: 'beside', text: 'church:spa', saved: 'translation' }],
+      { mode: 'translation', body: 'text', text: 'niv', page: 'church:spa', note: 'beside-page', versionRests: null, saved: 'translation' }],
     [{ chapter: chapter('nt/john/3', [WEB, NIV, church('spa', true)], ['spa'], { picks: ['church:spa'], layout: 'panel' }) },
-      { mode: 'translation', body: 'text', text: 'church:spa', saved: 'translation' }],
+      { mode: 'translation', body: 'text', text: 'church:spa', versionRests: 'spa', saved: 'translation' }],
     [{ chapter: chapter('bofm/alma/5', [church('spa', false), church('jpn', true)], ['spa', 'jpn'], { picks: ['church:spa'] }) },
       { mode: 'translation', body: 'beside', text: 'church:jpn', saved: 'translation' }],
   ] },
@@ -225,7 +227,7 @@ const ARRANGEMENT_CASES = [
     [{ chapter: chapter('nt/john/3', [WEB, church('spa', true)], ['spa'], { picks: ['engwebp', 'church:spa'], shown: false }) },
       { mode: 'translation', body: 'text', text: 'engwebp', note: null, noteLang: null, page: null, pageNext: null }],
     [{ chapter: chapter('nt/john/3', [WEB, church('spa', true)], ['spa'], { picks: ['church:spa'], layout: 'panel', shown: false }) },
-      { mode: 'translation', body: 'text', text: 'engwebp', note: null, page: null }], // off hides it from the panel too
+      { mode: 'translation', body: 'text', text: 'engwebp', versionRests: null, note: null, page: null }], // off hides it from the panel too
     [{ chapter: chapter('nt/john/3', [WEB, church('spa', false)], ['spa'], { shown: false }) },
       { mode: 'translation', body: 'text', text: 'engwebp', note: null }], // a hidden language's gap is not said either
   ] },
@@ -257,7 +259,7 @@ const ARRANGEMENT_CASES = [
     [{ chapter: chapter('nt/john/3', [WEB, NIV, church('spa', false), church('jpn', false)], ['spa', 'jpn'], { picks: ['niv', 'church:jpn'] }) },
       { body: 'text', text: 'niv', note: 'not-available', noteLang: 'jpn' }],
     [{ chapter: chapter('nt/john/3', [WEB, church('spa', false), church('jpn', true)], ['spa', 'jpn'], { layout: 'panel' }) },
-      { body: 'text', text: 'engwebp', note: null }], // one ticked language has it: no gap to name
+      { body: 'text', text: 'church:jpn', versionRests: 'jpn', note: null }], // one ticked language has it: no gap to name, and In the panel shows it
     [{ chapter: chapter('nt/john/3', [WEB], ['gil']) },
       { body: 'text', text: 'engwebp', note: 'not-available', noteLang: 'gil' }], // a language that publishes no Bible at all
     [{ click: 'citations' }, { mode: 'citations', note: null }],
@@ -305,8 +307,8 @@ const ARRANGEMENT_CASES = [
   ] },
   { name: 'layout panel: no page language, in either mode', init: { mode: 'translation' }, steps: [
     [{ chapter: chapter('bofm/alma/5', [church('spa', true)], ['spa'], { picks: ['church:spa'], layout: 'panel' }) },
-      { mode: 'translation', body: 'text', text: 'church:spa', page: null, pageNext: null, saved: 'translation' }],
-    [{ click: 'citations' }, { mode: 'citations', body: 'citations', page: null, pageNext: null, saved: 'citations' }],
+      { mode: 'translation', body: 'text', text: 'church:spa', versionRests: null, page: null, pageNext: null, saved: 'translation' }], // off the Bible there is no version dropdown to rest
+    [{ click: 'citations' }, { mode: 'citations', body: 'citations', versionRests: null, page: null, pageNext: null, saved: 'citations' }],
   ] },
   { name: 'Citations, the page\'s language not checked yet: Citations at once, the check asks for it', init: {}, steps: [
     [{ chapter: chapter('bofm/alma/5', [church('spa', null)], ['spa'], { picks: ['church:spa'] }) },
@@ -332,11 +334,34 @@ const ARRANGEMENT_CASES = [
     [{ click: 'citations' }, { mode: 'citations', body: 'citations', page: 'church:spa', note: null, noteLang: null }],
   ] },
   // The line's Change opens the layout control in its place; each pick there
-  // is a layout step (layoutChoice, applied as content.js applies it).
-  { name: '"In the panel" from the line: layout panel, Spanish selected, no page language', init: { mode: 'translation' }, steps: [
+  // is a layout step, and writes the layout alone (the pick memory stays).
+  // In the panel on a Bible chapter: the language in the Bible version's
+  // place, the version dropdown resting (`versionRests`); Side by side brings
+  // the version back.
+  { name: '"In the panel" from the line: Español in the panel, the version dropdown rests; Side by side restores NIV', init: { mode: 'translation' }, steps: [
     [{ chapter: chapter('nt/john/3', [WEB, NIV, church('spa', true)], ['spa'], { picks: ['niv', 'church:spa'] }) },
-      { body: 'text', text: 'niv', page: 'church:spa', note: 'beside-page' }],
-    [{ layout: 'panel' }, { mode: 'translation', body: 'text', text: 'church:spa', page: null, note: null, layout: 'panel', saved: 'translation' }],
+      { body: 'text', text: 'niv', page: 'church:spa', note: 'beside-page', versionRests: null }],
+    [{ layout: 'panel' }, { mode: 'translation', body: 'text', text: 'church:spa', versionRests: 'spa', page: null, note: null, noteLang: null, layout: 'panel', picks: ['niv', 'church:spa'], saved: 'translation' }],
+    [{ layout: 'columns' }, { mode: 'translation', body: 'text', text: 'niv', versionRests: null, page: 'church:spa', note: 'beside-page', noteLang: 'spa', layout: 'columns', picks: ['niv', 'church:spa'] }],
+  ] },
+  { name: 'John 3, WEB, In the panel then Side by side: Español, then WEB again', init: { mode: 'translation' }, steps: [
+    [{ chapter: chapter('nt/john/3', [WEB, church('spa', true)], ['spa'], { picks: ['church:spa'] }) },
+      { body: 'text', text: 'engwebp', page: 'church:spa', note: 'beside-page', versionRests: null }],
+    [{ layout: 'panel' }, { body: 'text', text: 'church:spa', versionRests: 'spa', page: null, note: null }],
+    [{ layout: 'columns' }, { body: 'text', text: 'engwebp', versionRests: null, page: 'church:spa', note: 'beside-page' }],
+    [{ layout: 'interlinear' }, { body: 'text', text: 'engwebp', versionRests: null, page: 'church:spa', note: 'beside-page' }],
+  ] },
+  { name: 'John 3, In the panel, Español not checked yet: the loading state while the check asks for it', init: { mode: 'translation' }, steps: [
+    [{ chapter: chapter('nt/john/3', [WEB, church('spa', null)], ['spa'], { picks: ['engwebp'], layout: 'panel' }) },
+      { body: 'loading', textNext: 'spa', versionRests: null }],
+    [{ chapter: chapter('nt/john/3', [WEB, church('spa', true)], ['spa'], { picks: ['engwebp'], layout: 'panel' }) },
+      { body: 'text', text: 'church:spa', textNext: null, versionRests: 'spa' }],
+    [{ chapter: chapter('nt/john/3', [WEB, church('spa', false)], ['spa'], { picks: ['engwebp'], layout: 'panel' }) },
+      { body: 'text', text: 'engwebp', versionRests: null, note: 'not-available', noteLang: 'spa' }], // lacking: the Bible version, the gap said
+  ] },
+  { name: 'John 3, In the panel, a language on request never rests the dropdown until chosen', init: { mode: 'translation' }, steps: [
+    [{ chapter: chapter('nt/john/3', [WEB, engAsked(null)], [], { layout: 'panel' }) },
+      { body: 'text', text: 'engwebp', versionRests: null, textNext: null, chooses: null }],
   ] },
   { name: 'Under each verse from the line: the page keeps Spanish, NIV and the line stay', init: { mode: 'translation' }, steps: [
     [{ chapter: chapter('nt/john/3', [WEB, NIV, church('spa', true)], ['spa'], { picks: ['niv', 'church:spa'] }) },
@@ -348,13 +373,13 @@ const ARRANGEMENT_CASES = [
     [{ layout: 'panel' }, { body: 'text', text: 'church:spa', page: null, layout: 'panel' }],
     [{ layout: 'columns' }, { body: 'beside', text: 'church:spa', page: 'church:spa', layout: 'columns' }],
   ] },
-  { name: 'John 3, Spanish selected while it holds the page: the beside card, no line', init: { mode: 'translation' }, steps: [
+  { name: 'John 3, Español newest pick while it holds the page: never the beside card, NIV plus the line', init: { mode: 'translation' }, steps: [
     [{ chapter: chapter('nt/john/3', [WEB, NIV, church('spa', true)], ['spa'], { picks: ['church:spa', 'niv'] }) },
-      { mode: 'translation', body: 'beside', text: 'church:spa', page: 'church:spa', note: null, noteLang: null, saved: 'translation' }],
+      { mode: 'translation', body: 'text', text: 'niv', page: 'church:spa', note: 'beside-page', noteLang: 'spa', saved: 'translation' }],
   ] },
-  { name: 'John 3, Spanish read in the panel, NIV selected: NIV, no line (nothing is on the page)', init: { mode: 'translation' }, steps: [
+  { name: 'John 3, In the panel, NIV the newest pick: Español in the panel all the same, the dropdown rests', init: { mode: 'translation' }, steps: [
     [{ chapter: chapter('nt/john/3', [WEB, NIV, church('spa', true)], ['spa'], { picks: ['niv', 'church:spa'], layout: 'panel' }) },
-      { mode: 'translation', body: 'text', text: 'niv', page: null, note: null, noteLang: null }],
+      { mode: 'translation', body: 'text', text: 'church:spa', versionRests: 'spa', page: null, note: null, noteLang: null }],
   ] },
   { name: 'John 3, NIV selected, Spanish not checked yet: NIV shows at once, the check asks for the page', init: { mode: 'translation' }, steps: [
     [{ chapter: chapter('nt/john/3', [WEB, NIV, church('spa', null)], ['spa'], { picks: ['niv', 'church:spa'] }) },
@@ -433,9 +458,9 @@ const ARRANGEMENT_CASES = [
   { name: 'Spanish John 3, nothing ticked: the Bible shows, English waits in the dropdown', init: { mode: 'translation' }, steps: [
     [{ chapter: chapter('nt/john/3', [WEB, engAsked(null)], []) },
       { body: 'text', text: 'engwebp', page: null, pageNext: null, chooses: null }],
-    [{ pick: 'church:eng' }, { body: 'loading', chooses: null }],
+    [{ pick: 'church:eng' }, { body: 'text', text: 'engwebp', page: null, pageNext: 'eng', chooses: null }], // the language row's pick: the check asks for the page
     [{ chapter: chapter('nt/john/3', [WEB, engAsked(true)], [], { picks: ['church:eng'] }) },
-      { body: 'beside', text: 'church:eng', page: 'church:eng', chooses: null }],
+      { body: 'text', text: 'engwebp', page: 'church:eng', note: 'beside-page', noteLang: 'eng', chooses: null }],
   ] },
   { name: 'before any chapter: the stored mode, Translation as its loading state', init: { mode: 'translation' }, steps: [
     [{}, { mode: 'translation', body: 'loading', saved: 'translation' }],
@@ -462,18 +487,20 @@ for (const c of ARRANGEMENT_CASES) {
       P.setChapter(s, Object.assign({ key: s.chapter }, s.facts, { picks: CT.rememberPick(s.facts.picks, act.pick) }));
     }
     if (act.layout) {
-      // What content.js does with a layout pick: write the setting, remember
-      // the row it names, and arrange the same chapter again.
-      const pick = P.layoutChoice(P.arrangementOf(s), act.layout);
-      const picks = pick ? CT.rememberPick(s.facts.picks, pick) : s.facts.picks;
-      P.setChapter(s, Object.assign({ key: s.chapter }, s.facts, { layout: act.layout, picks }));
+      // What content.js does with a layout pick: write the setting (and
+      // nothing else: the pick memory stays), and arrange the same chapter again.
+      P.setChapter(s, Object.assign({ key: s.chapter }, s.facts, { layout: act.layout }));
     }
     const a = P.arrangementOf(s);
     const got = {};
-    for (const k of Object.keys(want)) got[k] = k === 'saved' ? s.mode : k === 'layout' ? s.facts.layout : a[k];
+    for (const k of Object.keys(want)) got[k] = k === 'saved' ? s.mode : k === 'layout' || k === 'picks' ? s.facts[k] : a[k];
     eq(got, want, `${c.name} (step ${i + 1})`);
   });
 }
+
+// The layout and the pick memory are independent (#155): no rule turns a
+// layout pick into a pick.
+eq(typeof P.layoutChoice, 'undefined', 'layoutChoice has retired: a layout pick writes the layout alone');
 
 // What a click saves, and what the shell is told.
 const DC76_FACTS = { texts: [church('gil', false)], picks: [], languages: ['gil'], layout: 'columns' };
@@ -1269,20 +1296,31 @@ console.log('noteCopy:');
   eq(n.view, 'citations', '...and sits above the citation list');
   eq(n.actions.map((a) => [a.id, a.label]), [['add', 'Add a language'], ['dismiss', '×']], '...with Add a language, then ×');
   check(typeof n.actions[1].title === 'string' && n.actions[1].title.length > 0, '...the × is named for assistive tech');
-  eq(P.noteCopy({ kind: 'no-translation', row: SPA, chapter: 'Alma 5' }).text, 'No Spanish translation for Alma 5.',
-    '...naming the language in English');
-  const b = P.noteCopy({ kind: 'beside-page', row: SPA });
-  eq([b.text, b.view], ['Español is beside the page text ·', 'translation'],
-    'the beside-the-page line names the language on the page, above the Bible version in the panel');
+  eq(P.noteCopy({ kind: 'no-translation', row: SPA, chapter: 'Alma 5' }).text, 'No Español translation for Alma 5.',
+    '...naming the language by the short name the language row and the cards use (churchText.nameFor)');
+  eq(P.noteCopy({ kind: 'no-translation', row: CT.rowFor('pon'), chapter: 'Doctrine and Covenants 84' }).text,
+    'No Mahsen en Pohnpei translation for Doctrine and Covenants 84.', '...its native name, never the English one');
+  // The beside-the-page line names the layout the page shows (#155): the
+  // language row already says which language.
+  const b = P.noteCopy({ kind: 'beside-page', row: SPA, layout: 'columns', effective: 'columns' });
+  eq([b.text, b.view], ['Español is side by side ·', 'translation'],
+    'the beside-the-page line names the language on the page and its layout, above the Bible version in the panel');
   eq(b.actions.map((a) => [a.id, a.label]), [['change', 'Change']], '...with Change (the layout control, in its place) and no ×');
-  eq(P.noteCopy({ kind: 'beside-page' }).text, 'A language is beside the page text ·', '...a missing name falls back to a plain sentence');
+  eq(P.noteCopy({ kind: 'beside-page', row: SPA, layout: 'columns', effective: 'interlinear' }).text, 'Español is under each verse ·',
+    '...the layout the page shows: columns wanted without room read under each verse');
+  eq(P.noteCopy({ kind: 'beside-page', row: SPA, layout: 'interlinear', effective: null }).text, 'Español is under each verse ·',
+    '...before the split has measured, the setting');
+  eq(P.noteCopy({ kind: 'beside-page', row: SPA, layout: 'interlinear', effective: 'columns' }).text, 'Español is side by side ·',
+    '...the effective layout wins over the setting');
+  eq(P.noteCopy({ kind: 'beside-page', row: SPA }).text, 'Español is beside the page text ·', '...no layout known: where it is, plainly');
+  eq(P.noteCopy({ kind: 'beside-page', layout: 'columns' }).text, 'A language is side by side ·', '...a missing name falls back to a plain sentence');
   eq(P.noteCopy(null), null, 'no note, no copy');
   eq(P.noteCopy({ kind: 'bogus' }), null, 'an unknown note kind has no copy');
   eq(P.noteCopy({ kind: 'no-translation' }).text, 'No translation for this chapter.', 'missing names fall back to a plain sentence');
-  eq(P.noteCopy({ kind: 'beside-page', row: { abbr: '', name: 'English' } }).text, 'English is beside the page text ·',
+  eq(P.noteCopy({ kind: 'beside-page', row: { abbr: '', name: 'English' }, layout: 'interlinear' }).text, 'English is under each verse ·',
     '...a language with no native name apart reads by its one name');
   const m = P.noteCopy({ kind: 'missing-chapter', row: { abbr: 'Pohnpei', name: 'Pohnpeian' }, chapter: 'Doctrine and Covenants 84' });
-  eq([m.text, m.view, m.actions], ['No Pohnpeian translation for Doctrine and Covenants 84.', 'translation', []],
+  eq([m.text, m.view, m.actions], ['No Pohnpei translation for Doctrine and Covenants 84.', 'translation', []],
     'the missing-chapter line: the dropdown pick lacks the chapter, said once above the Translation tab, no buttons');
   const na = P.noteCopy({ kind: 'not-available', row: SPA, chapter: 'John 3' });
   eq([na.text, na.view, na.actions], ['John 3 isn’t available in Español yet.', 'translation', []],
@@ -1335,28 +1373,32 @@ console.log('setupCopy:');
   eq(bofm.add, 'Add', '...which the Add button commits (choosing alone writes nothing)');
 }
 
+console.log('restsTitle:');
+eq(P.restsTitle('Español'), 'Español is in the panel', 'the resting version dropdown says which language took its place');
+eq(P.restsTitle(''), 'The language is in the panel', '...a missing name falls back to a plain sentence');
+
 console.log('besideCopy:');
 {
   const b = (o) => P.besideCopy(Object.assign({ name: 'Spanish' }, o));
   const WIDEN = 'Collapse panel for wider columns';
+  // The card is the layout control, the room hint and the collapse offer;
+  // no status sentence (#155): the language row names the language, the
+  // pressed segment the layout.
   eq(b({ layout: 'columns', effective: 'columns' }),
-    { status: 'Spanish is shown side by side.', note: '', collapse: WIDEN, pressed: 'columns' }, 'columns that fit: side by side, and collapsing widens them');
+    { note: '', collapse: WIDEN, pressed: 'columns' }, 'columns that fit: side by side pressed, and collapsing widens them');
   eq(b({ layout: 'columns', effective: 'interlinear', collapseFits: true }),
-    { status: 'Spanish is shown under each verse.', note: 'Collapse the panel for side by side.', collapse: WIDEN, pressed: 'interlinear' },
-    'columns asked for but not fitting: the card says what the page really shows, and what would make room');
+    { note: 'Collapse the panel for side by side.', collapse: WIDEN, pressed: 'interlinear' },
+    'columns asked for but not fitting: what the page really shows is pressed, and the hint says what would make room');
   eq(b({ layout: 'columns', effective: 'interlinear', collapseFits: false }),
-    { status: 'Spanish is shown under each verse.', note: 'Not enough room for side by side.', collapse: null, pressed: 'interlinear' },
+    { note: 'Not enough room for side by side.', collapse: null, pressed: 'interlinear' },
     '...where collapsing would not make room either: only that there is not enough room, and no collapse button');
   eq(b({ layout: 'interlinear', effective: 'interlinear' }),
-    { status: 'Spanish is shown under each verse.', note: '', collapse: null, pressed: 'interlinear' }, 'under each verse: nothing to widen');
-  eq(b({ layout: 'columns', effective: null }).status, 'Spanish is shown side by side.',
-    'before the split has mounted, the card states what was asked for');
-  eq(b({ layout: 'interlinear', effective: 'columns' }).status, 'Spanish is shown side by side.',
-    'the effective layout wins over the setting');
+    { note: '', collapse: null, pressed: 'interlinear' }, 'under each verse: nothing to widen');
+  eq('status' in b({ layout: 'columns', effective: 'columns' }), false, 'the card has no status sentence');
   // The narrow window's bottom sheet covers the page the text is in, and no
   // collapse makes room for columns there.
   eq(b({ layout: 'columns', effective: 'interlinear', collapseFits: false, sheet: true }),
-    { status: 'Spanish is shown under each verse.', note: '', collapse: 'Hide panel', pressed: 'interlinear' },
+    { note: '', collapse: 'Hide panel', pressed: 'interlinear' },
     'in the bottom sheet: no room note nothing can fix, and the offer is to hide the panel');
   eq(b({ layout: 'columns', effective: 'interlinear', collapseFits: false, sheet: true, nudged: true }).note, 'Not enough room for side by side.',
     '...but a click on Side by side there is answered: there is no room, and collapsing would not give it');
@@ -1653,6 +1695,23 @@ check(/function updateBeside[\s\S]*?pressNote\(\)/.test(panelSrc) && /splitFit\.
   'a fit reported by the page split reaches the open Change control too, even with no beside card on screen');
 check(!/refocusLayout = true/.test(bodyOf('pressNote')) && /pressNote\(\);\s*refocusLayout = false/.test(panelSrc),
   'restating the open Change control keeps its node (and so keyboard focus)');
+// The beside-the-page line names the layout the page shows (#155): its words
+// follow the split's fit in place, and a layout pick never rebuilds the line
+// (its open Change control keeps the keyboard user's focus).
+check(/fillNote\(\)/.test(bodyOf('updateBeside')) && /effective: splitFit\.effective/.test(bodyOf('fillNote')),
+  'a fit reported by the page split rewords the beside-the-page line in place');
+check(/noteCopy\(\{ kind: n\.kind, row: n\.row, chapter: n\.chapter \}\)/.test(bodyOf('setNote')),
+  'the line is keyed without its layout: a layout pick restates it, never rebuilds it');
+check(!/parts\.status/.test(panelSrc), 'the beside card has no status sentence (#155)');
+// The no-translation line's Add a language opens Settings at the languages
+// card: one click, not a card that links there.
+check(/id === 'add'[^\n]*cbs\.onGear\('languages'\)/.test(bodyOf('onNoteAction')),
+  "the no-translation line's Add a language opens Settings at the languages section");
+// In the panel on a Bible chapter: the version dropdown rests (versionRests),
+// disabled and titled, wherever the toolbar is restated.
+check(/versionRests/.test(bodyOf('applyToolbarUI')) && /ui\.select\.disabled = /.test(bodyOf('applyToolbarUI')),
+  'the toolbar rests the version dropdown on the arrangement\'s versionRests');
+check(/restsTitle\(/.test(bodyOf('showSelectedTitle')), "a resting dropdown's title says why, whatever else retitles it");
 
 // Orchestrator wiring for the talk reader and the citation list.
 const contentSrc = fs.readFileSync(path.join(ROOT, 'src/content/content.js'), 'utf8');
@@ -1707,6 +1766,14 @@ check(/SETTINGS\.patch\(\{ noTranslationLineDismissed: true \}\)/.test(contentSr
   'the × writes the dismissal through __BTX.settings');
 check(/const out = renderModeBody\(opts\);\s*applyNote\(\);/.test(contentSrc),
   'every mode render restates the note (a render with none clears it)');
+// A layout pick writes the layout alone (#155: layoutChoice retired).
+check(/function changeLayout\(layout\) \{/.test(contentSrc) && !/remember\(pick\)/.test(contentSrc),
+  'the layout control writes churchLanguageLayout and nothing else: the pick memory stays');
+// The Translation tab's loading state waits on the language the arrangement
+// names (textNext): on a Bible chapter In the panel that is a Church language
+// the chapter check's own walk would pass over.
+check(/runCheck\(parsed, rows, \(o\) => panel\.arrangement\(factsFor\(e, o\)\)\.textNext, stale\)/.test(contentSrc),
+  'renderTranslation checks the language the arrangement waits on');
 const panelSrcText = fs.readFileSync(path.join(ROOT, 'src/content/panel.js'), 'utf8');
 check(!/innerHTML/.test((panelSrcText.match(/function buildNote[\s\S]*?\n {2}\}\n/) || [''])[0]),
   'the note is built from text nodes, never markup');
