@@ -678,6 +678,12 @@
 #btx-root[data-btx-theme='dark'] .btx-hl {
   background: color-mix(in srgb, #f4c430 38%, transparent);
 }
+/* A highlight is one Tab stop, its first span; while that span has keyboard
+   focus every span of the highlight carries the shared ring (highlights.js). */
+#btx-root .btx-hl.btx-hl-focus {
+  outline: 2px solid var(--btx-accent);
+  outline-offset: 1px;
+}
 /* The action menu lives in the talk's view (highlights.js) but is fixed to
    the viewport beside the selection; any scroll of the reader hides it. */
 #btx-root .btx-hl-menu {
