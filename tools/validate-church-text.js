@@ -336,6 +336,21 @@ eq(noAbbr.map((r) => T.labelFor(r, noAbbr)), ['Some Version, Catholic', 'Some Ve
 eq(T.labelFor(WEBU('x-01', { description: 'Protestant' }), [NIV]), 'World English Bible Updated (WEBU)',
   'a row with no twin carries no suffix, description or not');
 
+// Twins from different providers are told apart by where they come from (#102 C1).
+const WEB_BUILT = { id: 'bundled:engwebp', abbr: 'WEB', name: 'World English Bible', provider: C.PROVIDER_BUNDLED };
+const WEB_API = { id: 'abc-01', abbr: 'WEB', name: 'World English Bible', provider: C.PROVIDER_APIBIBLE, description: 'Protestant' };
+const webBoth = [WEB_BUILT, WEB_API];
+eq(webBoth.map((r) => T.labelFor(r, webBoth)), ['World English Bible, built in (WEB)', 'World English Bible, api.bible (WEB)'],
+  'the built-in World English Bible and the api.bible one are named by their source, not by a list-order number or a description');
+eq(webBoth.slice().reverse().map((r) => T.labelFor(r, webBoth.slice().reverse())), ['World English Bible, api.bible (WEB)', 'World English Bible, built in (WEB)'],
+  '...whichever way the list is ordered');
+const webThree = [WEB_BUILT, WEB_API, Object.assign({}, WEB_API, { id: 'abc-02', description: 'Ecumenical' })];
+eq(webThree.map((r) => T.labelFor(r, webThree)), [
+  'World English Bible, built in (WEB)', 'World English Bible, api.bible, Protestant (WEB)', 'World English Bible, api.bible, Ecumenical (WEB)',
+], 'twins from the same provider are still told apart by description, after the provider');
+eq(T.labelFor(WEB_BUILT, [WEB_BUILT]), 'World English Bible (WEB)', 'no twin, no provider suffix');
+eq(T.labelFor(WEB_API, [WEB_API, NIV]), 'World English Bible (WEB)', '...even for an api.bible row beside an unrelated version');
+
 const WEB_ROW = { id: 'bundled:engwebp', abbr: 'WEB', name: 'World English Bible', provider: C.PROVIDER_BUNDLED || 'bundled' };
 const JPN_ROW = T.rowFor('jpn');
 eq(T.menuFor([WEB_ROW], { isBible: true }), [
