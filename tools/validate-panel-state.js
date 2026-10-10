@@ -1536,7 +1536,7 @@ check(/PANEL_HANDLED_KEYS = \[[^\]]*'welcomeSeen'/.test(panelSrcText),
 // be a second, unplanned writer of the body's scroll (writeBodyScroll is the
 // one writer; a reveal goes through panel.scrollIntoView), and the page's
 // scroll must never move for a panel action.
-for (const file of ['src/content/panel.js', 'src/citations/cit-panel.js', 'src/citations/talk-view.js']) {
+for (const file of ['src/content/panel.js', 'src/citations/cit-panel.js', 'src/citations/talk-view.js', 'src/citations/highlights.js']) {
   const src = fs.readFileSync(path.join(ROOT, file), 'utf8');
   const scrolling = [];
   src.split('\n').forEach((line, i) => {

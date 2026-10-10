@@ -440,6 +440,7 @@
         highlights().attach(article, entry.talkId, {
           host,
           onCreate: () => { if (hint) { hint.remove(); hint = null; } },
+          reveal: (el) => panel().scrollIntoView(el, { clearTop: header.offsetHeight }),
         });
       } catch (e) { /* non-fatal */ }
       if (retry) keepView(true);
