@@ -85,7 +85,7 @@ src/
     fums.js                __BTX.fums      api.bible usage report (FUMS v3 GET) on every api.bible display, cache hits too; device id minted on a successful Connect (storage.local), session id per worker lifetime
   content/
     church-text.js         __BTX.churchText which texts a chapter offers + which shows (textsFor/pickText/pickOrder; the one walk firstOffered; the chapter check's chapterOffer over checkResults, keyed by checkKey; the page's language, pageLanguage); dropdown rows (labelFor/menuFor); setup-card list (languagesToAdd); pick memory (mruFrom/rememberPick; rememberTicked for a tick in settings; stored under C.SELECTION_KEY, written by content.js and the options page); same-origin Church-language chapter → IR with element ids (chapterFrom; its block walk blockElements also reads the English side for the split)
-    page-split.js/.css     __BTX.pageSplit the reading layer, independent of the mode: start() fits the site's reading column to the open space while the panel is open (fitColumn / fitRule); show/hide the page split (columns | interlinear) while the arrangement names a page's language, paired by element id; pure cores wantsSplit / fitWidth / effectiveLayout / fitColumn / fitRule / groupRows / soloIds / rowRules / readingRight / readingEdges / collapseFits
+    page-split.js/.css     __BTX.pageSplit the reading layer, independent of the mode: start() fits the site's reading column to the open space while the panel is open (fitColumn / fitRule); show/hide the page split (columns | interlinear) while the arrangement names a page's language, paired by element id, headed by the Hide line (its click is show's onHide); pure cores wantsSplit / hideLineCopy / fitWidth / effectiveLayout / fitColumn / fitRule / groupRows / soloIds / rowRules / readingRight / readingEdges / collapseFits
     detect.js              __BTX.detect    URL parse (all standard works, isBible) + SPA nav
     page-hook.js           page-world history patch, injected via web-accessible <script src>
     theme.js               __BTX.theme     mirror(resolveTarget) → {refresh}: site colors/fonts/header onto the panel; pure policies nextAlignDelay / dominantTextStyle / sameVars
@@ -271,7 +271,10 @@ validators — go there before changing behaviour.
   events bubble to the container; the language search sits outside it). A
   newly ticked language also goes to the front of the pick memory
   (`chrome.storage.local`, `C.SELECTION_KEY`) through `churchText.rememberTicked`,
-  written before the setting so open tabs have it by their re-render. A tick or untick also clears the language search and keeps focus on that
+  written before the setting so open tabs have it by their re-render; the same
+  tick writes `churchLanguageShown` on in the same patch (`commitPatch` given the
+  stored languages as `before`; an untick never names it, and the form has no
+  control for it). A tick or untick also clears the language search and keeps focus on that
   language's checkbox in its new place (`languageTick`; an untick opens the
   coverage group it returns to).
 - **Settings writes** carry a `__btxWrite` tag (how `own` is detected) and

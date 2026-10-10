@@ -339,9 +339,14 @@ every language. Off hides the language from the page: the **arrangement**
 names no page's language, so there is no **page split** and no chapter check
 for it, and the **no-translation line** never shows. The languages stay
 ticked and `churchLanguageLayout` is untouched, so on returns the language in
-the layout the reader had. It is not a panel-handled key: a change, this
-tab's or another's, re-asks the arrangement through `content.js`'s settings
-subscriber. Unticking a language never writes it; adding one writes it on.
+the layout the reader had. It is not a panel-handled key: a change from
+another tab re-asks the arrangement through `content.js`'s settings
+subscriber; this tab's writers (the **Hide line** among them) go through
+`content.js`'s `setLanguageShown`, which re-arranges itself. Adding a language
+writes it on, in the same patch as the language: a tick in settings
+(`commitPatch`, after the pick-memory move) and the setup card's Add
+(`addLanguage`). Unticking a language never writes it. The options form has no
+control for it; the checklist is the settings-side control.
 _Avoid_: toggle, enable (a language is *enabled* by ticking it in settings;
 the switch says whether the enabled ones *show*)
 
@@ -364,15 +369,28 @@ while Alma 5 splits in Español. A Bible version never holds the page, so on
 John 3 NIV can show in the panel with Español on the page. A language whose
 chapter check failed never holds it. The next chapter keeps the language if
 it offers it, else the next pick that does, else no split. Taking it off the
-page is the **language switch** (off), or "In the panel" on the **beside card** or its beside-the-page line. The alternative to showing the
+page is the **language switch** (off, one click on the **Hide line**), or "In the panel" on the **beside card** or its beside-the-page line. The alternative to showing the
 text in the panel.
 _Avoid_: overlay (that's its mechanism, not the feature)
+
+**Hide line**:
+The slim line heading a **page split**: the language's short name and
+**Hide** ("Español · Hide", `pageSplit.hideLineCopy`). It is drawn by the
+**reading layer** as its layer's first item, so it is on the page whenever
+the split is: in Translation and Citations, with the panel open or collapsed.
+In columns it heads the translation column; interlinear, it sits above the
+first pair. A line of the page, not a bar: a verse's typeface, smaller and
+muted, no border or background. Hide turns the **language switch** off
+(`show`'s `onHide`, written by `content.js`; the layer writes no setting), and
+the split goes with the paragraph at the top of the screen kept in place.
+_Avoid_: bar, strip, banner
 
 **Reading layer**:
 Everything the extension writes into the site's reader, owned by
 `__BTX.pageSplit` (ADR-0007): the fit (while the panel is open, the site's
 reading column fits the visible reading area, in every mode, split or not)
-and the **page split** (while the **arrangement** names a page's language).
+and the **page split** (while the **arrangement** names a page's language),
+headed by its **Hide line**.
 _Avoid_: overlay
 
 **Split layout**:

@@ -1091,6 +1091,8 @@ check(/talks/.test(said('citations')) && /each verse/.test(said('citations')), '
 check(/language/.test(said('translation')) && /Bible/.test(said('translation')), 'Translation: another language or Bible version');
 check(/on the page/.test(said('translation')) && /verse by verse/.test(said('translation')), 'a language you add reads on the page, verse by verse (beside or under each, as the room allows)');
 check(/the Bible in another version/.test(said('translation')), 'a Bible version only on the Bible');
+eq(stepById('translation').lines[1].text, 'Add a language in Settings and it appears on the page beside the English, verse by verse.',
+  'the Translation step\'s second line names Settings as where a language is added');
 check(/tab/.test(said('hide')) && /bring it back/.test(said('hide')), 'the last step: the tab at the window\'s edge brings the panel back');
 check(/Translations & Citations icon \{icon\}/.test(said('hide')) && /top right of Chrome/.test(said('hide')), '...and so does the toolbar icon, named in words beside its picture, where to look');
 check(stepById('hide').lines.slice(1).every((l) => l.tip === true) && !stepById('hide').lines[0].tip, '...as a smaller tip under the edge tab, the way back every reader has');
@@ -1680,7 +1682,7 @@ check(/case 'off':[\s\S]*?renderOff\(host, st\)/.test(panelSrcText) && /case 'no
 check(/onShowLanguage: \(\) => setLanguageShown\(true\)/.test(contentSrc),
   'content.js routes the off card\'s Show to the switch');
 const shownSrc = (contentSrc.match(/function setLanguageShown\(on[^)]*\) \{[\s\S]*?\n {2}\}\n/) || [''])[0];
-check(/SETTINGS\.patch\(\{ churchLanguageShown: on \}\)/.test(shownSrc),
+check(/SETTINGS\.patch\(\{ churchLanguageShown: (on|shown) \}\)/.test(shownSrc),
   '...which writes it through __BTX.settings');
 check(/shown\.body === 'off'/.test(contentSrc) && /shown\.body === 'not-available'/.test(contentSrc),
   'content.js renders the arrangement\'s off and not-available bodies');
