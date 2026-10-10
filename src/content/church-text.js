@@ -62,6 +62,9 @@
  *       rememberPick for the one language it adds.
  *
  *   how does each read, and what else could be added?
+ *     nameFor(row) -> "Español" | "Kiribati" | "English"
+ *       one language named on its own (the panel's cards, the language row,
+ *       the Hide line): the native name labelFor leads with
  *     labelFor(row, list) -> "New International Version (NIV)" | "Español — Spanish"
  *       a Bible version: name first, abbreviation in parentheses (a narrow
  *       dropdown cuts the abbreviation); a Church language: "native — English"
@@ -71,10 +74,6 @@
  *       else id edition, else order (after the provider when both apply). All
  *       written before the abbreviation so the cut spares it:
  *       "World English Bible Updated, Protestant (WEBU)", "…, 2 (WEBU)"
- *     nameFor(code) -> "Español" | null
- *       a language named on its own (the language row, its switch "Show
- *       Español", the cards and lines about one language): the native name
- *       its dropdown row leads with
  *     bibleMenu(list, { isBible }) -> [{ id, label }]
  *     languageMenu(list) -> [{ id, label }]
  *       the menus the Translation toolbar's two rows read (the panel's
@@ -332,6 +331,13 @@
     return { name, abbr: row.abbr && row.abbr !== name ? row.abbr : '' };
   }
 
+  // A Church language's short name, for anywhere one language is named on
+  // its own: the native name labelFor leads with ("Español", "Kiribati"),
+  // else its one name (English). '' for no row.
+  function nameFor(row) {
+    return row ? String(row.abbr || row.name || '') : '';
+  }
+
   function labelOf(parts, extra) {
     const name = extra ? `${parts.name}, ${extra}` : parts.name;
     return parts.abbr ? `${name} (${parts.abbr})` : name;
@@ -342,14 +348,6 @@
   }
 
   const SOURCE_NAME = { bundled: 'built in', 'api.bible': 'api.bible' };
-
-  // A language named on its own (the language row and its switch, and the
-  // cards and lines about one language): the native name its dropdown row
-  // leads with, "Español"; English once.
-  function nameFor(code) {
-    const row = rowFor(code);
-    return row ? row.abbr || row.name : null;
-  }
 
   function labelFor(row, list) {
     const base = baseLabel(row);
@@ -582,7 +580,7 @@
   }
 
   const CORE = {
-    PROVIDER, ID_PREFIX, MRU_MAX, rowFor, textsFor, pickText, pickOrder, firstOffered, chapterOffer, pageLanguage, mruFrom, rememberPick, rememberTicked, labelFor, nameFor, bibleMenu, languageMenu, languagesToAdd,
+    PROVIDER, ID_PREFIX, MRU_MAX, rowFor, textsFor, pickText, pickOrder, firstOffered, chapterOffer, pageLanguage, mruFrom, rememberPick, rememberTicked, nameFor, labelFor, bibleMenu, languageMenu, languagesToAdd,
     chapterUri, apiUrl, chapterFrom, blockElements, servesChapter, dirOf,
   };
 

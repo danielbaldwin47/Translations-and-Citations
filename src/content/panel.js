@@ -27,7 +27,8 @@
  *                                  (the chapter check settled, a pick): the
  *                                  arrangement again, no view dropped
  *   arrangement(facts?)            the current answer: { mode, body, text,
- *                                  saves, note, noteLang, page, pageNext };
+ *                                  saves, note, noteLang, bodyLang, page,
+ *                                  pageNext };
  *                                  the orchestrator applies `body` and `note`
  *                                  to the panel and `page` to the page split.
  *                                  With `facts`, the answer they would give
@@ -39,8 +40,9 @@
  *                                  pure noteCopy; `row` is the language's
  *                                  churchText row). It shows while the view it
  *                                  belongs to is mounted (the no-translation
- *                                  line: Citations; the beside-the-page and
- *                                  missing-chapter lines: Translation) and
+ *                                  line: Citations; the beside-the-page,
+ *                                  missing-chapter and not-available lines:
+ *                                  Translation) and
  *                                  goes with any other; a
  *                                  line coming or going keeps the reader's
  *                                  place. Its buttons: Add a language = a
@@ -70,7 +72,8 @@
  *                                  as part of opening a view)
  *   showTranslation(state)         render a translation-mode body state into
  *                                  the mounted view (copy: the pure setupCopy,
- *                                  besideCopy, errorCopy):
+ *                                  offCopy, notAvailableCopy, besideCopy,
+ *                                  errorCopy):
  *                                    { kind:'loading', label }
  *                                    { kind:'waiting', seconds }  rate-limited;
  *                                      counts down to the orchestrator's retry
@@ -80,6 +83,16 @@
  *                                      a select plus Add), set up api.bible
  *                                      (`bible` 'nokey' | 'noversions' | null),
  *                                      or see the talks
+ *                                    { kind:'off', row }  the language is
+ *                                      hidden (the off card): Show is this
+ *                                      visit's Translation click, then
+ *                                      onShowLanguage
+ *                                    { kind:'not-available', row, chapter }
+ *                                      no ticked language has the chapter:
+ *                                      Add another language = onGear('languages')
+ *                                    (the three cards are states, never an
+ *                                    earned view; `row` is the language's
+ *                                    churchText row)
  *                                    { kind:'error', code, name, chapter, church, alternatives, others, remote, retryAfterMs, rate }
  *                                    { kind:'content', blocks, copyright, lang, dir, besideLink, rate }
  *                                    { kind:'beside', name, layout, effective, collapseFits }  the text
@@ -143,19 +156,21 @@
  *
  * handlers: { renderMode(mode), onTranslationChange(id), onLanguagePick(id, patch),
  *   onLanguageShown(on), onGear(section), onRetry, onAddLanguage(code),
- *   onLayoutChange(layout, pick), onDismissNote, askToolbarPin }.
+ *   onLayoutChange(layout, pick), onDismissNote, onShowLanguage, askToolbarPin }.
  *   `renderMode` fires whenever the panel invalidated its own body content
  *   (mode toggle, citation-layout toggle, a synced change from another
  *   context); the orchestrator answers by rendering that mode's content.
  *   After showChapter() the orchestrator renders what the arrangement
  *   answered itself — showChapter and arrange never fire events. `onGear(section)` opens the
  *   options page, at a card when `section` names one ('bible' from the setup
- *   card and the key errors; none from the header's Settings button).
+ *   card and the key errors; 'languages' from the not-available card; none
+ *   from the header's Settings button).
  *   `onTranslationChange` is a pick in the Bible version dropdown,
  *   `onLanguagePick` one in the language dropdown (`patch` is languagePick's:
  *   the switch on, while it is off), `onLanguageShown` a flip of the
  *   language row's switch.
- *   `onAddLanguage`, `onLayoutChange` and `onDismissNote` are the cards' and
+ *   `onAddLanguage`, `onLayoutChange`, `onDismissNote` and `onShowLanguage`
+ *   (the off card's Show: turn the language switch on) are the cards' and
  *   the note's picks; the panel writes no setting for any of these, the
  *   orchestrator does. `onLayoutChange`'s `pick` is the row the choice makes the pick, or
  *   null (the pure layoutChoice: "In the panel" moves the page's language
@@ -251,11 +266,13 @@
   // The one rule for what the panel shows (GLOSSARY: Arrangement). Pure:
   //   arrangement({ texts, picks, languages, layout, shown, dismissed, mode, click, picked }) -> {
   //     mode:  'translation' | 'citations'   the effective mode
-  //     body:  'citations' | 'loading' | 'setup' | 'beside' | 'text'
+  //     body:  'citations' | 'loading' | 'setup' | 'beside' | 'text' | 'off' | 'not-available'
   //     text:  row id | null    the row the Translation tab is about ('beside', 'text')
   //     saves: 'translation' | 'citations' | null   what the click writes to panelMode
-  //     note:  'no-translation' | 'beside-page' | 'missing-chapter' | null   the one quiet line above the body
+  //     note:  'no-translation' | 'beside-page' | 'missing-chapter' | 'not-available' | null
+  //                                      the one quiet line above the body
   //     noteLang: Church code | null     the language the line names
+  //     bodyLang: Church code | null     the language the off or not-available card names
   //     page:  Church row id | null      the page split's language, in either mode
   //     pageNext: lang | null            a language the check must ask before `page` is known
   //     chooses: row id | null           a row on request the Translation tab shows,
@@ -272,7 +289,9 @@
   //              unless it is 'panel'
   //   shown      the language switch (GLOSSARY), churchLanguageShown; absent =
   //              on. Off: no page language (so no split and no check for one),
-  //              in either mode, and the no-translation line never shows
+  //              in either mode; the Translation tab walks the Bible rows
+  //              alone; no line names a hidden language
+  //   isBible    the chapter is in the Old or New Testament (detect)
   //   dismissed  the reader pressed × on the no-translation line (a synced
   //              setting, noTranslationLineDismissed)
   //   mode       the stored panelMode
@@ -283,10 +302,16 @@
   // chapter check makes): the first one offered shows; one not yet checked
   // before it means the loading state (so Citations never paints first, then
   // switches). When this visit's dropdown pick lacks the chapter, the text
-  // shown in its place carries the missing-chapter line. With nothing
-  // offered, the setup card when no Church language is on or the reader
-  // clicked Translation on this visit, else Citations with the
-  // no-translation line (note) unless it was dismissed. The page's
+  // shown in its place carries the missing-chapter line; a Bible version
+  // shown while the check found every ticked language lacking the chapter
+  // carries the not-available line. With nothing offered: the setup card
+  // when no Church language is ticked; the off card while the switch is off
+  // off the Bible, unless the check already knows every ticked language
+  // lacks the chapter (then the rules below, without the no-translation
+  // line, so Show never leads to a dead end); the not-available card when
+  // the reader clicked Translation on this visit (the off card's Show
+  // counts as one); else Citations with the no-translation line unless it
+  // was dismissed. Both cards name the language noteLanguage picks. The page's
   // language is churchText.pageLanguage, whatever the mode; the text it
   // names shows as the beside card ('beside' means text === page), any other
   // text in the panel (NIV beside Español on the page), with the
@@ -301,7 +326,12 @@
     const mode = click || stored;
     const saves = click && click !== stored ? click : null;
     const ct = churchText();
-    const walk = mode === 'translation' && Array.isArray(o.texts) ? ct.firstOffered(o.texts, o.picks) : null;
+    // The switch off hides the Church language from the panel too: the
+    // Translation tab walks the Bible rows alone.
+    const isChurch = (t) => t && t.provider === ct.PROVIDER;
+    const hidden = o.shown === false;
+    const texts = Array.isArray(o.texts) && hidden ? o.texts.filter((t) => !isChurch(t)) : o.texts;
+    const walk = mode === 'translation' && Array.isArray(texts) ? ct.firstOffered(texts, o.picks) : null;
     // A row on request (English on a page read in another language) the
     // Translation tab shows is chosen by that: it counts as the newest pick
     // here, and `chooses` asks the caller to remember it.
@@ -310,33 +340,53 @@
     // The page's language is the same in either mode (the split stays on the
     // page in Citations).
     const page = ct.pageLanguage({ texts: o.texts, picks: chooses ? [chooses].concat(picks) : picks, layout: o.layout, shown: o.shown });
-    const show = (m, body, text, note, noteLang) => ({
+    const show = (m, body, text, note, noteLang, bodyLang) => ({
       mode: m, body, text: text || null, saves, note: note || null, noteLang: noteLang || null,
-      page: page.id, pageNext: page.next, chooses,
+      bodyLang: bodyLang || null, page: page.id, pageNext: page.next, chooses,
     });
     if (mode !== 'translation') return show('citations', 'citations');
     if (!walk || walk.next) return show('translation', 'loading');
+    const anyLanguage = Array.isArray(o.languages) && o.languages.length > 0;
+    // The check asked every ticked language and none has the chapter (a
+    // language that publishes none of its volume is not among the texts; a
+    // row on request is no ticked language).
+    const allLack = (o.texts || []).every((t) => !isChurch(t) || t.onRequest || t.offered === false);
     const row = walk.row;
     if (row) {
       // This visit's dropdown pick lacks the chapter: the line says so above
       // the text shown in its place.
-      const missed = o.texts.find((t) => t.id === o.picked && t.offered === false && t.provider === ct.PROVIDER);
+      const missed = texts.find((t) => t.id === o.picked && t.offered === false && isChurch(t));
       const body = row.id === page.id ? 'beside' : 'text';
       if (missed) return show('translation', body, row.id, 'missing-chapter', missed.lang);
       // The text the tab is about holds the page: the beside card says so.
       if (body === 'beside') return show('translation', body, row.id);
       // A Bible version in the panel while a language holds the page: the
       // line says where the language went (Bible rows never hold the page).
-      if (page.id && row.provider !== ct.PROVIDER) {
+      if (page.id && !isChurch(row)) {
         return show('translation', body, row.id, 'beside-page', page.id.slice(ct.ID_PREFIX.length));
+      }
+      // A Bible version while every ticked language lacks the chapter (the
+      // check asked them all; a language that publishes no Bible at all is
+      // not among the texts): the not-available line says the gap is the
+      // language's. Never while the switch is off: a hidden language is quiet.
+      if (o.isBible === true && !isChurch(row) && anyLanguage && !hidden && allLack) {
+        return show('translation', body, row.id, 'not-available', noteLanguage(o.picks, o.languages));
       }
       return show('translation', body, row.id);
     }
-    const anyLanguage = Array.isArray(o.languages) && o.languages.length > 0;
-    if (!anyLanguage || click === 'translation') return show('translation', 'setup');
-    // The switch off: the reader hid the language, so no line about it.
-    if (o.dismissed === true || o.shown === false) return show('citations', 'citations');
-    return show('citations', 'citations', null, 'no-translation', noteLanguage(o.picks, o.languages));
+    if (!anyLanguage) return show('translation', 'setup');
+    const named = noteLanguage(o.picks, o.languages);
+    // The switch off, off the Bible: the off card (stored or clicked: the
+    // tab explains itself and offers Show) — unless the check already knows
+    // every ticked language lacks the chapter, where the switch-on rules
+    // below apply without the no-translation line, so Show never leads to a
+    // dead end.
+    if (hidden && o.isBible !== true && !allLack) return show('translation', 'off', null, null, null, named);
+    // Nothing offers the chapter: the not-available card on a Translation
+    // click this visit, else Citations with the no-translation line.
+    if (click === 'translation') return show('translation', 'not-available', null, null, null, named);
+    if (o.dismissed === true || hidden) return show('citations', 'citations');
+    return show('citations', 'citations', null, 'no-translation', named);
   }
 
   // The language the no-translation line names: the enabled Church language
@@ -383,7 +433,7 @@
     const live = church.filter((t) => t.offered !== false);
     const named = (lang, form, enabled) => {
       const row = ct.rowFor(lang);
-      return { form, id: row ? row.id : null, lang: row ? lang : null, name: ct.nameFor(lang), enabled, on };
+      return { form, id: row ? row.id : null, lang: row ? lang : null, name: row ? ct.nameFor(row) : null, enabled, on };
     };
     if (live.length) {
       const id = ct.pickText(live, o.picks);
@@ -498,7 +548,10 @@
   // chapter is the Bible's, content.js from detect) places the toolbar's rows
   // (toolbarRows).
   function factsOf(c) {
-    return { texts: c.texts, picks: c.picks, languages: c.languages, layout: c.layout, dismissed: c.dismissed === true, shown: c.shown !== false, isBible: c.isBible === true };
+    return {
+      texts: c.texts, picks: c.picks, languages: c.languages, layout: c.layout, dismissed: c.dismissed === true,
+      shown: c.shown !== false, isBible: c.isBible === true,
+    };
   }
 
   // Whether showing `chapter` leaves every cached view valid: the same chapter
@@ -756,6 +809,9 @@
   //                     the chapter ("Pohnpeian"); no buttons
   //   'beside-page'     above a Bible version in the panel: the language
   //                     holding the page, as the dropdown leads its row ("Español")
+  //   'not-available'   above a Bible version: every ticked language lacks
+  //                     the chapter; the not-available card's sentence
+  //                     ("Kiribati"), no buttons
   function noteCopy(note) {
     const kind = note && note.kind;
     const row = (note && note.row) || {};
@@ -767,6 +823,9 @@
         text: `${language || 'A language'} is beside the page text ·`,
         actions: [{ id: 'change', label: 'Change' }],
       };
+    }
+    if (kind === 'not-available') {
+      return { view: 'translation', language: churchText().nameFor(note.row), text: notAvailableCopy(note.row, note.chapter).text, actions: [] };
     }
     if (kind !== 'no-translation' && kind !== 'missing-chapter') return null;
     const language = row.name || '';
@@ -780,6 +839,35 @@
         { id: 'add', label: 'Add a language' },
         { id: 'dismiss', label: '×', title: 'Dismiss for good' },
       ],
+    };
+  }
+
+  // The off card (GLOSSARY: Off card): the switch is off, so the Translation
+  // tab has nothing to show off the Bible. It names the language by its
+  // short name (churchText.nameFor, as the language row does) and offers
+  // Show, which turns the switch on. `row` is the language's churchText row.
+  //   -> { text, show, showLabel }   showLabel: Show's accessible name
+  function offCopy(row) {
+    const language = churchText().nameFor(row);
+    return {
+      text: `${language || 'The language'} is hidden.`,
+      show: 'Show',
+      showLabel: `Show ${language || 'the language'}`,
+    };
+  }
+
+  // The not-available card (GLOSSARY: Not-available card): no ticked
+  // language has the chapter, so the gap reads as the language's, never a
+  // fault. Names the language by its short name, as the off card does, and
+  // the chapter as a sentence names it; `add` is the link that opens
+  // settings at the languages card. Its sentence is also the not-available
+  // line above a Bible version (noteCopy).
+  //   -> { text, add }
+  function notAvailableCopy(row, chapter) {
+    const language = churchText().nameFor(row);
+    return {
+      text: `${chapter || 'This chapter'} isn’t available in ${language || 'your language'} yet.`,
+      add: 'Add another language',
     };
   }
 
@@ -1331,7 +1419,7 @@
       createState, arrangement, languageRow, languagePick, switchFlip, switchLabel, toolbarRows, layoutChoice, arrangementOf, effectiveMode, selectMode, selectText, selectCitationView, setChapter, sameChapter,
       welcomeDue, setWelcomeSeen, welcomeTakesFocus, focusOnToggle, byKeyboard, CONTROL_NAMES, WELCOME_COPY, WELCOME_STEPS, welcomeSteps, welcomeStepView, welcomeFactsFrom, lineParts,
       CALLOUT_GEOMETRY, calloutPlacement, unionRect,
-      stepFontScale, setupCopy, noteCopy, besideCopy, pressedLayout, layoutClick, roomHint, errorCopy, pausedLine, nearLine, retryWait, LAYOUTS, RETRY_MAX_WAIT_MS, RETRY_MAX,
+      stepFontScale, setupCopy, noteCopy, offCopy, notAvailableCopy, besideCopy, pressedLayout, layoutClick, roomHint, errorCopy, pausedLine, nearLine, retryWait, LAYOUTS, RETRY_MAX_WAIT_MS, RETRY_MAX,
       createViews, saveViewScroll, selectView, keepView, settleView, dropViews, SAME_CHAPTER_VIEWS,
       viewRestoresScroll, wantsScrollSync,
       scrollStep, easeRamp, floorStep, carryScroll, realignmentDone, isForeignScroll,
@@ -2731,6 +2819,35 @@
     host.appendChild(card);
   }
 
+  // The off card: the language is hidden (the switch is off). Show is this
+  // visit's Translation click, so the tab stays put whatever the language
+  // has (the not-available card if it lacks the chapter), then the
+  // orchestrator turns the switch on. A keyboard user's focus follows to the
+  // layout control of the card that replaces this one.
+  function renderOff(host, st) {
+    const copy = offCopy(st.row);
+    const card = el('div', 'btx-card btx-off');
+    card.appendChild(el('p', 'btx-card-title', copy.text));
+    const show = button('btx-btn-outline', copy.show, () => {
+      refocusLayout = document.activeElement === show;
+      selectMode(state, 'translation');
+      if (cbs.onShowLanguage) cbs.onShowLanguage();
+    });
+    labelled(show, copy.showLabel);
+    card.appendChild(show);
+    host.appendChild(card);
+  }
+
+  // The not-available card: no ticked language has the chapter. Its link
+  // opens settings at the languages card.
+  function renderNotAvailable(host, st) {
+    const copy = notAvailableCopy(st.row, st.chapter);
+    const card = el('div', 'btx-card btx-not-available');
+    card.appendChild(el('p', 'btx-card-title', copy.text));
+    card.appendChild(button('btx-link', copy.add, () => cbs.onGear && cbs.onGear('languages')));
+    host.appendChild(card);
+  }
+
   function renderError(host, st) {
     const copy = errorCopy(st);
     const wrap = stateWrap('btx-error');
@@ -2853,6 +2970,15 @@
       case 'setup':
         setCard('setup');
         renderSetup(host, st);
+        return;
+      // Not 'setup': the toolbar (the language row) stays above both.
+      case 'off':
+        setCard('off');
+        renderOff(host, st);
+        return;
+      case 'not-available':
+        setCard('not-available');
+        renderNotAvailable(host, st);
         return;
       case 'error':
         renderError(host, st);

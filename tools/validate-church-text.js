@@ -322,18 +322,17 @@ eq(T.rememberTicked(['niv'], [], ['spa', 'xx-nope']), ['church:spa', 'niv'], 'a 
 
 console.log('labelFor:');
 const SPA_ROW = T.rowFor('spa');
-// The short name: wherever one language is named on its own (the language
-// row, its switch, the cards and lines about it), the native name the
-// dropdown row leads with.
-eq(T.nameFor('spa'), 'Español', 'nameFor: the native name, as the dropdown row leads with it');
-eq(T.nameFor('pon'), 'Mahsen en Pohnpei', '...for every language');
-if (ENG) eq(T.nameFor('eng'), 'English', 'English reads once');
-eq(T.nameFor('xx-nope'), null, 'no Church language: no name');
 eq(T.labelFor(NIV, [NIV]), 'New International Version (NIV)', 'a Bible row reads "name (abbr)": a narrow dropdown cuts the abbreviation, not the name');
 eq(T.labelFor({ id: 'x', abbr: '', name: 'Some Version', provider: C.PROVIDER_APIBIBLE }, []), 'Some Version', 'a Bible row with no abbreviation reads its name alone');
 eq(T.labelFor({ id: 'x', abbr: 'Some Version', name: 'Some Version', provider: C.PROVIDER_APIBIBLE }, []), 'Some Version', '...and so does one whose abbreviation is its name');
 eq(T.labelFor(SPA_ROW, [SPA_ROW]), 'Español — Spanish', 'a Church row reads "native name — English name"');
 if (ENG) eq(T.labelFor(T.rowFor('eng'), []), 'English', 'English reads once');
+// The short name: one language named on its own (the language row, the
+// switch, the off and not-available cards, the Hide line), as labelFor leads.
+eq(T.nameFor(SPA_ROW), 'Español', 'nameFor: a Church row by its native name');
+eq(T.nameFor(T.rowFor('gil')), 'Kiribati', '...Kiribati by its own name, not "Kiribati (Gilbertese)"');
+if (ENG) eq(T.nameFor(T.rowFor('eng')), 'English', '...English, whose native name is its English name');
+eq(T.nameFor(null), '', '...no row, no name');
 const WEBU = (id, extra) => Object.assign({ id, abbr: 'WEBU', name: 'World English Bible Updated', provider: C.PROVIDER_APIBIBLE }, extra);
 const webus = [WEBU('72f4e6dc683324df-01'), WEBU('72f4e6dc683324df-02'), WEBU('72f4e6dc683324df-03')];
 eq(webus.map((r) => T.labelFor(r, webus)), [

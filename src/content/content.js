@@ -5,11 +5,12 @@
  *  - watches SPA navigation and renders the matching chapter's content
  *  - points the theme module at the panel root (it owns keeping it in sync)
  *  - manages translation selection and hands the panel each Translation state
- *    (loading, rate-limit wait, error, setup card, beside card, text); the
- *    Translation toolbar's two rows (populateToolbar) read __BTX.churchText's
- *    pure textsFor and its two menus, bibleMenu (the version row) and
- *    languageMenu (the language row, in the form the panel's languageRow
- *    answers), and the row shown is the arrangement's, walking a
+ *    (loading, rate-limit wait, error, setup card, off card, not-available
+ *    card, beside card, text); the Translation toolbar's two rows
+ *    (populateToolbar) read __BTX.churchText's pure textsFor and its two
+ *    menus, bibleMenu (the version row) and languageMenu (the language row,
+ *    in the form the panel's languageRow answers), and the row shown is the
+ *    arrangement's, walking a
  *    most-recently-used list (C.SELECTION_KEY in chrome.storage.local); a row
  *    on request the arrangement `chooses` (English on a page read in another
  *    language, shown by the Translation tab) is remembered there. The options page writes
@@ -17,13 +18,16 @@
  *    write through storage.onChanged
  *  - describes the chapter to the panel's arrangement (factsFor: the texts
  *    chapterOffer marked offered, the pick memory, the enabled languages, the
- *    split layout, the language switch `churchLanguageShown`) wherever one of
+ *    split layout, the language switch `churchLanguageShown`, whether the
+ *    chapter is a Bible chapter `isBible`) wherever one of
  *    those moves, and applies its answer: the mode, body and note showing are
  *    the arrangement's, never decided here. The switch (GLOSSARY: Language
- *    switch) is not a panel-handled key: a change, from this tab or another,
- *    arrives through the settings subscriber, which re-asks the arrangement
+ *    switch) is not a panel-handled key: another tab's change arrives
+ *    through the settings subscriber, which re-asks the arrangement
  *    (off: no page language, so no split and no chapter check for it; the
- *    layout setting is untouched, so on returns to it)
+ *    layout setting is untouched, so on returns to it). This tab's own
+ *    writes of it go through setLanguageShown (the Hide line, the off card), which
+ *    arranges and renders itself
  *  - applies the arrangement's note to the panel's note slot (applyNote, after
  *    every mode render and wherever the arrangement moves: it names the
  *    language and the chapter) and writes the no-translation line's dismissal
@@ -65,7 +69,8 @@
  *    on every chapter page whatever its language. The reply's `shown` says whether a chapter shows (false: the worker
  *    opens the options page)
  *  - asks the worker to open the options page, at a card when one is named
- *    (OPEN_OPTIONS { section: 'bible' })
+ *    (OPEN_OPTIONS { section: 'bible' }; 'languages' from the not-available
+ *    card)
  *  - names each view and supplies its content key; it holds no panel DOM
  *
  * Runs once per page. Shared modules (constants/settings/books) and the other
@@ -303,9 +308,11 @@
     await Promise.all(pending.map((lang) => churchText.load(parsed, lang)));
     if (stale()) return; // another Translation render asks again, sharing these loads
     const offer = offerFor(parsed, rows);
-    if (panel.arrange(factsFor(e, offer)).body === 'setup') return;
+    const a = panel.arrange(factsFor(e, offer));
     texts = offer.texts.filter((t) => t.offered !== false);
-    populateToolbar(texts);
+    populateToolbar(texts); // the language row over a card too (its switch, or greyed)
+    if (a.body !== 'text' && a.body !== 'beside') return; // a card: no note to restate
+    applyNote(); // every ticked language now known to lack a Bible chapter: the not-available line
   }
 
   // The Translation toolbar's two rows from `list` (the texts that may offer
@@ -528,6 +535,19 @@
     // Nothing offers the chapter and Church languages are on: Citations.
     if (shown.mode !== 'translation') return renderActiveMode();
     const list = texts = offer.texts.filter((t) => t.offered !== false);
+    if (shown.body === 'off' || shown.body === 'not-available') {
+      // The language is hidden (the off card), or no ticked language has the
+      // chapter (the not-available card): a card naming it, never cached, and
+      // nothing in flight may land on it. The split goes with the switch, the
+      // reader's place kept.
+      ++reqToken;
+      clearTimeout(retryTimer);
+      activeId = null;
+      syncSplit({ anchor: splitAnchor() });
+      populateToolbar(list); // the language row: its switch (the off card's other way back), or greyed
+      const card = { kind: shown.body, row: churchText.rowFor(shown.bodyLang), chapter: chapterLabel(current) };
+      return panel.showView({ name: 'translation', key: shown.body, render: () => panel.showTranslation(card) });
+    }
     if (shown.body === 'setup') {
       // Nothing left to show, so nothing in flight may land here either: a load
       // started for a row that has just gone would paint over this state (and
@@ -916,6 +936,7 @@
       onAddLanguage: addLanguage,
       onLayoutChange: changeLayout,
       onDismissNote: dismissNote,
+      onShowLanguage: () => setLanguageShown(true),
       askToolbarPin: () => send({ type: C.MSG.GET_TOOLBAR_PIN }), // is the toolbar icon pinned? (the welcome's pinning line)
     });
 
