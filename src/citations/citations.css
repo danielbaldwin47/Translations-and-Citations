@@ -390,9 +390,14 @@
   overflow: hidden;
 }
 
-/* "· in a footnote" (cit-panel.js subLine): part of the talk line, in its
-   size and colour, moved to the next line whole rather than split. */
-#btx-root .btx-cit-fn { white-space: nowrap; }
+/* The talk line (cit-panel.js subLine): the title a step above muted, where it
+   was given ("October 2024", "vol. 26, p. 278") stays muted and moves to the
+   next line whole. Light muted is the floor (4.7:1; fainter fails 4.5:1);
+   dark has room below muted, so where dims to 5.3:1 on the dark panel and
+   the gap to the title matches light's. */
+#btx-root .btx-cit-title { color: color-mix(in srgb, var(--btx-fg) 80%, transparent); }
+#btx-root .btx-cit-where { white-space: nowrap; }
+#btx-root[data-btx-theme='dark'] .btx-cit-where { color: rgba(255, 255, 255, 0.5); }
 
 /* A fetched excerpt (cit-panel.js "fetched excerpts"). Pending: the box holds
    invisible filler of the excerpt's length, so it is as tall as the text will

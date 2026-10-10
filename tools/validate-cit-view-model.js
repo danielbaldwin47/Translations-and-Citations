@@ -69,7 +69,6 @@ function makeData(cites, pack) {
       versesInChapter: c.verses,
       snippet: c.snippet || '',
       excerptChars: c.excerptChars,
-      inFootnote: c.inFootnote,
       source: c.source,
     };
     for (const v of c.verses) (byVerse[v] = byVerse[v] || []).push(c.citId);
@@ -272,7 +271,7 @@ console.log('By-verse layout:');
   // Row descriptor content.
   const row = v3.children[0].rows[0];
   eq(row.speaker, 'Nelson', 'row speaker');
-  eq(row.sub, 'Born Again · 2020-04', 'sub line drops the redundant "General Conference"');
+  deep([row.talkTitle, row.where], ['Born Again', '2020-04'], 'the talk line is the title, then where, without the redundant "General Conference"');
   eq(row.snippet.text, '“…water and spirit”', 'snippet is cleaned and quoted for display');
   eq(row.a11yLabel, 'Nelson, Born Again, 2020-04, verses 3 to 5', 'row names speaker, talk and range for a screen reader');
   eq(row.search, 'nelson born again 2020-04 general conference 2020-04 …water and spirit', 'filter haystack is lowercased');
@@ -280,7 +279,7 @@ console.log('By-verse layout:');
   eq(row.talkId, 't-a', 'row names its talk');
 
   const jodRow = v4.children[0].rows[0];
-  eq(jodRow.sub, 'On Rebirth · vol. 26, p. 278', 'Journal of Discourses volume:page is spelled out');
+  deep([jodRow.talkTitle, jodRow.where], ['On Rebirth', 'vol. 26, p. 278'], 'Journal of Discourses volume:page is spelled out, apart from the title');
   eq(jodRow.a11yLabel, 'Young, On Rebirth, vol. 26, p. 278', 'no range in the label of a single-verse row');
 }
 
@@ -288,7 +287,7 @@ console.log('By-verse layout:');
   // A few titles carry an italicised word's markup; every surface shows text.
   const src = gc('Reyna I. Aburto', '<em>We</em> Are The Church of Jesus Christ', '2022-04');
   const row = VM.buildView(makeData([{ citId: 'a', verses: [3], source: src }]), OPTS).groups[0].children[0].rows[0];
-  eq(row.sub, 'We Are The Church of Jesus Christ · 2022-04', 'the row’s title line drops the tags');
+  eq(row.talkTitle, 'We Are The Church of Jesus Christ', 'the row’s title line drops the tags');
   eq(row.a11yLabel, 'Reyna I. Aburto, We Are The Church of Jesus Christ, 2022-04', 'so does its screen-reader label');
   check(!/[<>]/.test(row.search) && row.search.includes('we are the church'), 'and the filter haystack');
   eq(VM.talkHeading(src, [3]).title, 'We Are The Church of Jesus Christ', 'and the talk reader’s title');
@@ -365,17 +364,17 @@ console.log('By-verse layout:');
   eq(g.count, 3, 'verse chip counts all three');
   deep(g.children.map((c) => c.key), ['general-conference', 'journal-of-discourses', 'teachings-of-the-prophet-joseph-smith'], 'source-type groups keep their fixed order');
   deep(g.children.map((c) => c.count), [1, 1, 1], 'per-source-type counts');
-  eq(g.children[2].rows[0].sub, 'p. 2', 'an untitled Teachings row shows its page');
+  deep([g.children[2].rows[0].talkTitle, g.children[2].rows[0].where], [null, 'p. 2'], 'an untitled Teachings row shows its page');
 
   // Sessions the build labels by the month they began belong to that
   // spring's or autumn's conference (Ensign May / November issue).
   const session = (lbl) => VM.buildView(makeData([{ citId: 'w', verses: [1],
-    source: { c: 'G', sp: 'Monson', ti: 'Courage', d: '2009-03', lbl } }]), OPTS).groups[0].children[0].rows[0].sub;
-  eq(session('03 2009 General Conference'), 'Courage · April 2009', 'a March session is the April conference');
-  eq(session('02 1990 General Conference'), 'Courage · April 1990', 'so is a February meeting');
-  eq(session('09 2023 General Conference'), 'Courage · October 2023', 'a September session is the October conference');
-  eq(session('11 1980 General Conference'), 'Courage · October 1980', 'so is a November one');
-  eq(session('October 2023 General Conference'), 'Courage · October 2023', 'a named session is left as it is');
+    source: { c: 'G', sp: 'Monson', ti: 'Courage', d: '2009-03', lbl } }]), OPTS).groups[0].children[0].rows[0].where;
+  eq(session('03 2009 General Conference'), 'April 2009', 'a March session is the April conference');
+  eq(session('02 1990 General Conference'), 'April 1990', 'so is a February meeting');
+  eq(session('09 2023 General Conference'), 'October 2023', 'a September session is the October conference');
+  eq(session('11 1980 General Conference'), 'October 1980', 'so is a November one');
+  eq(session('October 2023 General Conference'), 'October 2023', 'a named session is left as it is');
 }
 
 {
@@ -434,7 +433,7 @@ console.log('By-source layout:');
   eq(rows[1].citId, 'k1', 'the merged row opens at the earliest cite');
   eq(rows[1].rangeLabel, 'vv. 3–5, 7', 'the badge is the union of every cite');
   eq(rows[1].snippet.text, '“…first passage”', 'the snippet is the earliest cite’s');
-  eq(rows[1].sub, 'The New Birth, Etc. · vol. 14, p. 321', 'Journal of Discourses location is spelled out');
+  deep([rows[1].talkTitle, rows[1].where], ['The New Birth, Etc.', 'vol. 14, p. 321'], 'Journal of Discourses location is spelled out');
   eq(view.groups[0].count, 3, 'the group counts talks');
   eq(view.talks, 3, 'the view counts talks');
   eq(view.summary, '3 talks cite this chapter', 'summary counts talks, not cites');
@@ -535,31 +534,19 @@ console.log('Source types from the descriptor:');
     'with no descriptor no corpus exists');
 }
 
-// --- footnote label -----------------------------------------------------------
-// A cite the build flagged `fn` (entry.inFootnote) sits in one of the talk's
-// notes, so its excerpt can be about something else; the row's talk line says
-// so ("· in a footnote"), its hover says why, and its accessible name ends with it.
-console.log('Footnote label:');
+// --- no footnote label -------------------------------------------------------
+// The shard's `fn` (a footnote cite) is not shown: the owner judged the row's
+// label clutter. A flagged cite's row reads like any other.
+console.log('No footnote label:');
 {
-  const data = makeData([
-    { citId: 'fn', verses: [7], source: gc('Cook', 'Zoram', '2025-10'), inFootnote: true, excerptChars: 90 },
-    { citId: 'body', verses: [7], source: gc('Nelson', 'Born Again', '2020-04'), excerptChars: 90 },
-    { citId: 'old', verses: [7], source: jod('Young', 'On Rebirth', '1885-04'), snippet: 'born of water' },
-  ]);
-  const rows = VM.allRows(VM.buildView(data, SRC));
-  const rowOf = (id) => rows.find((r) => r.citId === id);
-  deep(rowOf('fn').footnote, {
-    text: 'in a footnote',
-    title: 'The verse is cited in a footnote; the excerpt is the paragraph the note belongs to.',
-  }, 'a flagged cite’s row carries the fragment for its talk line, and its hover text');
-  eq(rowOf('fn').sub, 'Zoram · 2025-10', 'the talk line itself is unchanged (the fragment follows it)');
-  eq(rowOf('fn').a11yLabel, 'Cook, Zoram, 2025-10, verse 7, in a footnote', 'and its screen-reader name ends with it');
-  eq(rowOf('body').footnote, null, 'an unflagged row carries none');
-  eq(rowOf('body').a11yLabel, 'Nelson, Born Again, 2020-04, verse 7', 'and its screen-reader name is unchanged');
-  eq(rowOf('old').footnote, null, 'a cite with no flag (a corpus that cannot carry one) shows none');
-  const ranged = makeData([{ citId: 'r', verses: [3, 4, 5], source: gc('Nelson', 'Born Again', '2020-04'), inFootnote: true }]);
-  eq(VM.allRows(VM.buildView(ranged, SRC))[0].a11yLabel, 'Nelson, Born Again, 2020-04, verses 3 to 5, in a footnote',
-    'after the verse range when the row has one');
+  const cite = { citId: 'fn', verses: [7], source: gc('Cook', 'Zoram', '2025-10'), excerptChars: 90 };
+  const data = makeData([cite]);
+  data.entries.fn.fn = true;
+  data.entries.fn.inFootnote = true;
+  const row = VM.allRows(VM.buildView(data, SRC))[0];
+  deep([row.talkTitle, row.where], ['Zoram', '2025-10'], 'a footnote cite’s talk line is title and date alone');
+  eq(row.a11yLabel, 'Cook, Zoram, 2025-10, verse 7', 'and its screen-reader name says nothing of a note');
+  check(!('footnote' in row), 'the row carries no footnote field');
 }
 
 // --- excerpt source per corpus ---------------------------------------------

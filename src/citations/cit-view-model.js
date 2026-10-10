@@ -40,15 +40,15 @@
  *           title: a source-type header's hover text, the descriptor's `sourceNote`
  *           for its source type ("Sermons by early Church leaders, published 1854–1886");
  *           null on a verse header and when the pack carries no note
- *   row   { uid, citId, talkId, speaker, rangeLabel, rangeTitle, sub, snippet, footnote, a11yLabel,
+ *   row   { uid, citId, talkId, speaker, rangeLabel, rangeTitle, talkTitle, where, snippet, a11yLabel,
  *           search, verses, queryOnly, entry }   verses: what a verse query matches, ascending: the
  *           talk's in-chapter verses (By verse: the group's verse alone, see rowDesc);
  *           queryOnly: By verse only; a talk that runs through the group's verse without
  *           being listed there, shown only under a verse query naming that verse;
  *           rangeTitle: the badge's hover text ("Cites verses 1 to 5"), null with no badge
- *           footnote: { text: "in a footnote", title } when the row's cite is flagged
- *           (entry.inFootnote), else null; text ends the talk line ("· in a footnote") and
- *           a11yLabel, title is its hover text
+ *           talkTitle, where: the talk line's two parts, "title · where", each null when
+ *           missing; where is the short source label ("October 2024", "vol. 26, p. 278"),
+ *           set dimmer than the title so the title reads at a glance
  *
  * By verse fills group.children (verse -> source-type group -> rows); by
  * source hangs rows straight off one group per source type. Only groups are
@@ -440,13 +440,6 @@
 
   // --- descriptors ---------------------------------------------------------
 
-  // What a row's talk line adds when its cite (the one the row opens) sits in
-  // one of the talk's notes, which is why the excerpt may be about something
-  // else: the words after "title · month year", and their hover text. The
-  // build's `fn` flag (entry.inFootnote) decides.
-  const FOOTNOTE_LABEL = 'in a footnote';
-  const FOOTNOTE_TITLE = 'The verse is cited in a footnote; the excerpt is the paragraph the note belongs to.';
-
   // verses.badged: the verses to badge, or null for no badge. verses.listed:
   // the verses this row stands for, which a verse query matches (row.verses):
   // the talk's verses in By source; in By verse the group's verse alone, so
@@ -464,7 +457,6 @@
     const speaker = s.sp || 'Unknown speaker';
     const title = titleOf(s);
     const fetched = type.fetched.includes(corpusOf(entry));
-    const footnote = entry.inFootnote === true ? { text: FOOTNOTE_LABEL, title: FOOTNOTE_TITLE } : null;
     const haystack = [s.sp, title, s.lbl, where]
       .concat(fetched ? [] : talk.cites.map((c) => cleanSnippet(c.snippet)));
     return {
@@ -474,10 +466,10 @@
       speaker,
       rangeLabel: badged ? verseLabel(badged) : null,
       rangeTitle: badged ? citesTitle(badged) : null,
-      sub: [title, where].filter(Boolean).join(' · ') || null,
+      talkTitle: title || null,
+      where: where || null,
       snippet: excerptSource(entry, fetched),
-      footnote,
-      a11yLabel: [speaker, title, where, badged && spokenVerses(badged), footnote && footnote.text].filter(Boolean).join(', '),
+      a11yLabel: [speaker, title, where, badged && spokenVerses(badged)].filter(Boolean).join(', '),
       search: haystack.filter(Boolean).join(' ').toLowerCase(),
       verses: listed,
       queryOnly: queryOnly === true,

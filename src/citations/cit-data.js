@@ -38,8 +38,7 @@
  * at all. Each entry also carries what the footnote locator needs: its book
  * slug, chapter and refRank; and, for a corpus whose excerpt is fetched,
  * `excerptChars`, the length of the text its excerpt will show (absent: the
- * row reserves three lines). `inFootnote` is the shard's `fn` flag as a boolean (the cite sits in a
- * note of its talk; the row says so). `talkId` is the shard's `t` as written: a number
+ * row reserves three lines). `talkId` is the shard's `t` as written: a number
  * for a talk from the BYU base, a `gc/YYYY/MM/{slug}` string for a derived one. chapterIndex, citedVerses and refRanks are pure, and
  * tools/validate-citations.js exercises them (chapterIndex over every shard).
  *
@@ -230,7 +229,6 @@
         versesInChapter: spanOf[id],
         snippet: c.sn,
         excerptChars: c.ec,
-        inFootnote: c.fn === true,
         anchor: c.a,
         book: slug,
         chapter: Number(chapter),

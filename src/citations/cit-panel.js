@@ -130,18 +130,12 @@
     if (desc) node.appendChild(desc);
   }
 
-  // The talk line ("title · month year"), then, for a cite in a note, its
-  // footnote fragment joined the same way, kept whole on wrap. The fragment's
-  // words are in the row's aria-label; its hover text describes the row.
-  function subLine(row, node) {
-    const sub = el('div', 'btx-cit-sub', row.sub);
-    if (row.footnote) {
-      if (row.sub) sub.appendChild(document.createTextNode(' '));
-      const fn = el('span', 'btx-cit-fn', (row.sub ? '· ' : '') + row.footnote.text);
-      sub.appendChild(fn);
-      const desc = titled(fn, row.footnote.title, node);
-      if (desc) node.appendChild(desc);
-    }
+  // The talk line: the title, then " · " and where it was given, dimmer
+  // (citations.css), so the title reads without parsing it from its place.
+  function subLine(row) {
+    const sub = el('div', 'btx-cit-sub');
+    if (row.talkTitle) sub.appendChild(el('span', 'btx-cit-title', row.talkTitle));
+    if (row.where) sub.appendChild(el('span', 'btx-cit-where', (row.talkTitle ? ' · ' : '') + row.where));
     return sub;
   }
 
@@ -160,7 +154,7 @@
       if (desc) node.appendChild(desc);
     }
     node.appendChild(head);
-    if (row.sub || row.footnote) node.appendChild(subLine(row, node));
+    if (row.talkTitle || row.where) node.appendChild(subLine(row));
     if (row.snippet && row.snippet.text) {
       const snippet = el('div', 'btx-cit-snippet', row.snippet.text);
       describedBy(node, snippet, 'btx-cit-snippet');

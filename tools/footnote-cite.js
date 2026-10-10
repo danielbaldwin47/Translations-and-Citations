@@ -1,7 +1,7 @@
 /*
  * The footnote-cite rule (GLOSSARY.md "Footnote cite"; spec #102): whether a
- * cite that sits in a note of its talk earns the shard's flag `fn`, so its
- * row says it is in a footnote (GLOSSARY "Excerpt"). One pure rule for both producers of G cites:
+ * cite that sits in a note of its talk earns the shard's flag `fn` (the
+ * reader shows nothing for it). One pure rule for both producers of G cites:
  * tools/build-citation-data.js (BYU's talk HTML) and
  * tools/derive-conference.js (the Church's talk page, at fetch time). Each
  * caller reads its own markup into the facts below; this file reads no HTML.

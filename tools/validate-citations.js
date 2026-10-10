@@ -250,8 +250,6 @@ async function chapterDataChecks() {
     eq(derived && derived.excerptChars, 312, 'the cite\'s excerpt character count reaches the entry');
     eq(base && base.talkId, 2000, 'a base talk keeps its numeric id');
     deep(base && [base.anchor, base.excerptChars, base.snippet], ['p21', 88, undefined], 'a references-only cite has an anchor and a count, no snippet');
-    eq(data && data.entries[15675] && data.entries[15675].inFootnote, true, 'a cite’s footnote flag (fn) reaches the entry as inFootnote');
-    eq(base && base.inFootnote, false, 'a cite without the flag is not in a footnote');
   } finally {
     global.chrome = saved.chrome;
     global.fetch = saved.fetch;

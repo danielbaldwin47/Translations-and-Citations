@@ -118,11 +118,6 @@ The text shown under a citation row: a bundled corpus's snippet, or, for a
 references-only corpus, the cite's target paragraph fetched when the row comes
 on screen inside a source-type group the reader opened. While the fetch is
 pending the row reserves the excerpt's size from a per-cite character count.
-A row whose cite is a footnote cite ends its talk line with "· in a
-footnote", so a reader sees why the excerpt may be about something else; its
-hover says the excerpt is the paragraph the note belongs to. The words are part
-of the row's accessible name and outside the excerpt's reserve; opening the row
-is unchanged.
 _Avoid_: preview, teaser
 
 **Footnote cite**:
@@ -133,7 +128,8 @@ the verse nor shares its distinctive words. The shard marks it `fn: true`. A
 cite in a note that fails this is a plain cite, most often a bare reference
 naming the source of the paragraph's quotation. The rule and its thresholds
 live in `tools/footnote-cite.js`; the build applies it to BYU's cites, the
-derivation run to derived cites at fetch time.
+derivation run to derived cites at fetch time. The reader shows nothing for
+it: a row label ("· in a footnote") was tried and dropped as clutter.
 _Avoid_: footnote flag (the shard's `fn` marks a footnote cite), note cite
 
 **Body passage**:
