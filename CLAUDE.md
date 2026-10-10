@@ -339,12 +339,20 @@ validators — go there before changing behaviour.
   chapter check (GLOSSARY) found it there; the pure `churchText.chapterOffer`
   marks each text `offered` from its results. What shows is the panel's pure
   **arrangement** (GLOSSARY), the one place the mode rules live: a mode click
-  saves `panelMode` on any chapter; stored Translation on a chapter nothing
-  offers shows the setup card (Add a Church language, or api.bible setup via
-  `OPEN_OPTIONS {section}`) when no Church language is on or the reader
-  clicked Translation on this visit, else Citations with the no-translation
-  line (GLOSSARY), unless the synced `noTranslationLineDismissed` is set or
-  the language switch (`churchLanguageShown`) is off.
+  saves `panelMode` on any chapter; Translation on a chapter nothing offers
+  shows one card. The setup card (Add a Church language, or api.bible setup
+  via `OPEN_OPTIONS {section}`) when no Church language is ticked. With one
+  ticked: the off card while the language switch (`churchLanguageShown`) is
+  off on a non-Bible chapter, unless the check already knows every ticked
+  language lacks the chapter; the not-available card (its link opens
+  settings at `languages`) when the reader clicked Translation on this visit
+  (the off card's Show counts as one); else Citations with the
+  no-translation line (GLOSSARY), unless the synced
+  `noTranslationLineDismissed` is set or the switch is off. A Bible chapter
+  every ticked language lacks carries the not-available line above the
+  Bible version. The cards name the language by `churchText.nameFor`, are
+  states (never an earned view), and their copy is the panel's pure
+  `offCopy` / `notAvailableCopy`.
   `content.js` hands it the chapter's facts (`showChapter` / `arrange`, via
   `factsFor`), runs the check while it answers `loading` (so Citations never
   paints first), and applies the answer; it holds no mode rule of its own.
@@ -356,8 +364,10 @@ validators — go there before changing behaviour.
   `content.js`'s `factsFor` hands the arrangement, which passes it to
   `pageLanguage`; off names no page language and no `pageNext`, so no split
   and no chapter check, and the layout setting is untouched. It is not a
-  panel-handled key: a change, own or from another tab, re-asks the
-  arrangement through the settings subscriber.
+  panel-handled key: another tab's change re-asks the arrangement through
+  the settings subscriber; this tab's writes go through `content.js`'s one
+  writer, `setLanguageShown(on, {anchor})`, which arranges and renders
+  itself.
   `content.js`'s `syncSplit` runs wherever an input moves (mode, pick,
   chapter, whether the chapter shows at all, settings): while `pageNext`
   names an unchecked language it runs the chapter check (in Citations too,

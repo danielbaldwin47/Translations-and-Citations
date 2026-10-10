@@ -62,6 +62,9 @@
  *       rememberPick for the one language it adds.
  *
  *   how does each read, and what else could be added?
+ *     nameFor(row) -> "Español" | "Kiribati" | "English"
+ *       one language named on its own (the panel's cards, the language row,
+ *       the Hide line): the native name labelFor leads with
  *     labelFor(row, list) -> "New International Version (NIV)" | "Español — Spanish"
  *       a Bible version: name first, abbreviation in parentheses (a narrow
  *       dropdown cuts the abbreviation); a Church language: "native — English"
@@ -334,6 +337,13 @@
     return { name, abbr: row.abbr && row.abbr !== name ? row.abbr : '' };
   }
 
+  // A Church language's short name, for anywhere one language is named on
+  // its own: the native name labelFor leads with ("Español", "Kiribati"),
+  // else its one name (English). '' for no row.
+  function nameFor(row) {
+    return row ? String(row.abbr || row.name || '') : '';
+  }
+
   function labelOf(parts, extra) {
     const name = extra ? `${parts.name}, ${extra}` : parts.name;
     return parts.abbr ? `${name} (${parts.abbr})` : name;
@@ -593,7 +603,7 @@
   }
 
   const CORE = {
-    PROVIDER, ID_PREFIX, MRU_MAX, rowFor, textsFor, pickText, pickOrder, firstOffered, chapterOffer, pageLanguage, mruFrom, rememberPick, rememberTicked, labelFor, menuFor, bibleMenu, languageMenu, languagesToAdd,
+    PROVIDER, ID_PREFIX, MRU_MAX, rowFor, textsFor, pickText, pickOrder, firstOffered, chapterOffer, pageLanguage, mruFrom, rememberPick, rememberTicked, nameFor, labelFor, menuFor, bibleMenu, languageMenu, languagesToAdd,
     chapterUri, apiUrl, chapterFrom, blockElements, servesChapter, dirOf,
   };
 
