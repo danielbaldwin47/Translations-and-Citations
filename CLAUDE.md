@@ -343,14 +343,21 @@ validators — go there before changing behaviour.
   offers shows the setup card (Add a Church language, or api.bible setup via
   `OPEN_OPTIONS {section}`) when no Church language is on or the reader
   clicked Translation on this visit, else Citations with the no-translation
-  line (GLOSSARY), unless the synced `noTranslationLineDismissed` is set.
+  line (GLOSSARY), unless the synced `noTranslationLineDismissed` is set or
+  the language switch (`churchLanguageShown`) is off.
   `content.js` hands it the chapter's facts (`showChapter` / `arrange`, via
   `factsFor`), runs the check while it answers `loading` (so Citations never
   paints first), and applies the answer; it holds no mode rule of its own.
 - **Page split** (`__BTX.pageSplit`) follows the arrangement's page's
   language (`page`, the pure `churchText.pageLanguage`, GLOSSARY: Page
   split), never the mode: it stays on the page in Citations, and on John 3
-  NIV can show in the panel beside it.
+  NIV can show in the panel beside it. It shows only while the **language
+  switch** is on: the synced `churchLanguageShown` (GLOSSARY), a fact
+  `content.js`'s `factsFor` hands the arrangement, which passes it to
+  `pageLanguage`; off names no page language and no `pageNext`, so no split
+  and no chapter check, and the layout setting is untouched. It is not a
+  panel-handled key: a change, own or from another tab, re-asks the
+  arrangement through the settings subscriber.
   `content.js`'s `syncSplit` runs wherever an input moves (mode, pick,
   chapter, whether the chapter shows at all, settings): while `pageNext`
   names an unchecked language it runs the chapter check (in Citations too,

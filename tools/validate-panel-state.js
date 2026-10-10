@@ -158,6 +158,25 @@ const ARRANGEMENT_CASES = [
     [{ chapter: DC77_GIL }, { mode: 'citations', body: 'citations', note: 'no-translation', noteLang: 'gil', saved: 'translation' }],
     [{ chapter: ALMA5_SPA }, { mode: 'translation', body: 'beside', note: null, noteLang: null, saved: 'translation' }],
   ] },
+  // The language switch (GLOSSARY: Language switch): off hides the Church
+  // language from the page in either mode, and its no-translation line never shows.
+  { name: 'switch off, Alma 5 with Español: no page language in Translation or Citations', init: { mode: 'translation' }, steps: [
+    [{ chapter: chapter('bofm/alma/5', [church('spa', true)], ['spa'], { picks: ['church:spa'], shown: false }) },
+      { mode: 'translation', page: null, pageNext: null, note: null }],
+    [{ click: 'citations' }, { mode: 'citations', body: 'citations', page: null, pageNext: null, note: null }],
+    [{ chapter: chapter('bofm/alma/5', [church('spa', true)], ['spa'], { picks: ['church:spa'], shown: true }) },
+      { mode: 'citations', page: 'church:spa', pageNext: null }], // on again: back on the page
+  ] },
+  { name: 'switch off, Español unchecked: nothing for the chapter check to ask', init: {}, steps: [
+    [{ chapter: chapter('bofm/alma/5', [church('spa', null)], ['spa'], { picks: ['church:spa'], shown: false }) },
+      { mode: 'citations', page: null, pageNext: null }],
+  ] },
+  { name: 'switch off, Doctrine and Covenants 84 with Pohnpeian, saved Translation: Citations with no line', init: { mode: 'translation' }, steps: [
+    [{ chapter: chapter('dc-testament/dc/84', [church('pon', false)], ['pon'], { shown: false }) },
+      { mode: 'citations', body: 'citations', note: null, noteLang: null, saved: 'translation' }],
+    [{ chapter: chapter('dc-testament/dc/84', [church('pon', false)], ['pon'], { shown: true }) },
+      { mode: 'citations', body: 'citations', note: 'no-translation', noteLang: 'pon', saved: 'translation' }], // on: the line shows
+  ] },
   { name: 'the no-translation line, dismissed: Citations, no line', init: { mode: 'translation' }, steps: [
     [{ chapter: chapter('dc-testament/dc/76', [church('gil', false)], ['gil'], { dismissed: true }) },
       { mode: 'citations', body: 'citations', note: null, noteLang: null, saved: 'translation' }],
@@ -1512,6 +1531,14 @@ check(!/innerHTML/.test((panelSrcText.match(/function buildNote[\s\S]*?\n {2}\}\
   'the note is built from text nodes, never markup');
 check(!/PANEL_HANDLED_KEYS = \[[^\]]*noTranslationLineDismissed/.test(panelSrcText),
   'the dismissal is not a panel-handled key: another computer\'s × re-renders the chapter');
+
+// The language switch: content.js hands the arrangement the synced setting
+// (a missing value is on), and it is not a panel-handled key either: another
+// tab's flip re-renders the chapter through the settings subscriber.
+check(/shown: e\.churchLanguageShown !== false/.test(contentSrc),
+  'content.js hands the arrangement the language switch');
+check(!/PANEL_HANDLED_KEYS = \[[^\]]*churchLanguageShown/.test(panelSrcText),
+  'the language switch is not a panel-handled key');
 
 // The welcome's DOM shell: the controls it may point at are the ones the
 // panel builds, it is a labelled dialog of text nodes, Esc stops at it, and

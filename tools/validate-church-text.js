@@ -239,6 +239,17 @@ console.log('pageLanguage (the page\'s language, from the pick memory):');
     'Alma 5, the picks name only NIV and a language lacking it: Español, the tab\'s selection, holds the page');
   eq(page(undefined, ['church:spa'], 'columns'), { id: null, next: null }, 'nothing known: no page language');
 
+  // The language switch (GLOSSARY: Language switch): off names no page
+  // language and asks for no check; on (or not given) answers as before.
+  const shown = (on, texts, picks, layout) => T.pageLanguage({ texts, picks, layout, shown: on });
+  eq(shown(false, [SPA(true)], ['church:spa'], 'columns'), { id: null, next: null }, 'switch off, Español found: no page language');
+  eq(shown(false, [SPA(true)], ['church:spa'], 'interlinear'), { id: null, next: null }, '...under each verse too');
+  eq(shown(false, [SPA(null)], ['church:spa'], 'columns'), { id: null, next: null }, '...Español not checked yet: no check for a hidden language');
+  eq(shown(false, [WEB_OK, SPA(true)], [], 'columns'), { id: null, next: null }, '...John 3: nothing');
+  eq(shown(true, [SPA(true)], ['church:spa'], 'columns'), { id: 'church:spa', next: null }, 'switch on: Español holds the page, as today');
+  eq(shown(true, [SPA(null)], ['church:spa'], 'columns'), { id: null, next: 'spa' }, '...and an unchecked language is still asked');
+  eq(shown(undefined, [SPA(true)], ['church:spa'], 'columns'), { id: 'church:spa', next: null }, 'switch not given: on');
+
   // A check that failed (network) offers the panel's text, for its error card
   // and Try again, but never the page: there is nothing to split in (B1).
   const FAILED = (row) => Object.assign(row, { failed: true });

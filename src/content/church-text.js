@@ -42,9 +42,10 @@
  *       checked yet). `unchecked`: every language not checked yet, which the
  *       background check asks once the Translation tab settles (a row on
  *       request only once in `preferredIds`)
- *     pageLanguage({ texts, picks, layout }) -> { id, next }
+ *     pageLanguage({ texts, picks, layout, shown }) -> { id, next }
  *       the page split's language (GLOSSARY: Page split), while `layout` is
- *       'columns' | 'interlinear': the first Church language in `picks` that
+ *       'columns' | 'interlinear' and the language switch (`shown`,
+ *       GLOSSARY: Language switch; absent = on) is on: the first Church language in `picks` that
  *       offers the chapter; failing that, the row the Translation tab selects
  *       (firstOffered over every row), only when it is a Church row. A
  *       `failed` row never holds the page, nor does a row on request not in
@@ -255,7 +256,9 @@
 
   // ---- Which language holds the page ----------------------------------------
   // The page split's language (GLOSSARY: Page split), while the split layout
-  // is in-page ('columns' | 'interlinear'): the first Church language in the
+  // is in-page ('columns' | 'interlinear') and the language switch is on
+  // (`shown` false names none, and asks for no check: a hidden language is
+  // not looked up): the first Church language in the
   // pick memory whose chapter the check found, so on John 3 NIV can show in
   // the panel while Español holds the page. With none, the row the
   // Translation tab selects, only when it is a Church language: John 3 with
@@ -266,6 +269,7 @@
   function pageLanguage(opts) {
     const o = opts || {};
     const none = { id: null, next: null };
+    if (o.shown === false) return none;
     if (o.layout !== 'columns' && o.layout !== 'interlinear') return none;
     const picks = Array.isArray(o.picks) ? o.picks : [];
     // A failed check offers the panel's text (its error card), never the
