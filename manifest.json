@@ -40,7 +40,7 @@
   ],
   "web_accessible_resources": [
     {
-      "resources": ["src/citations/data/*", "src/citations/data-personal/*", "src/citations/store-stamp.json", "src/content/page-hook.js", "icons/icon-32.png", "icons/icon-48.png"],
+      "resources": ["src/citations/data/*", "src/citations/data-personal/*", "src/citations/store-stamp.json", "src/content/page-hook.js", "icons/icon-32.png", "icons/icon-40.png"],
       "matches": ["https://www.churchofjesuschrist.org/*"]
     }
   ],

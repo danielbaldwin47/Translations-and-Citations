@@ -1418,8 +1418,8 @@ check(/createElementNS\(SVG_NS/.test(panelSrc), 'icons are built with createElem
 // the panel's (not the accent) so the icon's own teal tile reads in both
 // themes: the accent is nearly the tile's colour in the light theme.
 check(/const tab = labelled\(el\('button', 'btx-tab'\), 'Show Translations & Citations'\)/.test(panelSrc), 'the collapsed tab carries its words as title and aria-label together (labelled)');
-check(/tab\.appendChild\(extensionIcon\('btx-tab-icon', 24\)\)/.test(panelSrc), 'the collapsed tab shows the extension\'s packaged icon, drawn at 24px');
-eq([16, 24].map(P.iconFile), ['icons/icon-32.png', 'icons/icon-48.png'], 'an extension icon drawn at N px loads the 2N px file, sharp at 2x density');
+check(/tab\.appendChild\(extensionIcon\('btx-tab-icon', 20\)\)/.test(panelSrc), 'the collapsed tab shows the extension\'s packaged icon, drawn at 20px, inside a tab as narrow as the site\'s Feedback tab');
+eq([16, 20].map(P.iconFile), ['icons/icon-32.png', 'icons/icon-40.png'], 'an extension icon drawn at N px loads the 2N px file, sharp at 2x density');
 check(!/icon\('expand'/.test(panelSrc), 'the tab no longer draws the expand arrow');
 const tabRule = (fs.readFileSync(path.join(ROOT, 'src/content/panel.css'), 'utf8').match(/#btx-root \.btx-tab \{[^}]*\}/) || [''])[0];
 check(/background:\s*var\(--btx-bg\)/.test(tabRule) && !/background:\s*var\(--btx-accent\)/.test(tabRule), 'the tab sits on the panel surface, so the icon\'s tile shows in the light and the dark theme');

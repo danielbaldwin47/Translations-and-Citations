@@ -780,14 +780,16 @@
 /* ---- Collapsed tab ----
    One icon tab on the window's right edge, the same at every width. Fixed to
    the viewport at 200px: below the site's banner, header and Sign In menu,
-   above its chapter arrows and Feedback tab. */
+   above its chapter arrows and Feedback tab. 26px wide, as the Feedback tab
+   is: the site keeps that much clear beside its footnote panel's text, so the
+   tab never covers it. */
 #btx-root .btx-tab {
   display: none;
   position: fixed;
   top: 200px;
   right: 0;
-  width: 36px;
-  height: 44px;
+  width: 26px;
+  height: 40px;
   padding: 0;
   align-items: center;
   justify-content: center;
@@ -810,9 +812,9 @@
   border-color: var(--btx-accent);
 }
 /* The tab sits against the window's edge, where an outer ring would be cut off
-   on the right: the ring is inset, inside the accent edge. */
-#btx-root .btx-tab:focus-visible { outline-offset: -4px; }
-#btx-root .btx-tab-icon { display: block; width: 24px; height: 24px; }
+   on the right: the ring is inset, inside the accent edge, around the icon. */
+#btx-root .btx-tab:focus-visible { outline-offset: -3px; }
+#btx-root .btx-tab-icon { display: block; width: 20px; height: 20px; }
 
 #btx-root.btx-collapsed { width: auto; }
 #btx-root.btx-collapsed .btx-panel { display: none; }
