@@ -98,8 +98,8 @@ src/
     cit-view-model.js      __BTX.citVM     PURE: chapter cites → descriptor tree; source types and their header notes from the pack descriptor; every ordering/grouping/counting/label rule; vintage footer; toolbar state machine
     cit-panel.js           __BTX.citPanel  DOM adapter over citVM: render(host, opts) / refocus() / markVerse(v) / revealVerse(v); reads verse text from the page (read-only); fetched row excerpts (observer on the panel body, exact-size reserve)
     highlights.js          __BTX.highlights local highlights in the reader: select to add (mouse-up or Shift key-up offers Highlight); one Tab stop per highlight, Enter opens Remove
-    talk-source.js         __BTX.talkSource load({entry,source}) → {html,url,destination,credit,findTarget}; excerpt({entry,source}, claim) → paragraph text (read from the fetched HTML string: excerptAt / paragraphText, no DOM); pure corpusPlan(descriptor, corpus, {hasUrl}), readingDestination, talkCredit (by the descriptor's `text`/`attribution`, never a corpus letter: BYU fetch line; "From churchofjesuschrist.org" linking the talk for `live-church`; "Text from Wikisource" linking the permalink, title "Wikisource revision N"), BYU fragment/viewer URLs; footnote locator (locateParagraph, pure on fetched HTML), targetIds (span, then a J cite's page anchor) + snippet fallback (snippetKey); HTML scanning the build tools require (decodeEntities, scanTalk, scriptureLink, linkChapters' 'locate' vs 'derive' span rules, dropByuInsertions); pre-2013 GC URL repair; FETCH_POLICY (per-host slots, session talk cache, 15s timeout) + pure slotPolicy (which waiting fetch a free slot goes to)
-    talk-view.js           __BTX.talkView  inline reader: sanitizer, render, markCite (tint the cited block, scroll to the target), highlights, sticky header; one Esc listener on #btx-root (highlight menu first, then Back)
+    talk-source.js         __BTX.talkSource load({entry,source}) → {html,url,destination,credit,findTarget}; excerpt({entry,source}, claim) → paragraph text (read from the fetched HTML string: excerptAt / paragraphText, no DOM); pure corpusPlan(descriptor, corpus, {hasUrl}), readingDestination, talkCredit (by the descriptor's `text`/`attribution`, never a corpus letter: "Text from {publisher}" linking the talk — BYU Scripture Citation Index (its viewer), churchofjesuschrist.org, Wikisource (the permalink, title "Wikisource revision N")), BYU fragment/viewer URLs; footnote locator (locateParagraph, pure on fetched HTML), targetIds (span, then a J cite's page anchor) + snippet fallback (snippetKey); HTML scanning the build tools require (decodeEntities, scanTalk, scriptureLink, linkChapters' 'locate' vs 'derive' span rules, dropByuInsertions); pre-2013 GC URL repair; FETCH_POLICY (per-host slots, session talk cache, 15s timeout) + pure slotPolicy (which waiting fetch a free slot goes to)
+    talk-view.js           __BTX.talkView  inline reader: sanitizer, render, markCite (tint the cited block, pin an empty target, scroll to the target; focus there from the keyboard), highlights, sticky header; one Esc listener on #btx-root (highlight menu first, then Back)
     citations.css
     data/                  GENERATED, committed, shipped: the public pack (~30 MB, ADR-0008): index.json (its `pack` is the pack descriptor), sources.json, citations/{slug}.json (G/E cites: no snippet, an excerpt count `ec`, `fn: true` on a footnote cite), talks/{talkId}.html.gz (J only, Wikisource text), jod-provenance.json
     data-personal/         GITIGNORED: the personal pack, same layout, descriptor flavor `personal` (build --pack personal)
@@ -402,8 +402,9 @@ validators — go there before changing behaviour.
   `btxk-`-prefixed, footnotes carry `data-btx-footnum`, and the article's
   `textContent` stays exactly the source text (display additions are CSS
   generated content or wrapper spans, the cite's mark is classes —
-  `markCite` tints a target with no text through its paragraph, while the
-  reader still scrolls to the target itself; the byline
+  `markCite` tints a target with no text through its paragraph, a short one
+  only, and pins it with a CSS-drawn mark, while the reader still scrolls to
+  the target itself; the byline
   and highlight hint sit outside the article). `test-talk-source.js` checks
   the contract in Node over `tools/mini-dom.js`. A live GC cite with no paragraph anchor goes to the
   paragraph `locateParagraph` names: it reads the fetched HTML string, since

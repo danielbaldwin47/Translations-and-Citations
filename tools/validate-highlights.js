@@ -15,6 +15,10 @@
  *   opensMenu  which key on a focused mark opens its Remove action: Enter or
  *              Space, as on any button, and nothing with a modifier held.
  *
+ * Also stopFromCaret (where Tab from the caret goes) and menuTop (the action
+ * menu sits above the selection when there is room, so it never covers the
+ * text it acts on).
+ *
  * What a browser shows (caret-browsing selection, the menu, focus moves) is
  * not checked here. Exits non-zero on any failure.
  */
@@ -62,6 +66,22 @@ eq(H.stopFromCaret([-1, 0, 1], true), 0, 'a stop that starts at the caret is not
 eq(H.stopFromCaret([-1, -1], false), -1, 'no stop after the caret: none (Tab leaves the talk)');
 eq(H.stopFromCaret([1, 1], true), -1, 'no stop before the caret: none');
 eq(H.stopFromCaret([], false), -1, 'no stops at all: none');
+
+// ---- menuTop ----
+// Where the action menu goes (viewport y of its top), given the selection's
+// rect, the menu's height, and the band it may use: below the reader's
+// sticky header (minTop) and above the window's bottom (maxBottom).
+const sel = (top, bottom) => ({ top, bottom });
+const band = { menuH: 36, minTop: 150, maxBottom: 892 };
+eq(H.menuTop(Object.assign({ rect: sel(400, 420) }, band)), 400 - 6 - 36,
+  'room above: the menu sits above the selection, clear of the text it acts on');
+eq(H.menuTop(Object.assign({ rect: sel(180, 200) }, band)), 200 + 6,
+  'no room under the header: below the selection');
+eq(H.menuTop(Object.assign({ rect: sel(150 + 6 + 36, 220) }, band)), 150,
+  'exactly room above: above');
+eq(H.menuTop(Object.assign({ rect: sel(160, 880) }, band)), 892 - 36,
+  'a selection filling the band: the menu keeps to the band\'s bottom');
+eq(H.menuTop({ rect: sel(400, 420), menuH: 36 }), 400 - 6 - 36, 'no band given: the window from 8px down');
 
 if (failures) {
   console.error(`validate-highlights: ${failures} failure(s)`);

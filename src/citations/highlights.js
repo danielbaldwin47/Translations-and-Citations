@@ -5,37 +5,48 @@
  * the talk is opened again.
  *
  * Interface (__BTX.highlights):
- *   attach(container, talkId, { host, onCreate, reveal })
+ *   attach(container, talkId, { host, reveal, menuMinTop })
  *       Wire a freshly rendered talk article and re-apply its saved marks.
  *       `host` is the focusable view around the article: it receives the
- *       keyboard keys and holds the action menu, so the menu leaves the page
- *       with its view. onCreate() runs after each new highlight. reveal(el)
- *       brings a Tab stop into view (the panel's scrollIntoView): every focus
- *       here is non-scrolling.
+ *       keyboard keys and holds the action menu and the polite live region,
+ *       so both leave the page with their view. reveal(el) brings a Tab stop
+ *       into view (the panel's scrollIntoView): every focus here is
+ *       non-scrolling. menuMinTop() is the viewport y the menu keeps below
+ *       (the reader's sticky header's bottom).
  *   dismiss() -> bool    Hide the action menu; true when it was showing (the
  *                        reader's Esc closes the menu before the talk).
+ *   focusSpot(el)        Focus a block of the talk that is no Tab stop (a
+ *                        paragraph): tabindex -1 and data-btx-spot (its ring)
+ *                        until focus leaves it. The reader's cite uses it too.
  *   hintSeen() -> Promise<bool>   Whether a highlight was ever made on this
  *                        computer; the reader shows its one-line hint until then.
  *   all(), load(talkId)  The stored records.
  *   Pure cores (module.exports, tools/validate-highlights.js): tabStops,
- *   opensMenu, stopFromCaret.
+ *   opensMenu, stopFromCaret, menuTop.
  *
  * The action menu offers "Highlight" after a mouse-up or a Shift key-up leaves
  * a selection in the article, and "Remove" after a click on a mark (or a
- * selection inside one). Tab from the talk moves into the menu; a scroll of the
+ * selection inside one). It sits above the selection when there is room
+ * (`menuTop`), so it never covers the text it acts on, and its button's name
+ * quotes that text. Tab from the talk moves into the menu; a scroll of the
  * reader, or focus leaving the menu, hides it. The menu acts only on an article
  * still on the page. "Highlight" acts on the selection it was offered for, kept
- * when the menu opens: under caret browsing, focus on the menu's button clears
- * the live selection. Esc from the menu puts that selection back.
+ * when the menu opens and painted (the CSS Custom Highlight `btx-hl-pending`):
+ * under caret browsing, focus on the menu's button clears the live selection.
+ * Esc from the menu puts that selection back. A keyboard selection that opens
+ * the menu, a new highlight and a removed one are announced in the polite
+ * live region.
  *
  * Keyboard removal: each highlight is one Tab stop, its first span
  * (`tabStops`: a highlight is cut into one span per text node, so a long one
  * is many spans), a button whose Enter or Space (`opensMenu`) opens "Remove"
  * with focus on the action; Esc gives focus back to the mark, Enter removes.
- * While the stop has keyboard focus every span of its highlight is ringed.
- * After a keyboard apply or remove, focus is on the view and the caret sits
- * where the mark ends or began; Tab from the view with the caret in its text
- * goes on from the caret (`stopFromCaret`), so the reader keeps their place.
+ * While the stop has keyboard focus, or its Remove menu is open, every span of
+ * its highlight is ringed. After a keyboard apply or remove, focus is on the
+ * paragraph that holds (held) the mark (focusSpot) and the caret sits where
+ * the mark ends or began; Tab from the view or that paragraph with the caret
+ * in its text goes on from the caret (`stopFromCaret`), so the reader keeps
+ * their place.
  *
  * Anchoring: a record names its block — the nearest paragraph, list item,
  * quote or heading around the selection that has an id (the sanitizer keeps
@@ -64,14 +75,23 @@
 
   const SVG_NS = 'http://www.w3.org/2000/svg';
   const MENU = {
-    select: { label: 'Highlight', icon: ['M12 20h8', 'M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z'] },
-    remove: { label: 'Remove', icon: ['M18 6L6 18', 'M6 6l12 12'] },
+    select: { label: 'Highlight', name: 'Highlight', icon: ['M12 20h8', 'M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z'] },
+    remove: { label: 'Remove', name: 'Remove highlight', icon: ['M18 6L6 18', 'M6 6l12 12'] },
+  };
+  // The selection "Highlight" acts on, painted while the menu is open
+  // (focus on the menu clears the live selection under caret browsing).
+  const PENDING = 'btx-hl-pending';
+  const SAY = {
+    offered: 'Press Tab, then Enter, to highlight the selection.',
+    created: 'Highlighted',
+    removed: 'Highlight removed',
   };
 
   let activeContainer = null;
   let activeTalkId = null;
-  let onCreated = null;
   let reveal = null;        // brings a stop Tab moved to into view (attach's option)
+  let menuMinTop = null;    // the viewport y the menu keeps below (attach's option)
+  let liveEl = null;        // the polite live region in the view
   let menuHost = null;      // the view the current menu lives in
   let menuEl = null;
   let menuBtn = null;
@@ -150,6 +170,21 @@
   function stopFromCaret(sides, back) {
     if (back) return sides.lastIndexOf(-1);
     return sides.findIndex((side) => side >= 0);
+  }
+
+  // Where the action menu's top goes (viewport y): above the selection when
+  // it fits below `minTop` (the reader's sticky header), so it never covers
+  // the text it acts on; else below it; a selection filling the band puts
+  // it at the band's bottom. The band defaults to the window from 8px.
+  const MENU_GAP = 6;
+  function menuTop({ rect, menuH, minTop, maxBottom }) {
+    const lo = minTop == null ? 8 : minTop;
+    const hi = maxBottom == null ? Infinity : maxBottom;
+    const above = rect.top - MENU_GAP - menuH;
+    if (above >= lo) return above;
+    const below = rect.bottom + MENU_GAP;
+    if (below + menuH <= hi) return below;
+    return Math.max(lo, hi - menuH);
   }
 
   // ---- offset helpers ----
@@ -301,29 +336,33 @@
       text: blockText(block).slice(start, end),
       ts,
     })).filter((rec) => rec.text.trim());
+    const keyboard = menuHasFocus();
     hideMenu();
     if (!recs.length) return;
     for (const rec of recs) applyRecord(container, rec);
     markStops(container);
-    // The caret waits after the new mark, where a caret-browsing reader goes on.
+    // A keyboard reader's focus goes to the paragraph that holds the new mark,
+    // ringed; the caret waits after the mark, where they go on.
     const made = marksOf(container, id);
+    if (made.length && keyboard) focusSpot(blockOf(container, made[0]));
     if (made.length) placeCaret((r) => r.setStartAfter(made[made.length - 1]));
     update(talkId, (list) => list.concat(recs));
     markHintSeen();
-    if (onCreated) onCreated();
+    say(SAY.created);
   }
 
-  // Focus that sat on the mark or in its menu stays in the view, and the caret
-  // waits where the mark began, so a keyboard reader keeps their place.
+  // Focus that sat on the mark or in its menu goes to the paragraph that held
+  // the mark, ringed, and the caret waits where the mark began, so a keyboard
+  // reader keeps their place.
   function removeHighlight(hlId) {
     const container = activeContainer;
     const talkId = activeTalkId;
-    menuReturn = null; // the mark is going: focus goes to the view
+    menuReturn = null; // the mark is going: focus goes to its paragraph
     const spans = container && container.isConnected ? marksOf(container, hlId) : [];
-    const hadFocus = spans.some((span) => span.contains(document.activeElement));
+    const hadFocus = menuHasFocus() || spans.some((span) => span.contains(document.activeElement));
     hideMenu();
     if (!spans.length) return;
-    if (hadFocus && menuHost && menuHost.isConnected) menuHost.focus({ preventScroll: true });
+    const spot = blockOf(container, spans[0]);
     // A live range before the first mark survives the unwrap and normalize.
     const at = document.createRange();
     at.setStartBefore(spans[0]);
@@ -334,8 +373,44 @@
       parent.normalize();
     }
     markStops(container);
+    if (hadFocus) focusSpot(spot);
     placeCaret((r) => r.setStart(at.startContainer, at.startOffset));
     update(talkId, (list) => list.filter((r) => r.id !== hlId));
+    say(SAY.removed);
+  }
+
+  // Focus on `el`, a block of the talk that is no Tab stop (a paragraph):
+  // focusable (tabindex -1, marked data-btx-spot for its ring) until focus
+  // leaves it, so a later click in the text still focuses the view.
+  function focusSpot(el) {
+    if (!el || !el.isConnected) return;
+    if (!el.hasAttribute('tabindex')) {
+      el.setAttribute('tabindex', '-1');
+      el.setAttribute('data-btx-spot', '');
+      el.addEventListener('blur', () => {
+        el.removeAttribute('tabindex');
+        el.removeAttribute('data-btx-spot');
+      }, { once: true });
+    }
+    el.focus({ preventScroll: true });
+  }
+
+  const menuHasFocus = () => !!(menuEl && !menuEl.hidden && menuEl.contains(document.activeElement));
+
+  // A polite announcement; cleared first so the same words are heard again.
+  function say(text) {
+    if (!liveEl || !liveEl.isConnected) return;
+    liveEl.textContent = '';
+    setTimeout(() => { if (liveEl) liveEl.textContent = text; }, 50);
+  }
+
+  // The pending selection's paint (CSS Custom Highlight API); none without it.
+  function paintPending(range) {
+    try {
+      if (!root.CSS || !root.CSS.highlights) return;
+      if (range) root.CSS.highlights.set(PENDING, new root.Highlight(range));
+      else root.CSS.highlights.delete(PENDING);
+    } catch (e) { /* no paint */ }
   }
 
   // Every span of one highlight, in document order.
@@ -365,7 +440,7 @@
         span.tabIndex = 0;
         span.setAttribute('role', 'button');
         span.setAttribute('aria-roledescription', 'highlight');
-        span.setAttribute('aria-description', 'Enter to remove');
+        span.setAttribute('aria-description', 'Enter opens Remove');
       } else {
         for (const a of ['tabindex', 'role', 'aria-roledescription', 'aria-description']) span.removeAttribute(a);
       }
@@ -409,25 +484,35 @@
     menuBtn = btn;
   }
 
-  function showMenuAt(rect, mode, action) {
+  // `text` is what the action acts on, named in the button's accessible name.
+  function showMenuAt(rect, mode, action, text) {
     if (!menuEl || !menuEl.isConnected) return;
     menuAction = action;
     menuBtn.textContent = '';
     menuBtn.append(icon(MENU[mode].icon), document.createTextNode(MENU[mode].label));
+    const quote = String(text || '').replace(/\s+/g, ' ').trim();
+    if (quote) menuBtn.setAttribute('aria-label', `${MENU[mode].name}: ${quote.length > 60 ? quote.slice(0, 59) + '…' : quote}`);
+    else menuBtn.removeAttribute('aria-label');
     menuEl.hidden = false;
     const w = menuEl.offsetWidth || 120;
     const h = menuEl.offsetHeight || 36;
-    let top = rect.bottom + 6;
-    if (top + h > window.innerHeight - 8) top = Math.max(8, rect.top - h - 6);
+    let minTop = 8;
+    try { if (menuMinTop) minTop = Math.max(minTop, menuMinTop() + 4); } catch (e) { /* the window's top */ }
+    const top = menuTop({ rect, menuH: h, minTop, maxBottom: window.innerHeight - 8 });
     menuEl.style.left = Math.max(8, Math.min(window.innerWidth - w - 8, rect.left)) + 'px';
     menuEl.style.top = top + 'px';
   }
 
-  // "Highlight" for the selection `range`. The range is kept: Tab into the
-  // menu clears the live selection under caret browsing.
-  function showSelectMenu(range) {
+  // "Highlight" for the selection `range`. The range is kept and painted:
+  // Tab into the menu clears the live selection under caret browsing. A
+  // keyboard selection (`fromKey`) that newly opens the menu says how to
+  // reach it.
+  function showSelectMenu(range, fromKey) {
+    const opening = !!(menuEl && menuEl.hidden);
     menuRange = range.cloneRange();
-    showMenuAt(range.getBoundingClientRect(), 'select', createFromSelection);
+    paintPending(menuRange);
+    showMenuAt(range.getBoundingClientRect(), 'select', createFromSelection, range.toString());
+    if (fromKey && opening) say(SAY.offered);
   }
 
   // Focus inside the menu goes back where it came from: the mark that opened
@@ -439,9 +524,12 @@
     menuAction = null;
     menuReturn = null;
     menuRange = null;
+    paintPending(null);
     if (!menuEl || menuEl.hidden) return false;
     const hadFocus = menuEl.contains(document.activeElement);
     menuEl.hidden = true;
+    // A Remove menu's mark is ringed while the menu is open (onMarkKey).
+    if (activeContainer) for (const part of activeContainer.querySelectorAll('.btx-hl-focus')) part.classList.remove('btx-hl-focus');
     if (!hadFocus) return true;
     if (back && back.isConnected) back.focus({ preventScroll: true });
     else if (menuHost && menuHost.isConnected) {
@@ -469,7 +557,8 @@
   }
 
   // ---- event handlers ----
-  function onSelectUp() {
+  function onSelectUp(e) {
+    const fromKey = !!(e && e.type === 'keyup');
     setTimeout(() => {
       // A click on a mark opens "Remove" from the click that follows this
       // mouse-up, and Enter on a mark opens it with focus in it; this
@@ -480,8 +569,10 @@
       const rect = range.getBoundingClientRect();
       if (!rect || (!rect.width && !rect.height)) { hideMenu(); return; }
       const mark = markAround(range);
-      if (mark) showMenuAt(rect, 'remove', () => removeHighlight(mark.getAttribute('data-hl-id')));
-      else showSelectMenu(range);
+      if (mark) {
+        paintPending(null);
+        showMenuAt(rect, 'remove', () => removeHighlight(mark.getAttribute('data-hl-id')), hlText(mark));
+      } else showSelectMenu(range, fromKey);
     }, 0);
   }
 
@@ -492,22 +583,30 @@
     if (sel && !sel.isCollapsed) return; // a drag that ended on a mark is a selection
     e.stopPropagation();
     const hlId = span.getAttribute('data-hl-id');
-    showMenuAt(span.getBoundingClientRect(), 'remove', () => removeHighlight(hlId));
+    paintPending(null);
+    showMenuAt(span.getBoundingClientRect(), 'remove', () => removeHighlight(hlId), hlText(span));
     menuFromMark = true;
   }
 
+  // The whole text of the highlight `span` belongs to.
+  function hlText(span) {
+    return marksOf(activeContainer, span.getAttribute('data-hl-id')).map((s) => s.textContent).join('');
+  }
+
   // Enter on a focused mark opens its "Remove" with focus on the action, as a
-  // menu button does; Esc gives focus back to the mark.
+  // menu button does, the mark still ringed; Esc gives focus back to the mark.
   function onMarkKey(e) {
     const span = e.target && e.target.closest && e.target.closest('.btx-hl[tabindex]');
     if (!span || span !== e.target || !opensMenu(e)) return false;
     e.preventDefault();
     const hlId = span.getAttribute('data-hl-id');
-    showMenuAt(span.getBoundingClientRect(), 'remove', () => removeHighlight(hlId));
+    paintPending(null);
+    showMenuAt(span.getBoundingClientRect(), 'remove', () => removeHighlight(hlId), hlText(span));
     if (!menuEl || menuEl.hidden) return true;
     menuFromMark = true;
     menuReturn = span;
     menuBtn.focus({ preventScroll: true });
+    for (const part of marksOf(activeContainer, hlId)) part.classList.add('btx-hl-focus');
     return true;
   }
 
@@ -524,7 +623,7 @@
 
   // Shift+arrow selection offers the menu the way a mouse selection does.
   function onKeyUp(e) {
-    if (e.shiftKey || e.key === 'Shift') onSelectUp();
+    if (e.shiftKey || e.key === 'Shift') onSelectUp(e);
   }
 
   function onKeyDown(e) {
@@ -538,14 +637,16 @@
     tabFromCaret(e);
   }
 
-  // With the caret in the talk view's text, focus sits on the view around it, and
-  // a plain Tab from there would start over at Back. Tab goes on from the
+  // With the caret in the talk view's text, focus sits on the view around it
+  // (or on the focused paragraph holding the caret, focusSpot), and a plain
+  // Tab from there would start over at Back. Tab goes on from the
   // caret instead, as it does in a page's own text: to the next stop after it
   // (Shift+Tab: the last before it), or, past the last, out of the talk.
   function tabFromCaret(e) {
-    if (e.target !== menuHost) return;
+    const spot = e.target !== menuHost && e.target.hasAttribute && e.target.hasAttribute('data-btx-spot') ? e.target : null;
+    if (e.target !== menuHost && !spot) return;
     const sel = window.getSelection();
-    if (!sel || !sel.rangeCount || !menuHost.contains(sel.focusNode) || (menuEl && menuEl.contains(sel.focusNode))) return;
+    if (!sel || !sel.rangeCount || !(spot || menuHost).contains(sel.focusNode) || (menuEl && menuEl.contains(sel.focusNode))) return;
     const caret = document.createRange();
     caret.setStart(sel.focusNode, sel.focusOffset);
     const stops = Array.from(menuHost.querySelectorAll(TABBABLE)).filter((el) =>
@@ -583,10 +684,15 @@
     hideMenu();
     activeContainer = container;
     activeTalkId = talkId;
-    onCreated = o.onCreate || null;
     reveal = o.reveal || null;
+    menuMinTop = o.menuMinTop || null;
     menuHost = o.host || container.parentNode;
     buildMenu(menuHost);
+    liveEl = document.createElement('div');
+    liveEl.className = 'btx-hl-live';
+    liveEl.setAttribute('role', 'status');
+    liveEl.setAttribute('aria-live', 'polite');
+    menuHost.appendChild(liveEl);
     container.addEventListener('mouseup', onSelectUp);
     container.addEventListener('click', onContainerClick);
     container.addEventListener('focusin', onMarkFocus);
@@ -603,7 +709,7 @@
     markStops(container);
   }
 
-  const API = { attach, dismiss, hintSeen, all, load, tabStops, opensMenu, stopFromCaret };
+  const API = { attach, dismiss, focusSpot, hintSeen, all, load, tabStops, opensMenu, stopFromCaret, menuTop };
   if (typeof module !== 'undefined' && module.exports) module.exports = API;
   root.__BTX = Object.assign(root.__BTX || {}, { highlights: API });
 })(typeof globalThis !== 'undefined' ? globalThis : this);
