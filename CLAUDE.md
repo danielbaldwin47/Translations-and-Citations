@@ -271,7 +271,10 @@ validators — go there before changing behaviour.
   events bubble to the container; the language search sits outside it). A
   newly ticked language also goes to the front of the pick memory
   (`chrome.storage.local`, `C.SELECTION_KEY`) through `churchText.rememberTicked`,
-  written before the setting so open tabs have it by their re-render. A tick or untick also clears the language search and keeps focus on that
+  written before the setting so open tabs have it by their re-render; the same
+  tick writes `churchLanguageShown` on in the same patch (`commitPatch` given the
+  stored languages as `before`; an untick never names it, and the form has no
+  control for it). A tick or untick also clears the language search and keeps focus on that
   language's checkbox in its new place (`languageTick`; an untick opens the
   coverage group it returns to).
 - **Settings writes** carry a `__btxWrite` tag (how `own` is detected) and

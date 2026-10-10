@@ -794,11 +794,13 @@
 
   // The setup card's "Add a Church language": turn it on, make it the pick,
   // and show the chapter with it at once (the split appears straight away).
+  // The language switch goes on in the same patch, so the card's promise
+  // holds even when the switch was off.
   async function addLanguage(code) {
     const s = await SETTINGS.get();
-    const next = await SETTINGS.patch({ churchLanguages: s.churchLanguages.concat(code) });
+    const next = await SETTINGS.patch({ churchLanguages: s.churchLanguages.concat(code), churchLanguageShown: true });
     // The worker's copy of the settings may not have caught up yet.
-    if (enabled) enabled = Object.assign({}, enabled, { churchLanguages: next.churchLanguages });
+    if (enabled) enabled = Object.assign({}, enabled, { churchLanguages: next.churchLanguages, churchLanguageShown: true });
     remember(churchText.ID_PREFIX + code);
     currentKey = null; // same chapter, now translatable
     render();
