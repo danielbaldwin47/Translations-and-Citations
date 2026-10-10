@@ -101,7 +101,7 @@ src/
     talk-source.js         __BTX.talkSource load({entry,source}) → {html,url,destination,credit,findTarget}; excerpt({entry,source}, claim) → paragraph text (read from the fetched HTML string: excerptAt / paragraphText, no DOM); pure corpusPlan(descriptor, corpus, {hasUrl}), readingDestination, talkCredit (BYU fetch line; "Text: Wikisource, revision N"), BYU fragment/viewer URLs; footnote locator (locateParagraph, pure on fetched HTML), targetIds (span, then a J cite's page anchor) + snippet fallback (snippetKey); HTML scanning the build tools require (decodeEntities, scanTalk, scriptureLink, linkChapters' 'locate' vs 'derive' span rules, dropByuInsertions); pre-2013 GC URL repair; FETCH_POLICY (per-host slots, session talk cache, 15s timeout) + pure slotPolicy (which waiting fetch a free slot goes to)
     talk-view.js           __BTX.talkView  inline reader: sanitizer, render, highlights, sticky header; one Esc listener on #btx-root (highlight menu first, then Back)
     citations.css
-    data/                  GENERATED, committed, shipped: the public pack (~30 MB, ADR-0008): index.json (its `pack` is the pack descriptor), sources.json, citations/{slug}.json (G/E cites: no snippet, an excerpt count `ec`), talks/{talkId}.html.gz (J only, Wikisource text), jod-provenance.json
+    data/                  GENERATED, committed, shipped: the public pack (~30 MB, ADR-0008): index.json (its `pack` is the pack descriptor), sources.json, citations/{slug}.json (G/E cites: no snippet, an excerpt count `ec`, a footnote flag `fn: true` on a cite in a note), talks/{talkId}.html.gz (J only, Wikisource text), jod-provenance.json
     data-personal/         GITIGNORED: the personal pack, same layout, descriptor flavor `personal` (build --pack personal)
     store-stamp.json       the Store stamp (GLOSSARY); read by cit-data.js, swapped in by build-store-zip
   bible/engwebp/           GENERATED, committed, shipped: the World English Bible as IR, {USFM}.json per book + index.json (archive SHA-256, download date); C.BUNDLED_BIBLE names it
@@ -154,6 +154,13 @@ source-data/               GITIGNORED build input, filled from the owner's priva
   Church paragraph — in-text references kept with their `ccontainer`
   punctuation, BYU's spacer and `sup.noteMarker` (number and note) dropped.
   Talk 2723 (1975) has no citation spans, so its cites carry no count.
+- The footnote flag (`fn`, `inFootnote` in the build) marks a cite whose
+  first citation span sits in a note: inside the `sup.noteMarker` BYU inlines
+  at a note marker, or in the closing `footer.notes` list. Only corpora whose
+  descriptor entry has `footnoteFlag: true` carry it (G and E; BYU's E text
+  has no notes, so E flags none). Modern talks put most references in notes:
+  about 90% of 2018–2026 G cites carry it (24,489 G cites in a 2026-10
+  public build). A derived cite carries the `fn` its derivation input gives.
 
 ## Build / test / verify
 
