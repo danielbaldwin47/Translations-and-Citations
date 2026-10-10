@@ -31,7 +31,7 @@
  * `derived`. An input for a conference the base covers stops the build.
  *
  * Diff report: every build prints, after the pack is written, talks added and
- * removed and cites before and after per corpus, the base stamp and the
+ * removed, cites and footnote cites (fn) before and after per corpus, the base stamp and the
  * derived conferences, as Markdown for the refresh PR (--report FILE also
  * writes it to FILE).
  *
@@ -74,9 +74,12 @@
  *   data/index.json            { builtAt, dbUpdated, pack, books:[{slug,fullName,bookId,citations}], counts }
  *                              pack = the pack descriptor (packDescriptor)
  *   data/sources.json          { [talkId]: { c, sp, ti, d, lbl, url? } }   // one entry per cited talk
- *   data/citations/{slug}.json { cites:{ [citId]:{t,v,sn?,a?,ec?} }, index:{ [chap]:{ [verse]:[citId,...] } } }
+ *   data/citations/{slug}.json { cites:{ [citId]:{t,v,sn?,a?,ec?,fn?} }, index:{ [chap]:{ [verse]:[citId,...] } } }
  *                              sn snippet (bundled excerpt), a paragraph anchor (G) or a J cite's
- *                              page anchor jdp-N, ec excerpt character count (fetched excerpt)
+ *                              page anchor jdp-N, ec excerpt character count (fetched excerpt),
+ *                              fn the footnote flag: true when the cite sits in a note (inFootnote),
+ *                              only on a corpus whose descriptor entry has footnoteFlag: true (G, E);
+ *                              absent means body text, never false
  *   data/talks/{talkId}.html.gz  gzipped talk HTML for corpora whose text is bundled (J, the
  *                              Wikisource build's HTML; T in the personal pack)
  *   data/jod-provenance.json   { snapshot, license, talks: { [talkId]: provenance row } }
@@ -127,6 +130,10 @@ const REPORT = arg('--report');
 //   inclusion   the build's inclusion rule: 'all' | 'verbatim'
 //   attribution where the bundled text is from, for the reader's byline:
 //               'wikisource' (the source record's URL is the permalink at its revision)
+//   footnoteFlag true when the corpus's cites may carry the footnote flag `fn`
+//               (inFootnote; issue #130); absent on a corpus that never does.
+//               The General Conference corpora: J has no notes, and T's
+//               footnote list follows the body-passage rule (ADR-0006).
 // Key order is display order of source types (the reader groups in first-seen order).
 // A corpus whose text is not bundled and whose excerpt is fetched is
 // references-only (GLOSSARY.md): the pack holds no snippet and no talk file
@@ -139,8 +146,8 @@ const SOURCE_NOTES = {
   'Teachings of the Prophet Joseph Smith': 'Sermons and writings of Joseph Smith, compiled by Joseph Fielding Smith',
 };
 const CORPORA = {
-  G: { sourceType: 'General Conference', text: 'live-church', target: 'anchor', excerpt: 'fetched', inclusion: 'all' },
-  E: { sourceType: 'General Conference', text: 'live-byu', target: 'citationSpan', excerpt: 'fetched', inclusion: 'all' },
+  G: { sourceType: 'General Conference', text: 'live-church', target: 'anchor', excerpt: 'fetched', inclusion: 'all', footnoteFlag: true },
+  E: { sourceType: 'General Conference', text: 'live-byu', target: 'citationSpan', excerpt: 'fetched', inclusion: 'all', footnoteFlag: true },
   J: { sourceType: 'Journal of Discourses', text: 'bundled', target: 'citationSpan', excerpt: 'bundled', inclusion: 'all', attribution: 'wikisource' },
   // The gated element (ADR-0008): personal pack only.
   T: { sourceType: 'Teachings of the Prophet Joseph Smith', text: 'bundled', target: 'bodyPassage', excerpt: 'bundled', inclusion: 'all' },
@@ -184,12 +191,14 @@ function bundlesTalks(corpusEntry) {
 }
 
 // One cite's shard record, shaped by its corpus's descriptor entry (corpusEntry):
-//   facts { t, v, sn, a, ec } -> { t, v, sn? (bundled excerpt), a? (anchor), ec? (fetched excerpt's count) }
+//   facts { t, v, sn, a, ec, fn } -> { t, v, sn? (bundled excerpt), a? (anchor), ec? (fetched excerpt's count),
+//                                      fn? (true: the cite sits in a footnote; only on a footnoteFlag corpus) }
 function citeRecord(corpusEntry, facts) {
   const rec = { t: facts.t, v: facts.v };
   if (corpusEntry.excerpt === 'bundled') rec.sn = facts.sn;
   if (facts.a) rec.a = facts.a; // G: paragraph anchor for a live deep-link; J: an unplaced cite's page anchor
   if (corpusEntry.excerpt === 'fetched' && Number.isInteger(facts.ec)) rec.ec = facts.ec;
+  if (corpusEntry.footnoteFlag && facts.fn === true) rec.fn = true; // absent means body text
   return rec;
 }
 
@@ -207,7 +216,9 @@ function conferenceOf(d) {
 // they add to the pack. Their provenance is the Church's talk page; a cite is
 // derived exactly when its talk id is a gc/YYYY/MM/{slug} path, and its
 // conference is listed in the descriptor's `derived`.
-//   inputs  [{ conference, talks:[{ id, url, sp, ti, d, lbl, cites:[{ id, book, chapter, v, a, ec }] }] }]
+//   inputs  [{ conference, talks:[{ id, url, sp, ti, d, lbl, cites:[{ id, book, chapter, v, a, ec, fn? }] }] }]
+//           fn: true when the cite sits in one of the talk page's notes (the derivation run's
+//           rule, #131); absent or anything else is body text
 //   corpusEntry  the G descriptor entry (citeRecord shapes each cite by it)
 //   opts    { books: Set of the pack's slugs, base: { updated:'YYYY-MM-DD', conferences: Set of 'YYYY-MM' } }
 //   -> { sources: { [talkId]: source }, shards: { [slug]: { cites, index } }, conferences: ['YYYY-MM'], errors: [msg] }
@@ -228,7 +239,7 @@ function derivedCites(inputs, corpusEntry, opts) {
       for (const c of talk.cites) {
         if (!opts.books.has(c.book)) continue;
         const shard = out.shards[c.book] = out.shards[c.book] || { cites: {}, index: {} };
-        shard.cites[c.id] = citeRecord(corpusEntry, { t: talk.id, v: c.v, a: c.a, ec: c.ec });
+        shard.cites[c.id] = citeRecord(corpusEntry, { t: talk.id, v: c.v, a: c.a, ec: c.ec, fn: c.fn });
         const chap = shard.index[c.chapter] = shard.index[c.chapter] || {};
         for (const v of citedVerses(c.v)) (chap[v] = chap[v] || []).push(c.id);
         out.sources[talk.id] = { c: 'G', sp: talk.sp, ti: talk.ti, d: talk.d, lbl: talk.lbl, url: talk.url };
@@ -239,35 +250,39 @@ function derivedCites(inputs, corpusEntry, opts) {
 }
 
 // A pack's contents per corpus, for the diff report.
-//   pack { sources, shards: iterable of { cites } } | null -> { [corpus]: { talks: Set, cites: n } }
+//   pack { sources, shards: iterable of { cites } } | null
+//     -> { [corpus]: { talks: Set, cites: n, footnotes: n (cites carrying fn) } }
 function tallyPack(pack) {
   const out = {};
   if (!pack) return out;
-  const of = (c) => (out[c] = out[c] || { talks: new Set(), cites: 0 });
+  const of = (c) => (out[c] = out[c] || { talks: new Set(), cites: 0, footnotes: 0 });
   for (const [id, s] of Object.entries(pack.sources || {})) of(s.c).talks.add(String(id));
   for (const shard of pack.shards || []) {
     for (const c of Object.values(shard.cites || {})) {
       const s = pack.sources[c.t];
-      if (s) of(s.c).cites++;
+      if (!s) continue;
+      of(s.c).cites++;
+      if (c.fn === true) of(s.c).footnotes++;
     }
   }
   return out;
 }
 
 // The refresh PR's diff report (spec #69): per corpus, talks before and
-// after, added and removed, cites before and after; the base stamp and the
-// derived conferences. Markdown, printed by the build.
+// after, added and removed, cites before and after, footnote cites (`fn`)
+// before and after; the base stamp and the derived conferences. Markdown,
+// printed by the build.
 function diffReport(before, after, descriptor, vintageBefore) {
   const corpora = [...new Set([...Object.keys(before), ...Object.keys(after)])].sort();
-  const empty = { talks: new Set(), cites: 0 };
+  const empty = { talks: new Set(), cites: 0, footnotes: 0 };
   const lines = [
     `### Pack diff: ${descriptor.flavor} pack`,
     '',
     `Vintage ${vintageBefore || '(none)'} -> ${descriptor.vintage}. Base: ${descriptor.base.db}, updated ${descriptor.base.updated}. ` +
       `Derived conferences: ${descriptor.derived.length ? descriptor.derived.join(', ') : 'none'}.`,
     '',
-    '| Corpus | Talks before | Talks after | Added | Removed | Cites before | Cites after |',
-    '| --- | ---: | ---: | ---: | ---: | ---: | ---: |',
+    '| Corpus | Talks before | Talks after | Added | Removed | Cites before | Cites after | Footnote cites before | Footnote cites after |',
+    '| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |',
   ];
   const changes = [];
   for (const c of corpora) {
@@ -275,7 +290,7 @@ function diffReport(before, after, descriptor, vintageBefore) {
     const a = after[c] || empty;
     const added = [...a.talks].filter((t) => !b.talks.has(t)).sort();
     const removed = [...b.talks].filter((t) => !a.talks.has(t)).sort();
-    lines.push(`| ${c} | ${b.talks.size} | ${a.talks.size} | ${added.length} | ${removed.length} | ${b.cites} | ${a.cites} |`);
+    lines.push(`| ${c} | ${b.talks.size} | ${a.talks.size} | ${added.length} | ${removed.length} | ${b.cites} | ${a.cites} | ${b.footnotes} | ${a.footnotes} |`);
     const list = (ids) => (ids.length > 40 ? `${ids.slice(0, 40).join(', ')} and ${ids.length - 40} more` : ids.join(', '));
     if (added.length) changes.push(`Added (${c}): ${list(added)}`);
     if (removed.length) changes.push(`Removed (${c}): ${list(removed)}`);
@@ -475,6 +490,31 @@ function churchParagraphText(html, citId) {
     return p.open + inner + p.close;
   });
   return textOf(h) || null;
+}
+
+// Whether a cite sits in a footnote (the shard's `fn`; issue #130): its
+// citation span — the first, where blockHtml and extractCitation find it —
+// lies inside a note. BYU's copy of a modern talk inlines each note at its
+// marker (<sup class="noteMarker"><a href="#noteN">N</a><span class="footnote">…),
+// and carries the notes again in a closing list (<footer class="notes">),
+// where a span the inline note lacks is found (one cite, talk 8819). Either is
+// a note. The row's excerpt is then the paragraph the note hangs off, about
+// something else. Only sup and footer are tracked, so BYU's unclosed <p>s
+// don't matter; a <sup> inside a note's text nests. STPJS's footnote list
+// (div.footnote) is neither: it follows the body-passage rule (ADR-0006).
+function inFootnote(html, citId) {
+  if (!html) return false;
+  const at = html.indexOf(`<span class="citation" id="${citId}"`);
+  if (at < 0) return false;
+  const open = [];                  // the sup/footer elements open at this point: is each a note?
+  const TAG = /<(\/?)(sup|footer)\b([^>]*)>/gi;
+  for (let m; (m = TAG.exec(html)) && m.index < at;) {
+    if (m[1]) { open.pop(); continue; }
+    const cls = (/\bclass="([^"]*)"/i.exec(m[3]) || [])[1] || '';
+    const tag = m[2].toLowerCase();
+    open.push((tag === 'sup' && /\bnoteMarker\b/.test(cls)) || (tag === 'footer' && /\bnotes\b/.test(cls)));
+  }
+  return open.includes(true);
 }
 
 // Human label for a citation's source.
@@ -707,7 +747,8 @@ function build(core, content, inclusion) {
           const { snippet, anchor } = extractCitation(html, r.citId);
           const ec = corpusEntry.excerpt === 'fetched' ? excerptChars(html, r.citId, corpusEntry.text) : null;
           if (corpusEntry.excerpt === 'fetched' && ec === null) uncounted++;
-          cites[r.citId] = citeRecord(corpusEntry, { t: r.talkId, v: r.verses || vs, sn: snippet, a: anchor, ec });
+          const fn = Boolean(corpusEntry.footnoteFlag) && inFootnote(html, r.citId);
+          cites[r.citId] = citeRecord(corpusEntry, { t: r.talkId, v: r.verses || vs, sn: snippet, a: anchor, ec, fn });
         }
         count++;
       }
@@ -811,7 +852,7 @@ function build(core, content, inclusion) {
 // HTML); decodeEntities and decompressTalk by tools/build-jod-talks.js; the
 // pure rest by tools/validate-citations.js.
 module.exports = {
-  extractCitation, stpjsBodyPassage, decompressTalk, stripTags, toChurchUrl, excerptChars,
+  extractCitation, stpjsBodyPassage, decompressTalk, stripTags, toChurchUrl, excerptChars, inFootnote,
   packDescriptor, parseInclusion, SOURCE_NOTES, citeRecord, bundlesTalks, conferenceOf, PACK_CORPORA,
   buildBookMap, derivedCites, tallyPack, diffReport,
 };
