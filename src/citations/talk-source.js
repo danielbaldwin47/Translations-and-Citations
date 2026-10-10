@@ -51,10 +51,10 @@
  * (snippetKey / snippetMatches).
  *
  * Credit (talkCredit): the byline line saying whose text the reader shows,
- * from the descriptor's corpus entry (never a corpus letter): a BYU-fetched
- * talk's fetch line; a live-church corpus's "From churchofjesuschrist.org"
- * linking the talk; a Wikisource-attributed corpus's "Text from Wikisource"
- * linking the permalink, "Wikisource revision N" as the link's title.
+ * from the descriptor's corpus entry (never a corpus letter), one pattern,
+ * "Text from {publisher}" linking the talk: "BYU Scripture Citation Index"
+ * (BYU's viewer), "churchofjesuschrist.org" (the talk's page), "Wikisource"
+ * (the permalink, "Wikisource revision N" as the link's title).
  *
  * The DOM-free half (corpusPlan, readingDestination, talkCredit, the BYU URL
  * builders, the pre-2013 URL repair, locateParagraph, slotPolicy,
@@ -407,25 +407,32 @@
     return p;
   }
 
-  // The byline line of a talk whose text came from BYU (spec #69 disclosure).
-  const BYU_CREDIT = 'Text fetched from scriptures.byu.edu';
-  const CHURCH_CREDIT = 'From churchofjesuschrist.org';
+  // The byline line naming whose text the reader shows: one pattern,
+  // "Text from {publisher}", each linking the talk on the publisher's site.
+  const BYU_CREDIT = 'Text from BYU Scripture Citation Index';
+  const CHURCH_CREDIT = 'Text from churchofjesuschrist.org';
   const WIKISOURCE_CREDIT = 'Text from Wikisource';
 
   // The reader's credit line for a loaded talk, from its corpus's descriptor
-  // entry (`corpusEntry`, descriptor.corpora[letter]). Pure. -> { text, href? } | null
-  //   text 'live-byu'            the BYU fetch line
-  //   text 'live-church'         "From churchofjesuschrist.org" linking the
-  //                              talk's URL (none without one)
+  // entry (`corpusEntry`, descriptor.corpora[letter]). Pure. -> { text, href?, title? } | null
+  //   text 'live-byu'            "Text from BYU Scripture Citation Index"
+  //                              linking the talk in BYU's viewer (the cite's
+  //                              `entry.talkId`; no link without a BYU number)
+  //   text 'live-church'         "Text from churchofjesuschrist.org" linking
+  //                              the talk's URL (none without one)
   //   attribution 'wikisource'   "Text from Wikisource" linking the source's
   //                              URL, the permalink whose `oldid` is N, with
   //                              title "Wikisource revision N" (no title for
   //                              a URL without an oldid)
+  // The talk, never the cite: the header's external link goes to the cite.
   // `title` is the link's hover text. Decided by the descriptor, never by the
   // corpus letter.
-  function talkCredit(corpusEntry, source) {
+  function talkCredit(corpusEntry, source, entry) {
     if (!corpusEntry) return null;
-    if (corpusEntry.text === 'live-byu') return { text: BYU_CREDIT };
+    if (corpusEntry.text === 'live-byu') {
+      const href = byuViewerUrl(entry && entry.talkId);
+      return href ? { text: BYU_CREDIT, href } : { text: BYU_CREDIT };
+    }
     const url = source && source.url;
     if (!url) return null;
     if (corpusEntry.text === 'live-church') return { text: CHURCH_CREDIT, href: url };
@@ -822,7 +829,7 @@
   //   html         null when the talk could not be loaded (the caller shows
   //                its error state, with the destination as the way out)
   //   destination  readingDestination's { href, label } | null
-  //   credit       talkCredit's { text, href? } for a loaded talk, or null
+  //   credit       talkCredit's { text, href?, title? } for a loaded talk, or null
   // A live talk whose fetch failed has no html: it never falls back to the
   // pack, whose talk files are only the bundled corpora's.
   async function load({ entry, source }) {
@@ -836,7 +843,7 @@
       html,
       url,
       destination: readingDestination(plan, { entry, source: src, url }),
-      credit: html != null ? talkCredit(corpusEntry, { ...src, url: url || src.url }) : null,
+      credit: html != null ? talkCredit(corpusEntry, { ...src, url: url || src.url }, entry) : null,
       findTarget: (container) => findTarget(container, { plan, entry, live, html }),
     };
   }
