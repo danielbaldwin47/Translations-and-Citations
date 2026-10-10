@@ -883,7 +883,7 @@ const JOD_TEXT = '\n' +
   'All the works of mankind amount to but little, unless they are performed in the name of the Lord. Let every man seek to learn the things of God "by revelation."\n' +
   'No man can comprehend that there never was a beginning. Who can comprehend the duration of time?\n';
 
-// Open one cite the way the reader does -> { article, marked }.
+// Open one cite the way the reader does -> { article, marked: markCite's { tinted, reveal } }.
 async function openCite(entry, source, html) {
   globalThis.__BTX.citData = {
     loadPack: async () => ({ dir: 'src/citations/data/', descriptor: PUBLIC }),
@@ -900,8 +900,10 @@ const marksOf = (article, cls) => article.querySelectorAll(`.${cls}`).map((e) =>
 test('render contract: a Journal of Discourses marker cite tints its paragraph, text unchanged', async () => {
   const { article, marked } = await openCite({ talkId: 'jod-render-1', citId: '81620' }, { c: 'J' }, JOD_TALK);
   assert.strictEqual(article.textContent, JOD_TEXT);
-  assert.strictEqual(marked.id, 'jp-3', 'the paragraph is what the reader reveals');
+  assert.strictEqual(marked.tinted.id, 'jp-3', 'the marker has no text: its paragraph is tinted');
+  assert.strictEqual(marked.reveal.id, '81620', 'the reader scrolls to the cited words, not the paragraph top');
   assert.deepStrictEqual(marksOf(article, 'btx-cit-highlight'), ['jp-3']);
+  assert.deepStrictEqual(marksOf(article, 'btx-cit-target'), ['81620'], 'the place-keeper finds the marker');
   assert.deepStrictEqual(marksOf(article, 'btx-cit-passage'), ['jp-3']);
   assert.ok(article.querySelector('[id="81620"]'), 'the marker keeps its id');
 });
@@ -911,8 +913,10 @@ test('render contract: a page-anchor cite tints the paragraph holding its anchor
   const { article, marked } = await openCite(
     { talkId: 'jod-render-2', citId: '99999', anchor: 'jdp-2' }, { c: 'J' }, JOD_TALK);
   assert.strictEqual(article.textContent, JOD_TEXT);
-  assert.strictEqual(marked.id, 'jp-4');
+  assert.strictEqual(marked.tinted.id, 'jp-4');
+  assert.strictEqual(marked.reveal.id, 'jdp-2', 'the printed page starts mid-paragraph: the reader scrolls there');
   assert.deepStrictEqual(marksOf(article, 'btx-cit-highlight'), ['jp-4']);
+  assert.deepStrictEqual(marksOf(article, 'btx-cit-target'), ['jdp-2']);
   assert.deepStrictEqual(marksOf(article, 'btx-cit-passage'), ['jp-4']);
   assert.ok(article.querySelector('[id="jdp-2"]'), 'the anchor keeps its id');
 });
@@ -927,7 +931,9 @@ test('render contract: an early-conference cite still tints its reference, with 
   assert.strictEqual(article.textContent,
     '1957–A:133, Marion G. Romney\nOpening.\n\nFor you shall live by every word & man   D&C 84:44\n',
     'the spacer moves out of the reference, the characters keep their order');
-  assert.strictEqual(marked.id, '11779');
+  assert.strictEqual(marked.tinted.id, '11779');
+  assert.strictEqual(marked.reveal.id, '11779');
   assert.deepStrictEqual(marksOf(article, 'btx-cit-highlight'), ['11779']);
+  assert.deepStrictEqual(marksOf(article, 'btx-cit-target'), ['11779']);
   assert.deepStrictEqual(marksOf(article, 'btx-cit-passage'), ['para2']);
 });

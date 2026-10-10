@@ -395,7 +395,8 @@ validators — go there before changing behaviour.
   `btxk-`-prefixed, footnotes carry `data-btx-footnum`, and the article's
   `textContent` stays exactly the source text (display additions are CSS
   generated content or wrapper spans, the cite's mark is classes —
-  `markCite` tints a target with no text through its paragraph; the byline
+  `markCite` tints a target with no text through its paragraph, while the
+  reader still scrolls to the target itself; the byline
   and highlight hint sit outside the article). `test-talk-source.js` checks
   the contract in Node over `tools/mini-dom.js`. A live GC cite with no paragraph anchor goes to the
   paragraph `locateParagraph` names: it reads the fetched HTML string, since

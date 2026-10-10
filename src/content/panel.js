@@ -1734,12 +1734,13 @@
     };
   }
 
-  // What the reader is on: the cited passage while its top line shows (on
-  // screen, below any pinned header), else the first text in flow at the top
-  // of the body (below any pinned header) — to the character, since one
-  // Journal of Discourses paragraph, tinted whole when cited, can run for
-  // screens. -> a function reading its viewport top (null once it is gone),
-  // or null.
+  // What the reader is on: the cite's own position (talk-view's
+  // btx-cit-target: a Journal of Discourses marker, not the paragraph it
+  // tints) while its line shows (on screen, below any pinned header), else
+  // the first text in flow at the top of the body (below any pinned header)
+  // — to the character, since one Journal of Discourses paragraph can run
+  // for screens. -> a function reading its viewport top (null once it is
+  // gone), or null.
   function readingAnchor() {
     const node = viewNode();
     if (node === ui.body || !node.isConnected) return null;
@@ -1747,7 +1748,7 @@
     if (!(box.height > 0 && box.width > 0)) return null;
     const topOf = (n) => () => (n.isConnected ? n.getBoundingClientRect().top : null);
     const x = box.left + box.width / 2;
-    const mark = node.querySelector('.btx-cit-highlight');
+    const mark = node.querySelector('.btx-cit-target');
     if (mark) {
       const r = mark.getBoundingClientRect();
       const shows = r.top >= box.top && r.top < box.bottom &&

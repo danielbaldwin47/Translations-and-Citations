@@ -10,8 +10,8 @@
  *       Resolves once the talk or its error state shows. Scrolling goes
  *       through __BTX.panel.scrollIntoView, the body's one scroll writer.
  *   render(html) -> element     Sanitize talk HTML into a detached .btx-talk.
- *   markCite(target) -> element Mark findTarget's element; returns the one
- *       tinted, which open() reveals.
+ *   markCite(target) -> { tinted, reveal }   Mark findTarget's element:
+ *       the block tinted, and the element open() scrolls to (the target).
  *   refPunctuation(classAttr) -> { open, close }   Pure.
  *   All three are Node-tested in tools/test-talk-source.js (render and
  *   markCite over tools/mini-dom.js: the render contract below).
@@ -24,7 +24,9 @@
  * The cited passage is marked (markCite: btx-cit-highlight tints the target,
  * or its paragraph when the target has no text, as a Journal of Discourses
  * marker or page anchor has none; btx-cit-passage puts the accent bar on
- * that paragraph) and revealed on open; the verse chip reveals it again.
+ * that paragraph). Open scrolls to the target itself (btx-cit-target), where
+ * the cited words are, never to a tinted paragraph's top; the verse chip
+ * scrolls there again.
  *
  * Re-mount: the panel caches a loaded talk and re-mounts the same DOM at its
  * scroll offset without calling open(), so every listener lives on the view's
@@ -64,17 +66,21 @@
   // The paragraph-like block around a target, which gets the accent bar.
   const PASSAGE = 'p, li, blockquote, .btxk-paragraph, .btxk-std, .btxk-footnote';
 
-  // Mark the cite at `target` (findTarget's element) -> the element tinted,
-  // which the reader reveals. A target with text is tinted itself; one with
-  // none (a Journal of Discourses marker or page anchor) has nothing to tint,
-  // so its paragraph is tinted instead. The paragraph around the target gets
-  // the accent bar. Classes only: the article's text is unchanged.
+  // Mark the cite at `target` (findTarget's element) -> { tinted, reveal }.
+  // A target with text is tinted itself; one with none (a Journal of
+  // Discourses marker or page anchor) has nothing to tint, so its paragraph
+  // is tinted instead. The paragraph around the target gets the accent bar.
+  // The reader always scrolls to the target itself (reveal, marked
+  // btx-cit-target for the panel's place-keeper), since a tinted paragraph
+  // can run for screens above the cited words. Classes only: the article's
+  // text is unchanged.
   function markCite(target) {
     const passage = target.closest(PASSAGE);
     const tinted = passage && !target.textContent.trim() ? passage : target;
     tinted.classList.add('btx-cit-highlight');
     if (passage) passage.classList.add('btx-cit-passage');
-    return tinted;
+    target.classList.add('btx-cit-target');
+    return { tinted, reveal: target };
   }
 
   const SVG_NS = 'http://www.w3.org/2000/svg';
@@ -442,7 +448,7 @@
       requestAnimationFrame(() => requestAnimationFrame(() => {
         const found = loaded.findTarget(article);
         if (!found) return;
-        target = markCite(found);
+        target = markCite(found).reveal;
         chip.hidden = false;
         reveal();
       }));
