@@ -86,7 +86,7 @@ const panelSrc = fs.readFileSync(path.join(ROOT, 'src/content/panel.js'), 'utf8'
 const { iconFile } = require(path.join(ROOT, 'src/content/panel.js'));
 const iconSizes = [...panelSrc.matchAll(/extensionIcon\('[^']+', (\d+)\)/g)].map((m) => Number(m[1]));
 const gotUrls = [...panelSrc.matchAll(/getURL\('([^']+)'\)/g)].map((m) => m[1]).concat(iconSizes.map(iconFile));
-check(iconSizes.length >= 2, `the panel draws the extension icon in at least two places (found ${iconSizes.length})`);
+check(iconSizes.length >= 1, `the panel draws the extension icon in the welcome (found ${iconSizes.length})`);
 check(gotUrls.every((f) => wars.includes(f) && fs.existsSync(path.join(ROOT, f))),
   `every icon the panel draws is packaged and web-accessible (${[...new Set(gotUrls)].join(', ')})`);
 

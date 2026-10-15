@@ -304,7 +304,7 @@ details > summary:hover { background: var(--accent-soft); }
 .more > summary { color: var(--accent); }
 .more > .rows { margin-top: 2px; }
 
-/* ---- Church languages ---- */
+/* ---- Languages ---- */
 .summary { margin: -4px 0 12px; font-weight: 600; font-size: 14px; }
 .summary.none { color: var(--muted); font-weight: 400; }
 .search { margin-bottom: 8px; }

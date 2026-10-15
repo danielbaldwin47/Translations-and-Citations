@@ -2,7 +2,7 @@
 
 Translations & Citations is a Chrome extension that works on scripture
 chapters at `www.churchofjesuschrist.org/study`. It shows the chapter in
-another Bible translation or Church language and lists the talks that cite
+another Bible translation or language and lists the talks that cite
 each verse. This page says what the extension stores, what it sends and to
 whom, and how to delete what it stores. It applies to version 1.0.0 and
 later; the version you have is shown on the About card of the extension's
@@ -28,7 +28,7 @@ One settings object holding:
 - your api.bible key, if you entered one (see api.bible below);
 - the Bible translations you turned on and the default one (id, abbreviation,
   name, provider, description);
-- the Church languages you added and where the page shows them (side by side,
+- the languages you added and where the page shows them (side by side,
   under each verse, or in the panel);
 - the panel's mode (Translation or Citations), citation layout (by source or
   by verse), width, text size, whether it is collapsed, and whether it
@@ -64,11 +64,11 @@ card to scroll to when the panel opens settings; it is cleared when the page
 reads it.
 
 Nothing fetched from the Church site or from BYU is stored. Talk text and
-Church-language chapters live in the page's memory while the tab is open and
+Chapters in a language live in the page's memory while the tab is open and
 are gone when it closes.
 
 The extension reads the text of the chapter you are reading, on your screen,
-to show each verse's text in the citation list and to lay the Church-language
+to show each verse's text in the citation list and to lay the language
 text beside the English. That reading happens in your browser; none of it is
 sent anywhere.
 
@@ -110,7 +110,7 @@ The extension runs only on that site's `/study` pages, which you are already
 reading. On your action it makes same-origin requests to the same site,
 without cookies:
 
-- when you add a Church language or pick one for a chapter: a request for
+- when you add a language or pick one for a chapter: a request for
   that chapter in that language (the chapter's address and the language
   code), to the site's own content endpoint;
 - when you open a General Conference talk in the panel, or open a citation

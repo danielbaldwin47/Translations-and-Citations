@@ -13,7 +13,7 @@
  * Those are the rules the stale-list and wrong-default bugs lived in.
  *
  * It also checks where the in-product disclosures (C.DISCLOSURE) sit: beside
- * Connect and beside adding a Church language, on this page and on the
+ * Connect and beside adding a language, on this page and on the
  * panel's setup card (src/content/panel.js setupCopy / renderSetup).
  *
  * It also covers the worker's side of what the page is told
@@ -184,6 +184,28 @@ eq(F.commitPatch({ keys: ['defaultTranslationId'], values: { defaultTranslationI
 eq(F.commitPatch({ keys: ['enabledTranslations'], values: {}, list: { versionsLoaded: false, enabled: [], defaultId: '' } }), {},
   'the list guard holds under autosave: nothing on screen, nothing written');
 eq(F.commitPatch({ keys: ['fontScale'], values: {}, list: LOADED }), {}, 'a key with no value read writes nothing');
+// The language switch (GLOSSARY): a tick shows the language at once, so it
+// writes the switch on in the same patch; an untick never names it.
+eq(F.commitPatch({ keys: ['churchLanguages'], values: { churchLanguages: ['spa', 'jpn'] }, list: LOADED, before: ['spa'] }),
+  { churchLanguages: ['spa', 'jpn'], churchLanguageShown: true },
+  'a tick writes the language switch on, in the same patch as the languages');
+eq(F.commitPatch({ keys: ['churchLanguages'], values: { churchLanguages: ['spa'] }, list: LOADED, before: [] }),
+  { churchLanguages: ['spa'], churchLanguageShown: true },
+  '...the first language too');
+eq(F.commitPatch({ keys: ['churchLanguages'], values: { churchLanguages: ['spa'] }, list: LOADED, before: ['spa', 'jpn'] }),
+  { churchLanguages: ['spa'] },
+  'an untick does not name the switch');
+eq(F.commitPatch({ keys: ['churchLanguages'], values: { churchLanguages: ['spa', 'jpn'] }, list: LOADED, before: ['jpn', 'spa'] }),
+  { churchLanguages: ['spa', 'jpn'] },
+  'a list with no language newly on (a tick undone before it saved) does not name the switch');
+eq(F.commitPatch({ keys: ['churchLanguages'], values: { churchLanguages: ['jpn'] }, list: LOADED, before: ['spa'] }).churchLanguageShown, true,
+  'a tick and an untick together: the tick counts');
+eq(F.commitPatch({ keys: ['scrollSync'], values: { scrollSync: false, churchLanguages: ['spa', 'jpn'] }, list: LOADED, before: [] }),
+  { scrollSync: false },
+  'a patch that does not name the languages names no switch');
+eq(F.commitPatch({ keys: ['churchLanguages'], values: { churchLanguages: ['spa', 'jpn'] }, list: LOADED }),
+  { churchLanguages: ['spa', 'jpn'] },
+  'with nothing known of the stored languages, the switch is left alone');
 
 // ---- patchLanded: did the write stick? ----
 console.log('patchLanded:');
@@ -410,8 +432,8 @@ for (const code of Object.values(C.ERR)) {
   }
 }
 
-// ---- Church languages ----
-console.log('Church languages:');
+// ---- Languages ----
+console.log('Languages:');
 const offered = F.offeredLanguages(C.CHURCH_LANGUAGES);
 check(!offered.some((l) => l.code === 'eng'), 'English is not offered (the reader is already in English)');
 eq(offered.length, C.CHURCH_LANGUAGES.length - 1, 'every other language is');
@@ -528,7 +550,7 @@ check(F.matchesLanguage(lang('tgl'), 'tgl'), 'the code matches');
 check(F.matchesLanguage(lang('tgl'), '  '), 'an empty search matches everything');
 check(!F.matchesLanguage(lang('spa'), 'xyz'), 'a miss is a miss');
 check(C.CHURCH_LANGUAGES.every((l) => /^[a-z]{2,3}(-[A-Z][a-z]{3})?(-[A-Z]{2})?$/.test(l.tag || '')),
-  'every Church language carries a BCP 47 tag for marking up its own name');
+  'every language carries a BCP 47 tag for marking up its own name');
 eq(['jpn', 'zhs', 'zho', 'yue', 'kor'].map((c) => lang(c).tag), ['ja', 'zh-Hans', 'zh-Hant', 'yue-Hant', 'ko'],
   'CJK names are tagged so the browser picks the right glyphs');
 
@@ -631,7 +653,7 @@ const bodyOf = (name) => (shell.match(new RegExp(`(?:async )?function ${name}\\(
 check(/SETTINGS\.patch\(/.test(bodyOf('write')), 'write() is where the form reaches storage');
 check((shell.match(/SETTINGS\.(patch|replace)\(/g) || []).length === 1 && !/SETTINGS\.replace\(/.test(shell),
   'the form writes in exactly one place, with patch (never replace: the panel\'s own keys must survive)');
-check(/commitPatch\(\{ keys, values, list: listState\(\) \}\)/.test(bodyOf('flush')),
+check(/commitPatch\(\{ keys, values, list: listState\(\), before: settings\.churchLanguages \}\)/.test(bodyOf('flush')),
   'each autosave builds its write with commitPatch');
 check(/translationPatch\(listState\(\)\)/.test(bodyOf('connect')),
   'a connected key is saved together with its list, through translationPatch');
@@ -728,7 +750,7 @@ check(typeof C.SELECTION_KEY === 'string' && !/btxSelectedTranslation/.test(src)
 check(/CHURCH\.rememberTicked\(picks, before, after\)/.test(bodyOf('rememberTicks'))
   && /rememberTicks\(settings\.churchLanguages, values\.churchLanguages\)[\s\S]*return write\(/.test(bodyOf('flush'))
   && !/SELECTION_KEY\]: (?!picks)/.test(src),
-  'a Church-language autosave writes the pick memory through church text\'s rememberTicked, before the setting');
+  'a language autosave writes the pick memory through church text\'s rememberTicked, before the setting');
 check(/again\.focus\(/.test(bodyOf('renderTranslations')),
   'rebuilding the list puts focus back on the row that had it (a refresh must not drop a keyboard reader)');
 check(/listRefresh\.then\(/.test(bodyOf('focusSection')) && /listRefresh = refreshList\(\)/.test(bodyOf('init')),
@@ -820,11 +842,11 @@ check(/id="saveStatus"[^>]*role="status"/.test(html), 'the autosave status is an
 const cardIds = [...html.matchAll(/<section class="card" id="([^"]+)"/g)].map((m) => m[1]);
 eq(cardIds, C.OPTIONS_SECTIONS, 'the cards are the deep-link sections, in order');
 eq(cardIds, ['languages', 'bible', 'reading', 'about'],
-  'the cards run Church languages, Bible translations, Reading, About (the setup that needs no key comes first)');
+  'the cards run languages, Bible translations, Reading, About (the setup that needs no key comes first)');
 check(/id="reading"[\s\S]*id="scrollSync"/.test(html) && /id="reading"[\s\S]*id="fontScale"/.test(html),
   'scroll sync and text size sit in the Reading card');
 check(/id="languages"[\s\S]*id="churchLanguages"[\s\S]*id="reading"/.test(html),
-  'the Church-language checklist sits in its own card');
+  'the language checklist sits in its own card');
 
 // The About card (spec #69): the fourth section, text and links only, so it
 // adds nothing the autosave could write.
@@ -877,27 +899,27 @@ console.log('Disclosures:');
 eq(C.DISCLOSURE.apiBible, 'Connecting sends the chapters you open, your key, and an anonymous usage report to API.Bible.',
   'the api.bible sentence is the spec\'s wording');
 eq(C.DISCLOSURE.churchLanguage, 'Fetches that language’s chapter from churchofjesuschrist.org.',
-  'the Church-language sentence is the spec\'s wording (curly apostrophe)');
+  'the language sentence is the spec\'s wording (curly apostrophe)');
 const textOf = (id) => ((html.match(new RegExp(`<p[^>]*\\bid="${id}"[^>]*>([\\s\\S]*?)</p>`)) || [])[1] || '').replace(/\s+/g, ' ').trim();
 const cardOf = (id) => (html.match(new RegExp(`<section class="card" id="${id}"[\\s\\S]*?</section>`)) || [''])[0];
 eq(textOf('keyDisclosure'), C.DISCLOSURE.apiBible, 'settings: the api.bible sentence is on the page');
 check(/id="connectKey"[^>]*>Connect<\/button>\s*<\/div>\s*(<!--[\s\S]*?-->\s*)?<p[^>]*\bid="keyDisclosure"/.test(cardOf('bible')),
   'settings: the api.bible sentence sits directly under the row holding Connect');
 check(/id="connectKey"[^>]*aria-describedby="keyDisclosure"/.test(html), 'settings: Connect is described by the sentence');
-eq(textOf('languagesDisclosure'), C.DISCLOSURE.churchLanguage, 'settings: the Church-language sentence is on the page');
+eq(textOf('languagesDisclosure'), C.DISCLOSURE.churchLanguage, 'settings: the language sentence is on the page');
 check(/id="languagesDisclosure"[\s\S]*id="churchLanguages"/.test(cardOf('languages')),
-  'settings: the Church-language sentence sits in the Church languages card, above the checklist that adds one');
+  'settings: the language sentence sits in the languages card, above the checklist that adds one');
 const P = require(path.join(ROOT, 'src/content/panel.js'));
 for (const bible of ['nokey', 'noversions']) {
   eq(P.setupCopy({ chapter: 'John 3', bible }).bible.disclosure, C.DISCLOSURE.apiBible,
     `setup card: the api.bible path (${bible}) carries the api.bible sentence`);
 }
 eq(P.setupCopy({ chapter: 'Alma 5', bible: null }).languagesDisclosure, C.DISCLOSURE.churchLanguage,
-  'setup card: the language picker carries the Church-language sentence');
+  'setup card: the language picker carries the language sentence');
 const panelSrc = fs.readFileSync(path.join(ROOT, 'src/content/panel.js'), 'utf8').replace(/\r\n/g, '\n');
 const renderSetupSrc = (panelSrc.match(/function renderSetup\([^)]*\) \{[\s\S]*?\n {2}\}\n/) || [''])[0];
 check(/languagePicker\(copy, langs\)\);\s*block\.appendChild\(el\('p', '[^']+', copy\.languagesDisclosure\)\)/.test(renderSetupSrc),
-  'setup card: the Church-language sentence renders right under the picker with Add');
+  'setup card: the language sentence renders right under the picker with Add');
 check(/copy\.bible\.button[^\n]*\n\s*block\.appendChild\(el\('p', '[^']+', copy\.bible\.disclosure\)\)/.test(renderSetupSrc),
   'setup card: the api.bible sentence renders right under its button');
 
@@ -990,10 +1012,10 @@ check(/languageTick\(offeredLanguages\(C\.CHURCH_LANGUAGES\), ticked, now, els\.
 check(/renderLanguageList\(tick\.focus\)/.test(bodyOf('onLanguageTick')) && /focusCode = code \|\|/.test(bodyOf('renderLanguageList')),
   'the language the tick named gets the focus in its new place');
 check(/buildLanguageList\(\);[\s\S]{0,80}fillForm\(\);/.test(bodyOf('init')),
-  'init builds the Church-language checklist before the first fillForm, key or no key');
+  'init builds the language checklist before the first fillForm, key or no key');
 for (const name of ['connect', 'renderTranslations', 'refreshList']) {
   const body = bodyOf(name);
-  check(body && !/buildLanguageList|churchLanguages/.test(body), `${name} never builds or touches the Church-language list`);
+  check(body && !/buildLanguageList|churchLanguages/.test(body), `${name} never builds or touches the language list`);
 }
 check(/groupCount\(section, filtering \? section\.shown : null\)/.test(bodyOf('renderLanguageList')),
   'a search updates each section\'s count to the languages it leaves in view');

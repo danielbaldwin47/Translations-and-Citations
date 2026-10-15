@@ -75,14 +75,14 @@
     // The reader's picks among the panel's texts, newest first (church-text.js
     // mruFrom / rememberPick). Two contexts write it: content.js (a pick in the
     // panel, a language added from the setup card) and the options page (a
-    // Church language ticked); both through church text's rules, and each
+    // language ticked); both through church text's rules, and each
     // adopts the other's writes through chrome.storage.onChanged.
     SELECTION_KEY: 'btxSelectedTranslation',
 
     // --- In-product disclosures (Chrome Web Store user-data policy) ---
     // Shown beside the action they describe, whose click is the consent:
     // `apiBible` beside Connect on the options page and on the panel setup
-    // card's api.bible path; `churchLanguage` beside adding a Church language
+    // card's api.bible path; `churchLanguage` beside adding a language
     // in both places. options.html carries the same words (checked by
     // tools/validate-options-form.js).
     DISCLOSURE: {
@@ -131,7 +131,7 @@
         sites: {
           head: 'Sites it contacts',
           items: [
-            { text: 'Church languages and General Conference talks', hosts: ['www.churchofjesuschrist.org'] },
+            { text: 'Languages and General Conference talks', hosts: ['www.churchofjesuschrist.org'] },
             { text: 'Early conference talks', hosts: ['scriptures.byu.edu'] },
             { text: 'Only once you connect a key: Bible chapters, your list of translations, and the usage report',
               hosts: ['rest.api.bible', 'fums.api.bible'] },
@@ -142,7 +142,7 @@
 
     // --- First run ---
     // Where a fresh install lands: Alma 5 in English, a chapter where Citations
-    // and every Church language have something to show.
+    // and every language have something to show.
     FIRST_RUN_URL: 'https://www.churchofjesuschrist.org/study/scriptures/bofm/alma/5?lang=eng',
 
     // --- Options deep links ---
@@ -200,7 +200,7 @@
     // is `partial` (copyrights unknown).
     DEFAULT_ABBRS: ['NIV', 'NKJV', 'NRSV', 'ESV', 'KJV'],
 
-    // --- Church languages offered beside the page (__BTX.churchText) ---
+    // --- Languages offered beside the page (__BTX.churchText) ---
     // The site's own `lang=` codes. `tag` is the BCP 47 tag for marking up the
     // language's own name (glyph choice for CJK, pronunciation), `name` that
     // name, `english` its English one, `vols` the URL collections it publishes

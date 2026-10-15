@@ -81,7 +81,7 @@
   }
 
   // Only the Bible collections (Old/New Testament) have api.bible versions
-  // (Church languages cover every collection — see __BTX.churchText).
+  // (languages cover every collection — see __BTX.churchText).
   function isBibleCollection(collection) {
     return collection === 'ot' || collection === 'nt';
   }

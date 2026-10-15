@@ -1,6 +1,6 @@
 /*
  * Options page: an autosaving editor of the stored settings, in cards whose
- * ids are C.OPTIONS_SECTIONS, in page order — `languages` (Church languages
+ * ids are C.OPTIONS_SECTIONS, in page order — `languages` (languages
  * and where they show: the setup that needs no key comes first, with the
  * reader's own languages on top as "Your languages"), `bible` (api.bible key
  * and which translations the panel offers), `reading` (text size, panel width,
@@ -23,10 +23,13 @@
  * (failedWrites) but the About button's, and any write that lands retires
  * the error.
  *
- * A Church language ticked here also leads the pick memory (the panel's
+ * A language ticked here also leads the pick memory (the panel's
  * most-recently-used list, chrome.storage.local under C.SELECTION_KEY, not a
  * setting): church text's rememberTicked computes it, rememberTicks writes it
  * ahead of the setting, and open reader tabs adopt it through storage.onChanged.
+ * The same tick also writes the language switch (`churchLanguageShown`, GLOSSARY)
+ * on, in the same patch (commitPatch, given the stored languages as `before`):
+ * the form has no control for the switch, and an untick never names it.
  *
  * The api.bible key is the one exception to write-as-you-go: it is connected
  * (the worker lists its versions) on paste, on change or on Connect, and
@@ -202,8 +205,10 @@
 
   // What one autosave writes for `keys`: each single-value field as the form
   // shows it (`values`), and the translation list only through
-  // translationPatch (`list` is its input).
-  function commitPatch({ keys, values, list }) {
+  // translationPatch (`list` is its input). A write of the languages that
+  // turns one on (`before` is the stored list) also writes the language
+  // switch on, so the tick shows at once; an untick never names the switch.
+  function commitPatch({ keys, values, list, before }) {
     const partial = {};
     let withList = false;
     for (const k of keys || []) {
@@ -211,6 +216,10 @@
       else if (values && Object.prototype.hasOwnProperty.call(values, k)) partial[k] = values[k];
     }
     if (withList) Object.assign(partial, translationPatch(list || {}));
+    if (Object.prototype.hasOwnProperty.call(partial, 'churchLanguages') && Array.isArray(before)
+        && partial.churchLanguages.some((code) => before.indexOf(code) < 0)) {
+      partial.churchLanguageShown = true;
+    }
     return partial;
   }
 
@@ -417,7 +426,7 @@
     return (parts || []).map((part) => (typeof part === 'string' ? part : part.text)).join('');
   }
 
-  // ---- Church languages ----
+  // ---- Languages ----
 
   // The checklist's languages: the table minus English, which is the page's
   // own language.
@@ -693,7 +702,7 @@
     const values = {};
     for (const f of FIELDS) if (keys.indexOf(f.key) >= 0) values[f.key] = f.read();
     if (keys.indexOf('churchLanguages') >= 0) rememberTicks(settings.churchLanguages, values.churchLanguages);
-    return write(commitPatch({ keys, values, list: listState() }), keys);
+    return write(commitPatch({ keys, values, list: listState(), before: settings.churchLanguages }), keys);
   }
 
   // A language ticked becomes the one shown: it leads the pick memory, which
@@ -1105,7 +1114,7 @@
     else dirty.delete('apiKey');
   }
 
-  // ---- Church languages ----
+  // ---- Languages ----
 
   // One row (label + checkbox) per language, built once; renderLanguageList
   // moves them between sections, so a tick keeps its checkbox, its state and

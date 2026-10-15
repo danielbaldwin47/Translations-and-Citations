@@ -1,6 +1,6 @@
-# Church-language text is split into the page by overlay, never by editing the site's DOM
+# A chapter in a language is split into the page by overlay, never by editing the site's DOM
 
-A Church-language chapter can be shown in the site's own reading column,
+A chapter in a language can be shown in the site's own reading column,
 paired verse by verse with the English (`src/content/page-split.js`, the
 `churchLanguageLayout` setting). This is the one place the extension writes
 into the site's reader, and that reader is a React tree the extension does not
@@ -8,7 +8,8 @@ own. So the split adds exactly three things and touches nothing else:
 
 - **one layer**, appended to `article#main`, holding the translated blocks
   (built by the IR renderer, text nodes only) absolutely placed at their
-  English partners' offsets;
+  English partners' offsets, headed by the Hide line (text nodes and one
+  button; its room is an id rule on the first pair's English);
 - **`<style>` elements** whose rules select the site's elements by id (`p5`,
   `title_number1`) to make room — width in columns, `min-height` when the
   translation runs longer, `margin-bottom` for interlinear;

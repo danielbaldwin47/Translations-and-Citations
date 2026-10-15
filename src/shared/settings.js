@@ -14,6 +14,10 @@
  *   - change notification (subscribe, which reports *which* keys changed and
  *                        whether this context is the one that wrote them)
  *
+ * Notable keys: `churchLanguageShown` is the language switch (GLOSSARY),
+ * one boolean for every language, on unless a stored `false` says
+ * otherwise; it is not a panel-handled key.
+ *
  * Consumers are thin adapters: the content script, the options page and the
  * service worker each just call this module.
  *
@@ -175,7 +179,7 @@
     return list.some((t) => t.provider !== BUNDLED) ? id : WEB_ROW.id;
   }
 
-  // Church languages are codes from C.CHURCH_LANGUAGES, kept in that table's
+  // Languages are codes from C.CHURCH_LANGUAGES, kept in that table's
   // order (which is the order the panel's dropdown lists them) with duplicates
   // dropped. A code the table doesn't know is dropped too: it would name a
   // language the panel has no label for and the site may not publish. Under
@@ -197,14 +201,19 @@
     provider: { def: APIBIBLE, norm: oneOf([APIBIBLE], APIBIBLE) },
     enabledTranslations: { def: [], norm: (v) => withBundled(translationList(v)) },
     defaultTranslationId: { def: '', norm: str('') },
-    // Church languages to offer beside the page (e.g. ['spa', 'jpn']): the same
+    // Languages to offer beside the page (e.g. ['spa', 'jpn']): the same
     // chapter from the Church's own site, on every standard work, no key. They
     // join the translation dropdown after the api.bible versions.
     churchLanguages: { def: [], norm: languageList },
-    // Where a Church language shows: split into the page beside the English
+    // Where a language shows: split into the page beside the English
     // ('columns', side by side; 'interlinear', under each verse — see
     // __BTX.pageSplit) or in the side panel ('panel').
     churchLanguageLayout: { def: 'columns', norm: oneOf(['columns', 'interlinear', 'panel'], 'columns') },
+    // The language switch (GLOSSARY: Language switch): whether a Church
+    // language shows at all. One switch for every language, synced so off
+    // stays off on every chapter and computer; off keeps the languages ticked
+    // and the layout chosen. Anything but a stored `false` reads as on.
+    churchLanguageShown: { def: true, norm: bool(true) },
     sidebarWidth: {
       def: SIDEBAR_WIDTH_DEFAULT,
       norm: clampedInt(SIDEBAR_WIDTH_MIN, SIDEBAR_WIDTH_MAX, SIDEBAR_WIDTH_DEFAULT),

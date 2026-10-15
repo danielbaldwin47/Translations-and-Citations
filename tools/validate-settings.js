@@ -31,7 +31,7 @@ function eq(actual, expected, msg) {
 // ---- Schema ----
 console.log('Schema:');
 const KEYS = [
-  'apiKey', 'provider', 'enabledTranslations', 'defaultTranslationId', 'churchLanguages', 'churchLanguageLayout',
+  'apiKey', 'provider', 'enabledTranslations', 'defaultTranslationId', 'churchLanguages', 'churchLanguageLayout', 'churchLanguageShown',
   'sidebarWidth', 'fontScale', 'citationView',
   'panelMode', 'panelCollapsed', 'scrollSync', 'noTranslationLineDismissed', 'welcomeSeen',
 ];
@@ -273,23 +273,23 @@ check(itemBytes(reader) < QUOTA_BYTES_PER_ITEM * 0.75,
   `40 translations on stay well under the sync item's 8 KB (${itemBytes(reader)} bytes)`);
 const everything = Object.assign({}, reader, { churchLanguages: C.CHURCH_LANGUAGES.map((l) => l.code) });
 check(itemBytes(everything) < QUOTA_BYTES_PER_ITEM * 0.9,
-  `...and still fit with every Church language on too (${itemBytes(everything)} bytes)`);
+  `...and still fit with every language on too (${itemBytes(everything)} bytes)`);
 const prose = 'The Holy Bible in English, Douay-Rheims American Edition of 1899, translated from the Latin Vulgate';
 eq(S.normalize({ enabledTranslations: [Object.assign({}, fat, { description: prose })] }).enabledTranslations[0].description, undefined,
   'a description longer than an edition note is prose, and is not stored');
 eq(S.normalize({ enabledTranslations: [W('w1', 'Ecumenical'), W('w2', `Protestant ${prose}`)] }).enabledTranslations.map((t) => t.id), ['w2', 'engwebp'],
   'the Protestant edition is still preferred when its description is too long to store');
 
-// ---- normalize: Church languages ----
+// ---- normalize: Languages ----
 console.log('normalize (churchLanguages):');
 const CODES = C.CHURCH_LANGUAGES.map((l) => l.code);
-check(CODES.length > 0, 'the Church language table is not empty');
-eq(new Set(CODES).size, CODES.length, 'the Church language table has no duplicate codes');
+check(CODES.length > 0, 'the language table is not empty');
+eq(new Set(CODES).size, CODES.length, 'the language table has no duplicate codes');
 check(C.CHURCH_LANGUAGES.every((l) => /^[a-z]{3}(-[A-Z][a-z]{3})?$/.test(l.code) && l.name && l.english),
-  'every Church language row has a site code (spa, cmn-Latn), a native name and an English name');
+  'every language row has a site code (spa, cmn-Latn), a native name and an English name');
 const COLLECTIONS = ['ot', 'nt', 'bofm', 'dc-testament', 'pgp'];
 check(C.CHURCH_LANGUAGES.every((l) => Array.isArray(l.vols) && l.vols.length && l.vols.every((v) => COLLECTIONS.includes(v))),
-  'every Church language names the URL collections it publishes');
+  'every language names the URL collections it publishes');
 eq(S.defaults().churchLanguages, [], 'churchLanguages defaults to none (the feature is opt-in)');
 const [first, second] = CODES;
 eq(S.normalize({ churchLanguages: [second, first] }).churchLanguages, [first, second],
@@ -300,9 +300,20 @@ eq(S.normalize({ churchLanguages: [first, 'xxx', 42, null] }).churchLanguages, [
 eq(S.normalize({ churchLanguages: first }).churchLanguages, [], 'a non-array churchLanguages -> []');
 eq(S.diff({ churchLanguages: [second, first] }, { churchLanguages: [first, second] }), [],
   'two orderings of the same languages are not a change');
-eq(S.defaults().churchLanguageLayout, 'columns', 'a Church language splits the page side by side by default');
+eq(S.defaults().churchLanguageLayout, 'columns', 'a language splits the page side by side by default');
 for (const v of ['columns', 'interlinear', 'panel']) eq(S.normalize({ churchLanguageLayout: v }).churchLanguageLayout, v, `${v} is a layout`);
 eq(S.normalize({ churchLanguageLayout: 'sideways' }).churchLanguageLayout, 'columns', 'an unknown layout falls back to columns');
+
+// The language switch (GLOSSARY: Language switch): one synced boolean, on
+// unless a stored `false` says otherwise.
+eq(S.defaults().churchLanguageShown, true, 'the language switch starts on');
+eq(S.normalize({ churchLanguageShown: true }).churchLanguageShown, true, 'switch true survives');
+eq(S.normalize({ churchLanguageShown: false }).churchLanguageShown, false, 'switch false survives');
+for (const bad of ['false', 0, 1, null, undefined, {}]) {
+  eq(S.normalize({ churchLanguageShown: bad }).churchLanguageShown, true,
+    `switch ${JSON.stringify(bad)} falls back to on (the language shows)`);
+}
+eq(S.diff({ churchLanguageShown: true }, { churchLanguageShown: false }), ['churchLanguageShown'], 'flipping the switch is a change');
 
 // ---- diff ----
 console.log('diff:');
@@ -362,6 +373,13 @@ async function storageChecks() {
   S.subscribe((e) => events.push(e));
 
   eq(await S.get(), S.defaults(), 'get() on empty storage returns defaults');
+
+  await S.patch({ churchLanguageShown: false });
+  eq(store.btxSettings.churchLanguageShown, false, 'a write of the language switch survives a patch');
+  eq((await S.get()).churchLanguageShown, false, '...and reads back off');
+  await S.patch({ churchLanguageShown: true });
+  eq((await S.get()).churchLanguageShown, true, '...and back on');
+  events.length = 0; // the switch's round trip is not the notification count below
 
   // Our own write: applied to storage, echoed back flagged as own.
   await S.patch({ citationView: 'verse' });
@@ -529,15 +547,19 @@ for (const chip of ['btx-cit-count', 'btx-cit-range']) {
 const stepRule = /#btx-root \.btx-font-step \{[^}]*\}/.exec(panelCss);
 check(stepRule && !/--btx-size-scale|--btx-body-size/.test(stepRule[0]),
   'the text-size stepper stays fixed-size chrome');
-// Two chrome rows (header: mode control + Settings + Collapse; toolbar: the
-// mode's control + the stepper), each on one line at the minimum panel width.
-// In each row the buttons are rigid and the one wide control yields. These
-// regexes pin the rules that make that true; they cannot measure an overflow,
-// so the 280px check itself is a look at the real panel.
-const rows = /#btx-root \.btx-header,\s*#btx-root \.btx-toolbar \{[^}]*\}/.exec(panelCss);
-check(rows && /flex-wrap: nowrap/.test(rows[0]), 'neither chrome row wraps');
+// The chrome rows (header: mode control + Settings + Collapse; the toolbar's
+// main row: the mode's control + the stepper; in Translation, the language
+// row: the language's name or dropdown + its switch, GLOSSARY: Language row),
+// each on one line at the minimum panel width. In each row the buttons are
+// rigid and the one wide control yields; the switch never does. These regexes
+// pin the rules that make that true; they cannot measure an overflow, so the
+// 280px check itself is a look at the real panel.
+const rows = /#btx-root \.btx-header,\s*#btx-root \.btx-toolbar-row \{[^}]*\}/.exec(panelCss);
+check(rows && /flex-wrap: nowrap/.test(rows[0]), 'no chrome row wraps');
 check(/#btx-root \.btx-btn \{[^}]*flex: 0 0 auto/.test(panelCss), 'the icon and stepper buttons never shrink');
-for (const wide of ['btx-modes', 'btx-select', 'btx-cit-modes']) {
+const switchRule = /#btx-root \.btx-switch \{[^}]*\}/.exec(panelCss);
+check(switchRule && /flex: 0 0 auto/.test(switchRule[0]), 'the language switch never shrinks');
+for (const wide of ['btx-modes', 'btx-select', 'btx-cit-modes', 'btx-lang-name']) {
   const rule = new RegExp(`#btx-root \\.${wide} \\{[^}]*\\}`).exec(panelCss);
   check(rule && /flex: 1 1 auto/.test(rule[0]) && /min-width: 0/.test(rule[0]),
     `.${wide} takes the row's spare width and yields it (a <select>'s floor would otherwise be its widest option)`);

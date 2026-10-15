@@ -18,7 +18,7 @@
 
   // Returns { collection, ldsBook, chapter, lang, isBible } or null if the URL is
   // not a citation-indexed standard-works chapter. isBible gates the api.bible
-  // versions; Church languages (__BTX.churchText) cover every book.
+  // versions; languages (__BTX.churchText) cover every book.
   function parseLocation(pathname, search) {
     const m = PATH_RE.exec(pathname || '');
     if (!m) return null;
