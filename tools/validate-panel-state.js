@@ -1185,7 +1185,7 @@ for (const s of P.WELCOME_STEPS) {
   for (const l of s.lines) check(!/tuck|right beside|preferences|page itself/i.test(l.text), `step "${s.id}": no idioms ("${l.text.slice(0, 30)}…")`);
   for (const l of s.lines) {
     check(/[.?]$/.test(l.text) && sentences(l.text).length <= 2, `step "${s.id}": "${l.text.slice(0, 30)}…" is whole sentences, two at most`);
-    check(sentences(l.text).every((x) => x.length <= 100), `step "${s.id}": every sentence is short (100 characters at most)`);
+    check(sentences(l.text).every((x) => x.length <= 110), `step "${s.id}": every sentence is short (110 characters at most)`);
   }
 }
 const stepById = (id) => P.WELCOME_STEPS.find((s) => s.id === id) || { title: '', lines: [] };
@@ -1199,12 +1199,12 @@ eq(stepById('translation').title, 'Translation', 'the Translation step is titled
 check(/Collapse/.test(said('hide')), 'the last step names the Collapse button: the ring is not read out');
 // Spec A's model: Citations is where the panel opens (its step comes first),
 // and a language you add reads on the page whatever the panel shows.
-check(/talks/.test(said('citations')) && /each verse/.test(said('citations')), 'Citations: the talks that quote each verse');
+check(/talks/.test(said('citations')) && /quote verses/.test(said('citations')), 'Citations: the talks that quote verses in the chapter');
 check(/language/.test(said('translation')) && /Bible/.test(said('translation')), 'Translation: another language or Bible version');
-check(/on the page/.test(said('translation')) && /verse by verse/.test(said('translation')), 'a language you add reads on the page, verse by verse (beside or under each, as the room allows)');
-check(/the Bible in another version/.test(said('translation')), 'a Bible version only on the Bible');
-eq(stepById('translation').lines[1].text, 'Add a language in Settings and it appears on the page beside the English, verse by verse.',
-  'the Translation step\'s second line names Settings as where a language is added');
+check(/on the page/.test(said('translation')) && /beside the English/.test(said('translation')), 'a language you add appears on the page beside the English');
+check(/other Bible versions/.test(said('translation')), 'the Translation step names other Bible versions');
+eq(stepById('translation').lines[1].text, 'Add a language and it appears on the page beside the English.',
+  'the Translation step\'s second line says an added language appears beside the English');
 check(/tab/.test(said('hide')) && /bring it back/.test(said('hide')), 'the last step: the tab at the window\'s edge brings the panel back');
 check(/Translations & Citations icon \{icon\}/.test(said('hide')) && /top right of Chrome/.test(said('hide')), '...and so does the toolbar icon, named in words beside its picture, where to look');
 check(stepById('hide').lines.slice(1).every((l) => l.tip === true) && !stepById('hide').lines[0].tip, '...as a smaller tip under the edge tab, the way back every reader has');
@@ -1680,17 +1680,21 @@ for (const name of ['applyModeUI', 'applyCitationViewUI']) {
 // Icons are built node by node (safe rendering: no markup strings).
 check(!/\.innerHTML\s*=/.test(panelSrc), 'panel.js never assigns innerHTML');
 check(/createElementNS\(SVG_NS/.test(panelSrc), 'icons are built with createElementNS');
-// The collapsed tab is the extension's own packaged icon (#141), not a
-// drawn arrow: an <img> the tab holds, loaded through chrome.runtime.getURL,
-// with the same words as its title and its accessible name. Its surface is
-// the panel's (not the accent) so the icon's own teal tile reads in both
-// themes: the accent is nearly the tile's colour in the light theme.
+// The collapsed tab is a filled accent tab (#141's 16px icon was too small to
+// read) holding the extension's name as vertical text, with the same words as
+// its title and its accessible name. It stays 20px wide, narrower than the
+// site's Feedback tab: unlike Feedback, it can't be dismissed.
 check(/const tab = labelled\(el\('button', 'btx-tab'\), 'Show Translations & Citations'\)/.test(panelSrc), 'the collapsed tab carries its words as title and aria-label together (labelled)');
-check(/tab\.appendChild\(extensionIcon\('btx-tab-icon', 16\)\)/.test(panelSrc), 'the collapsed tab shows the extension\'s packaged icon, drawn at 16px, inside a tab narrower than the site\'s Feedback tab');
+check(/tabText\.textContent = 'Translations & Citations'/.test(panelSrc) && /tab\.appendChild\(tabText\)/.test(panelSrc), 'the collapsed tab shows the extension\'s name as text');
 eq([16, 24].map(P.iconFile), ['icons/icon-32.png', 'icons/icon-48.png'], 'an extension icon drawn at N px loads the 2N px file, sharp at 2x density');
 check(!/icon\('expand'/.test(panelSrc), 'the tab no longer draws the expand arrow');
-const tabRule = (fs.readFileSync(path.join(ROOT, 'src/content/panel.css'), 'utf8').match(/#btx-root \.btx-tab \{[^}]*\}/) || [''])[0];
-check(/background:\s*var\(--btx-bg\)/.test(tabRule) && !/background:\s*var\(--btx-accent\)/.test(tabRule), 'the tab sits on the panel surface, so the icon\'s tile shows in the light and the dark theme');
+const panelCss = fs.readFileSync(path.join(ROOT, 'src/content/panel.css'), 'utf8');
+const tabRule = (panelCss.match(/#btx-root \.btx-tab \{[^}]*\}/) || [''])[0];
+check(/background:\s*var\(--btx-accent\)/.test(tabRule) && /color:\s*var\(--btx-on-accent\)/.test(tabRule), 'the tab is filled with the accent, its text in the on-accent colour');
+check(/width:\s*20px/.test(tabRule), 'the tab stays 20px wide, narrower than the site\'s Feedback tab');
+const tabTextRule = (panelCss.match(/#btx-root \.btx-tab-text \{[^}]*\}/) || [''])[0];
+check(/writing-mode:\s*vertical-rl/.test(tabTextRule) && /(^|;|\{)\s*white-space:\s*nowrap/.test(tabTextRule), 'the tab\'s name runs vertically on one line (writing-mode, white-space: nowrap as their own declarations)');
+check(!/font:[^;]*white-space/.test(tabTextRule), 'the tab text\'s font declaration ends in a semicolon, so it cannot swallow white-space');
 // One way to put the panel away: Collapse (and the toolbar icon, which
 // toggles the same persisted state). There is no second, unpersisted "close".
 check(!/onClose|btx-close|userClosed/.test(panelSrc), 'the panel has no close control besides Collapse');

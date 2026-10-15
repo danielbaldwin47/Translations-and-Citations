@@ -728,21 +728,29 @@
   // or under each, as the room allows); a Bible version only on the Bible.
   const WELCOME_COPY = { title: 'Welcome to Translations & Citations', back: 'Back', next: 'Next', skip: 'Skip', gotIt: 'Got it' };
   const WELCOME_STEPS = [
-    { id: 'citations', control: 'citations-tab', title: WELCOME_COPY.title, lines: [
-      { text: 'Citations shows the talks and sermons that quote each verse of this chapter. Open one to read it right here.' },
-    ] },
-    { id: 'translation', control: 'translation-tab', title: 'Translation', lines: [
-      { text: 'Read scripture in another language, like Spanish or Japanese, or the Bible in another version.' },
-      { text: 'Add a language in Settings and it appears on the page beside the English, verse by verse.' },
-    ] },
-    { id: 'settings', control: 'settings', title: 'Settings', lines: [
-      { text: 'Add languages and Bible versions, and change the text size.' },
-    ] },
-    { id: 'hide', control: 'collapse', title: 'Hide the panel', lines: [
-      { text: 'The Collapse button hides the panel and leaves a small tab at the window’s edge. Click the tab to bring it back.' },
-      { text: 'You can also click the Translations & Citations icon {icon} at the top right of Chrome.', tip: true },
-      { text: 'Don’t see it? Click the puzzle-piece icon there, then the pin next to Translations & Citations.', tip: true, when: { pinned: false } },
-    ] },
+    {
+      id: 'citations', control: 'citations-tab', title: WELCOME_COPY.title, lines: [
+        { text: 'Citations shows the talks and sermons that quote verses in this chapter. Open one to read it right here in the sidebar.' },
+      ]
+    },
+    {
+      id: 'translation', control: 'translation-tab', title: 'Translation', lines: [
+        { text: 'Translations lets you read scriptures in another language, like Spanish or Japanese, and other Bible versions.' },
+        { text: 'Add a language and it appears on the page beside the English.' },
+      ]
+    },
+    {
+      id: 'settings', control: 'settings', title: 'Settings', lines: [
+        { text: 'Add languages and Bible versions, and change the text size.' },
+      ]
+    },
+    {
+      id: 'hide', control: 'collapse', title: 'Hide the panel', lines: [
+        { text: 'The Collapse button hides the panel and leaves a small tab at the window’s edge. Click the tab to bring it back.' },
+        { text: 'You can also click the Translations & Citations icon {icon} at the top right of Chrome.', tip: true },
+        { text: 'Don’t see it? Click the puzzle-piece icon there, then the pin next to Translations & Citations.', tip: true, when: { pinned: false } },
+      ]
+    },
   ];
 
   // The steps as the welcome shows them, given what the panel knows
@@ -861,7 +869,7 @@
       bible: !bible ? null : Object.assign(bible === 'noversions'
         ? { text: 'Turn on more Bible translations from your api.bible key.', button: 'Choose Bible translations' }
         : { text: 'More Bible translations, such as NIV and NKJV, need a free api.bible key.', button: 'Set up more translations' },
-      { disclosure: C.DISCLOSURE.apiBible }),
+        { disclosure: C.DISCLOSURE.apiBible }),
       talks: `See the talks that cite ${chapter}`,
     };
   }
@@ -1687,9 +1695,11 @@
     panel.appendChild(toolbar);
     panel.appendChild(body);
 
-    // The collapsed panel: one icon tab on the window's right edge.
+    // The collapsed panel: one filled tab on the window's right edge, its name set vertically.
     const tab = labelled(el('button', 'btx-tab'), 'Show Translations & Citations');
-    tab.appendChild(extensionIcon('btx-tab-icon', 16));
+    const tabText = el('span', 'btx-tab-text');
+    tabText.textContent = 'Translations & Citations';
+    tab.appendChild(tabText);
 
     rootEl.appendChild(panel);
     rootEl.appendChild(tab);

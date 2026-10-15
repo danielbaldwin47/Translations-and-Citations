@@ -873,8 +873,8 @@
 @keyframes btx-spin { to { transform: rotate(360deg); } }
 
 /* ---- Collapsed tab ----
-   One icon tab on the window's right edge, the same at every width. Fixed to
-   the viewport at 200px: below the site's banner, header and Sign In menu,
+   One filled accent tab on the window's right edge, the same at every width,
+   its name "Translations & Citations" set vertically. Fixed to the viewport at 200px: below the site's banner, header and Sign In menu,
    above its chapter arrows and Feedback tab. 20px wide, narrower than the
    Feedback tab's 26px (the gutter the site keeps clear beside its footnote
    panel's text): unlike Feedback, this tab can't be dismissed, so it stays
@@ -885,32 +885,36 @@
   top: 200px;
   right: 0;
   width: 20px;
-  height: 32px;
+  height: 150px;
   padding: 0;
   align-items: center;
   justify-content: center;
-  /* The panel's surface, not the accent: the icon is its own teal tile, which
-     the light theme's accent is almost the colour of. The edge is neutral at
-     rest: an accent edge beside the focus ring read as a double outline
-     (#102 C2); the shadow keeps the tab seen against the page. */
-  background: var(--btx-bg);
-  border: 1px solid var(--btx-border);
-  border-right: none;
+  /* The accent fill with its on-accent text, so the name reads in every theme
+     (the icon alone was too small to read). No border: the shadow keeps the
+     tab seen against the page. */
+  background: var(--btx-accent);
+  color: var(--btx-on-accent);
+  border: none;
   border-radius: 6px 0 0 6px;
   cursor: pointer;
   box-shadow: -1px 1px 4px rgba(0, 0, 0, 0.16);
   transition: background-color 0.12s, border-color 0.12s;
 }
-/* Hover says "press me": a light accent wash and the accent edge. (A
-   brightness filter on a white tab changed nothing.) */
+#btx-root .btx-tab-text {
+  writing-mode: vertical-rl;
+  font: 600 12px/1 var(--btx-ui-font);
+  white-space: nowrap;
+}
+/* Hover says "press me": the accent fill brightens. */
 #btx-root .btx-tab:hover {
-  background: color-mix(in srgb, var(--btx-accent) 14%, var(--btx-bg));
+  filter: brightness(1.06);
+  background: color-mix(in srgb, var(--btx-accent) 100%, var(--btx-bg));
   border-color: var(--btx-accent);
 }
 /* The tab sits against the window's edge, where an outer ring would be cut off
    on the right: the ring is inset, along the tab's own edge. */
 #btx-root .btx-tab:focus-visible { outline-offset: -2px; }
-#btx-root .btx-tab-icon { display: block; width: 16px; height: 16px; }
+/* #btx-root .btx-tab-icon { display: block; width: 16px; height: 16px; }*/
 
 #btx-root.btx-collapsed { width: auto; }
 #btx-root.btx-collapsed .btx-panel { display: none; }
