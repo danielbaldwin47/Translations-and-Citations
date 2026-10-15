@@ -3,7 +3,7 @@
  * (ADR-0007). It does two things:
  *   - the fit: while the panel is open, the site's reading column fits the
  *     visible reading area, in every mode, split or not (fitColumn, #89);
- *   - the page split: a language chapter set into that column, paired
+ *   - the page split: a chapter in a language set into that column, paired
  *     verse by verse with the English it translates, while the panel's
  *     arrangement names a page's language — in either mode (wantsSplit has
  *     no mode input: the split stays on the page in Citations).

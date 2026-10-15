@@ -343,9 +343,10 @@ tell them apart by `provider` (`'church'`). In settings,
 the options page and the worker, *translation* (`enabledTranslations`,
 `defaultTranslationId`) means a Bible version: api.bible's, or the bundled
 World English Bible.
-_Avoid_: Church language (a Bible version is never a language: api.bible's list is
-requested with `language=eng`, so the bare word is unambiguous. A Bible version
-in another language would bring the qualifier back for review)
+Bible versions are English-only (api.bible's list is requested with `language=eng`),
+so the bare word is unambiguous; a Bible version in another language would bring
+the qualifier back for review.
+_Avoid_: Church language
 
 **Language switch**:
 The synced boolean setting `churchLanguageShown` (default on, owned by
