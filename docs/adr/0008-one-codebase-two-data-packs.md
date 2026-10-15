@@ -57,3 +57,10 @@ Consequences:
 - Validators are pack-aware and the Store zip is the committed tree alone, so
   a gated element cannot leak. The BYU databases stay in this repo's LFS
   history; rewriting it is out of scope.
+
+Amended October 9, 2026 (issue #90): the Store zip is the committed tree plus
+one file, the **Store stamp**, which tells the pack probe to ask the public
+directory alone, so the Store build requests no directory it lacks. The stamp
+carries no data and is not a flavor: the descriptor still decides every
+corpus, and a repo load still reads whichever pack it finds. The stamp exists
+only for the personal-pack probe and is removed with it.

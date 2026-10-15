@@ -7,7 +7,10 @@
  * rewrites it to the body passage that footnote annotates (see extractCitation /
  * stpjsBodyPassage in build-citation-data.js, which this reuses).
  *
- * Run (Node 22+, built-in zlib — no npm install), then validate + commit:
+ * STPJS is the gated element (ADR-0008), so its talks live only in the personal
+ * pack; this rewrites src/citations/data-personal/ (never committed).
+ *
+ * Run (Node 22+, built-in zlib — no npm install), then validate:
  *   node tools/rederive-js-snippets.js
  *   node tools/validate-citations.js
  */
@@ -18,7 +21,11 @@ const path = require('path');
 const zlib = require('node:zlib');
 const { extractCitation } = require('./build-citation-data.js');
 
-const DATA = path.resolve(__dirname, '..', 'src', 'citations', 'data');
+const DATA = path.resolve(__dirname, '..', 'src', 'citations', 'data-personal');
+if (!fs.existsSync(path.join(DATA, 'sources.json'))) {
+  console.error(`No personal pack at ${DATA}; build it with --pack personal first.`);
+  process.exit(2);
+}
 const sources = JSON.parse(fs.readFileSync(path.join(DATA, 'sources.json'), 'utf8'));
 
 const htmlCache = {};

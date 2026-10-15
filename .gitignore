@@ -1,13 +1,25 @@
-# Large source databases for the citation-index build. These are NOT shipped with
-# the extension (only the generated src/citations/data/ is). They remain in git
-# history via LFS at the commit that added them ("Add BYU citation index
-# databases"); retrieve with, e.g.:
-#   git checkout <that-commit> -- core.53.db content.53.db && mkdir -p source-data && mv core.53.db content.53.db source-data/
-# or place your own copies in source-data/ to rebuild.
-/source-data/
+# Build inputs (ADR-0008), never shipped: the BYU databases core.53.db and
+# content.53.db, the derivation inputs derived/gc-YYYY-MM.json, and the cached
+# downloads the build tools' headers name (engwebp_usfm.zip, scripture/,
+# wikisource-jod.json, jod-talks/). The databases and derivation inputs live
+# in the owner's private repo (#82); fill the directory from it with
+#   git clone <private-repo-url> /tmp/btx-private && cp -r /tmp/btx-private/source-data .
+# (the databases are also in this repo's LFS history at commit 0d154d7, "Add
+# BYU citation index databases": git checkout 0d154d7 -- core.53.db content.53.db).
+/source-data
 /core.53.db
 /content.53.db
+
+# The personal pack (ADR-0008): the personal build's data pack, holding the
+# gated element. Never committed; the private repo holds the built pack —
+#   git clone <private-repo-url> /tmp/btx-private && cp -r /tmp/btx-private/data-personal src/citations/
+# — or build it from the inputs above with
+#   node --experimental-sqlite tools/build-citation-data.js --pack personal
+/src/citations/data-personal/
 
 # macOS Finder droppings, and the scratch worktrees agents work in.
 .DS_Store
 /.claude/worktrees/
+
+# Store zips built by tools/build-store-zip.js.
+/dist/

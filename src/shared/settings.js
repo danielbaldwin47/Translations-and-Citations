@@ -6,11 +6,17 @@
  *   - the schema        (SCHEMA / KEYS / defaults)
  *   - normalization     (exactly one normalizer per setting — no per-caller
  *                        `x === 'verse' ? … : …` coercions scattered around;
- *                        enabledTranslations comes back slim and deduped, and
- *                        a default naming a dropped twin follows it)
+ *                        enabledTranslations comes back slim and deduped,
+ *                        a default naming a dropped twin follows it, and the
+ *                        bundled World English Bible row is always there —
+ *                        the default while no api.bible version is on)
  *   - reads and writes  (get / patch / replace, with an in-context cache)
  *   - change notification (subscribe, which reports *which* keys changed and
  *                        whether this context is the one that wrote them)
+ *
+ * Notable keys: `churchLanguageShown` is the language switch (GLOSSARY),
+ * one boolean for every language, on unless a stored `false` says
+ * otherwise; it is not a panel-handled key.
  *
  * Consumers are thin adapters: the content script, the options page and the
  * service worker each just call this module.
@@ -150,9 +156,30 @@
   // Loaded after constants.js in every context (manifest content_scripts,
   // importScripts, options.html), so a missing `C` is a load-order bug.
   const APIBIBLE = C.PROVIDER_APIBIBLE;
-  const BIBLEAPI = C.PROVIDER_BIBLEAPI;
+  const BUNDLED = C.PROVIDER_BUNDLED;
 
-  // Church languages are codes from C.CHURCH_LANGUAGES, kept in that table's
+  // The World English Bible ships inside the extension (C.BUNDLED_BIBLE), so
+  // Bible chapters always have a text beside them. Its row is guaranteed:
+  // always present, always the shipped fields, after the api.bible versions.
+  // A row naming any other provider — the retired public-domain service
+  // older versions offered — has no path that serves it and is dropped (a
+  // row with no provider is an api.bible row, as the worker reads it).
+  const WEB_ROW = slimRow(C.BUNDLED_BIBLE);
+  function servedRows(list) {
+    return list.filter((t) => t.provider === undefined || t.provider === APIBIBLE);
+  }
+  function withBundled(list) {
+    return servedRows(list).concat([Object.assign({}, WEB_ROW)]);
+  }
+
+  // The default translation: the World English Bible while no api.bible
+  // version is on, else whatever was chosen (the panel resolves a default
+  // naming no enabled row by falling back to the first).
+  function defaultFor(id, list) {
+    return list.some((t) => t.provider !== BUNDLED) ? id : WEB_ROW.id;
+  }
+
+  // Languages are codes from C.CHURCH_LANGUAGES, kept in that table's
   // order (which is the order the panel's dropdown lists them) with duplicates
   // dropped. A code the table doesn't know is dropped too: it would name a
   // language the panel has no label for and the site may not publish. Under
@@ -169,19 +196,24 @@
   // absent: an old stored value is an unknown key, carried through writes.
   const SCHEMA = {
     apiKey: { def: '', norm: str('') },
-    provider: { def: APIBIBLE, norm: oneOf([APIBIBLE, BIBLEAPI], APIBIBLE) },
-    enabledTranslations: { def: [], norm: translationList },
+    // api.bible is the one keyed provider; any other stored value (the
+    // retired public-domain service) reads as api.bible.
+    provider: { def: APIBIBLE, norm: oneOf([APIBIBLE], APIBIBLE) },
+    enabledTranslations: { def: [], norm: (v) => withBundled(translationList(v)) },
     defaultTranslationId: { def: '', norm: str('') },
-    // Church languages to offer beside the page (e.g. ['spa', 'jpn']): the same
+    // Languages to offer beside the page (e.g. ['spa', 'jpn']): the same
     // chapter from the Church's own site, on every standard work, no key. They
     // join the translation dropdown after the api.bible versions.
     churchLanguages: { def: [], norm: languageList },
-    // Where a Church language shows: split into the page beside the English
+    // Where a language shows: split into the page beside the English
     // ('columns', side by side; 'interlinear', under each verse — see
     // __BTX.pageSplit) or in the side panel ('panel').
     churchLanguageLayout: { def: 'columns', norm: oneOf(['columns', 'interlinear', 'panel'], 'columns') },
-    // Only act on English pages (the site serves other languages too).
-    actOnNonEngOnly: { def: true, norm: bool(true) },
+    // The language switch (GLOSSARY: Language switch): whether a Church
+    // language shows at all. One switch for every language, synced so off
+    // stays off on every chapter and computer; off keeps the languages ticked
+    // and the layout chosen. Anything but a stored `false` reads as on.
+    churchLanguageShown: { def: true, norm: bool(true) },
     sidebarWidth: {
       def: SIDEBAR_WIDTH_DEFAULT,
       norm: clampedInt(SIDEBAR_WIDTH_MIN, SIDEBAR_WIDTH_MAX, SIDEBAR_WIDTH_DEFAULT),
@@ -201,30 +233,45 @@
     // never scrolls on its own — no tracking, no eased re-alignment; where the
     // user puts it is where it stays.
     scrollSync: { def: true, norm: bool(true) },
-    // The panel's own state: preferred mode on Bible chapters, and whether the
-    // panel is collapsed to its edge tab. Owned and written by __BTX.panel.
-    panelMode: { def: 'translation', norm: oneOf(['translation', 'citations'], 'translation') },
+    // The panel's own state: the reader's chosen mode (Citations until they
+    // choose Translation: a fresh install, or a missing or unreadable stored
+    // value, opens on Citations), and whether the panel is collapsed to its
+    // edge tab. Owned and written by __BTX.panel.
+    panelMode: { def: 'citations', norm: oneOf(['translation', 'citations'], 'citations') },
     panelCollapsed: { def: false, norm: bool(false) },
+    // The reader pressed × on the no-translation line (GLOSSARY: No-translation
+    // line). Synced, so it holds on every computer; anything but a stored
+    // `true` reads as not dismissed. Written by the orchestrator, read into the
+    // panel's arrangement.
+    noTranslationLineDismissed: { def: false, norm: bool(false) },
+    // The reader pressed Got it on the welcome (GLOSSARY: Welcome). Synced:
+    // the welcome introduces the extension to a person, not to a computer.
+    // Anything but a stored `true` reads as not seen, so the welcome is due.
+    // Written true by the panel's Got it and by the worker on an update (an
+    // update never greets); written false by "Show the welcome again".
+    welcomeSeen: { def: false, norm: bool(false) },
   };
 
   const KEYS = Object.keys(SCHEMA);
 
+  // Every setting at its default, cross-setting rules included (the default
+  // translation is the World English Bible).
   function defaults() {
-    const out = {};
-    for (const k of KEYS) out[k] = SCHEMA[k].norm(SCHEMA[k].def);
-    return out;
+    return normalize({});
   }
 
   // Full, valid settings object from anything at all. Unknown keys are dropped.
-  // One rule spans two settings: a default naming a translation twin that
-  // translationList dropped follows it to the kept row.
+  // Two rules span two settings: a default naming a translation twin that
+  // translationList dropped follows it to the kept row, and with no api.bible
+  // version on the default is the World English Bible (defaultFor).
   function normalize(raw) {
     const src = (raw && typeof raw === 'object') ? raw : {};
     const out = {};
     for (const k of KEYS) {
       out[k] = SCHEMA[k].norm(Object.prototype.hasOwnProperty.call(src, k) ? src[k] : SCHEMA[k].def);
     }
-    out.defaultTranslationId = twinOf(out.defaultTranslationId, src.enabledTranslations, out.enabledTranslations);
+    const twin = twinOf(out.defaultTranslationId, src.enabledTranslations, out.enabledTranslations);
+    out.defaultTranslationId = defaultFor(twin, out.enabledTranslations);
     return out;
   }
 

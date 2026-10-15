@@ -2,13 +2,17 @@
  * Network layer. All fetches happen here, in the service worker, where
  * host_permissions let us call the APIs without content-script CORS problems.
  *
- *   listBibles(key)                      -> { bibles: [{ id, name, abbr, description, copyright, provider }], partial? } | { error }
- *   fetchApiBibleChapter(key, id, chap)  -> { payload: { blocks, copyright, reference }, fums } | { error }
- *   fetchBibleApiChapter(id, book, chap) -> { payload } | { error }
+ *   listBibles(key)                      -> { bibles: [{ id, name, abbr, description, copyright, provider }], partial?, calls } | { error, calls }
+ *   fetchApiBibleChapter(key, id, chap)  -> { payload: { blocks, copyright, reference }, fumsToken } | { error }
+ *   fetchBundledChapter(id, chapterId)   -> { payload: { blocks, copyright, reference } } | { error }
+ *                                           the World English Bible, read from the packaged
+ *                                           files (C.BUNDLED_BIBLE): no key, no limiter, no FUMS
  *
  * `partial: true` means a per-version copyright lookup failed, so some rows
  * carry no copyright and nobody can tell which versions the reader added to
  * the key: the worker doesn't cache such a list, and the options page says so.
+ * `calls` is how many requests reached api.bible (the list, then one lookup
+ * per version), which the worker adds to the month's count (ratelimit.js).
  *
  * Errors are { error: { code, message, remote?, retryAfterMs? } } with a code
  * from C.ERR. api.bible answers both a wrong key and a version the key isn't
@@ -19,7 +23,7 @@
  * response names a wait in Retry-After (seconds or an HTTP date); with no
  * Retry-After there is no `retryAfterMs` — nobody knows how long to wait.
  *
- * Both providers are normalized to one simple, safe intermediate representation
+ * Both providers come as one simple, safe intermediate representation
  * (IR) that the content script renders with text nodes only (no innerHTML):
  *
  *   blocks: [
@@ -29,7 +33,8 @@
  *
  * Loaded via importScripts -> self.__BTX.api. The same file loads in Node
  * (module.exports) so tools/validate-options-form.js can drive listBibles and
- * errorFor against a stubbed fetch, and check retryAfterMs.
+ * errorFor against a stubbed fetch, and check retryAfterMs, and
+ * tools/validate-bible-data.js can drive fetchBundledChapter.
  */
 (function (root) {
   'use strict';
@@ -46,16 +51,16 @@
 
   // ---- api.bible: list available English bibles for a key ----
   async function listBibles(key) {
-    if (!key) return err(ERR.NO_KEY);
+    if (!key) return Object.assign(err(ERR.NO_KEY), { calls: 0 });
     let res;
     try {
       res = await fetch(`${C.API_BIBLE_BASE}/bibles?language=eng`, {
         headers: { 'api-key': key },
       });
     } catch (e) {
-      return err(ERR.NETWORK, String(e));
+      return Object.assign(err(ERR.NETWORK, String(e)), { calls: 0 });
     }
-    if (!res.ok) return errorFor(res);
+    if (!res.ok) return Object.assign(await errorFor(res), { calls: 1 });
     const json = await res.json();
     const bibles = (json.data || []).map((b) => ({
       id: b.id,
@@ -70,18 +75,21 @@
     // The list endpoint usually omits copyright, which the options page needs to
     // tell free (public-domain/CC) versions from the copyrighted ones the user
     // added. Backfill it from the per-version endpoint (parallel, capped).
-    const failed = await fillCopyrights(key, bibles.filter((b) => !b.copyright));
-    return failed ? { bibles, partial: true } : { bibles };
+    const looked = await fillCopyrights(key, bibles.filter((b) => !b.copyright));
+    const calls = 1 + looked.calls;
+    return looked.failed ? { bibles, partial: true, calls } : { bibles, calls };
   }
 
   // Fill in each bible's copyright from GET /bibles/{id}, with limited
   // concurrency. Best-effort: a failed lookup leaves copyright empty (the
-  // version still shows). Resolves with how many lookups failed.
+  // version still shows). Resolves with how many lookups failed, and how
+  // many reached api.bible.
   async function fillCopyrights(key, list) {
-    if (!list.length) return 0;
+    if (!list.length) return { failed: 0, calls: 0 };
     const CONCURRENCY = 6;
     let i = 0;
     let failed = 0;
+    let calls = 0;
     async function worker() {
       while (i < list.length) {
         const b = list[i++];
@@ -89,6 +97,7 @@
           const r = await fetch(`${C.API_BIBLE_BASE}/bibles/${encodeURIComponent(b.id)}`, {
             headers: { 'api-key': key },
           });
+          calls++;
           if (!r.ok) { failed++; continue; }
           const j = await r.json();
           const d = j.data || {};
@@ -99,7 +108,7 @@
     const workers = [];
     for (let k = 0; k < Math.min(CONCURRENCY, list.length); k++) workers.push(worker());
     await Promise.all(workers);
-    return failed;
+    return { failed, calls };
   }
 
   // ---- Map a failed response -> error ----
@@ -153,6 +162,9 @@
       'include-titles': 'true',
       'include-chapter-numbers': 'false',
       'include-verse-spans': 'false',
+      // FUMS v3: the response's meta carries a token for the manual usage
+      // report (background/fums.js) instead of script text.
+      'fums-version': '3',
     });
     const url = `${C.API_BIBLE_BASE}/bibles/${encodeURIComponent(bibleId)}/chapters/${encodeURIComponent(chapterId)}?${params}`;
     let res;
@@ -171,11 +183,9 @@
         copyright: data.copyright || '',
         reference: data.reference || '',
       },
-      // FUMS usage tracking — only forwarded on fresh fetches (not cache hits),
-      // so it reports an actual API access. The content script fires it.
-      fums: meta.fumsJsInclude || meta.fumsJs
-        ? { include: meta.fumsJsInclude || '', js: meta.fumsJs || '' }
-        : null,
+      // The usage-report token; the worker stores it with the cached chapter
+      // and reports it on every display.
+      fumsToken: meta.fumsToken || '',
     };
   }
 
@@ -235,39 +245,43 @@
     return out;
   }
 
-  // ---- bible-api.com chapter fetch + normalize (public domain, no key) ----
-  async function fetchBibleApiChapter(translationId, ldsBook, chapter) {
-    const usfm = BOOKS.ldsToUsfm(ldsBook);
-    if (!usfm) return err(ERR.NOT_FOUND, 'Unknown book');
-    const url = `${C.BIBLE_API_BASE}/data/${encodeURIComponent(translationId)}/${usfm}/${encodeURIComponent(chapter)}`;
-    let res;
-    try {
-      res = await fetch(url);
-    } catch (e) {
-      return err(ERR.NETWORK, String(e));
+  // ---- Bundled Bible chapter (no key, no rate limit, no reporting) ----
+  // The World English Bible ships as one IR file per USFM book under
+  // C.BUNDLED_BIBLE.dir (tools/build-bible-data.js). The worker reads its own
+  // packaged files by extension URL; the last book read is kept, so paging
+  // through a book reads its file once.
+  let bundledBook = null; // { url, data }
+
+  function packagedUrl(p) {
+    const rt = root.chrome && root.chrome.runtime;
+    return rt && typeof rt.getURL === 'function' ? rt.getURL(p) : p;
+  }
+
+  async function fetchBundledChapter(bibleId, chapterId) {
+    const B = C.BUNDLED_BIBLE;
+    const m = /^([0-9A-Z]{3})\.(\d+)$/.exec(String(chapterId || ''));
+    const slug = m && Object.keys(BOOKS.LDS_TO_USFM).find((k) => BOOKS.LDS_TO_USFM[k] === m[1]);
+    if (bibleId !== B.id || !slug) return err(ERR.NOT_FOUND, 'Not in the bundled Bible');
+    const url = packagedUrl(`${B.dir}/${m[1]}.json`);
+    if (!bundledBook || bundledBook.url !== url) {
+      let res;
+      try {
+        res = await fetch(url);
+      } catch (e) {
+        return err(ERR.UNKNOWN, String(e));
+      }
+      if (!res.ok) return err(statusToErr(res.status), `HTTP ${res.status}`);
+      bundledBook = { url, data: await res.json() };
     }
-    if (!res.ok) return err(statusToErr(res.status), `HTTP ${res.status}`);
-    const json = await res.json();
-    const verses = json.verses || [];
-    // bible-api gives no paragraph structure, so render as one continuous para.
-    const runs = [];
-    for (const v of verses) {
-      if (v.verse != null) runs.push({ t: 'v', n: String(v.verse) });
-      const text = (v.text || '').replace(/\s+/g, ' ').trim();
-      if (text) runs.push({ t: 'txt', s: text + ' ', wj: false });
-    }
-    const tr = json.translation || {};
-    const ref = (verses[0] ? `${BOOKS.ldsToBibleApi(ldsBook)} ${chapter}` : '');
+    const chapters = (bundledBook.data && bundledBook.data.chapters) || {};
+    const blocks = Object.prototype.hasOwnProperty.call(chapters, m[2]) ? chapters[m[2]] : null;
+    if (!blocks) return err(ERR.NOT_FOUND, 'No such chapter');
     return {
-      payload: {
-        blocks: runs.length ? [{ type: 'para', style: 'p', runs }] : [],
-        copyright: tr.license || tr.name || 'Public domain',
-        reference: ref,
-      },
+      payload: { blocks, copyright: B.copyright, reference: `${BOOKS.bookFullName(slug)} ${m[2]}` },
     };
   }
 
-  const API = { listBibles, fetchApiBibleChapter, fetchBibleApiChapter, errorFor, retryAfterMs };
+  const API = { listBibles, fetchApiBibleChapter, fetchBundledChapter, errorFor, retryAfterMs };
   if (typeof module !== 'undefined' && module.exports) module.exports = API;
   root.__BTX = Object.assign(root.__BTX || {}, { api: API });
 })(typeof globalThis !== 'undefined' ? globalThis : this);
