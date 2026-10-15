@@ -2,7 +2,7 @@
 
 Domain glossary for the Chrome extension that augments the scripture reader on
 `churchofjesuschrist.org/study` with alternate Bible translations, the
-chapter in other Church languages, and BYU Scripture Citation Index data. This file defines what the words mean; file
+chapter in other languages, and BYU Scripture Citation Index data. This file defines what the words mean; file
 layout, rules, and commands live in `CLAUDE.md`.
 
 ## Scripture geography
@@ -171,7 +171,7 @@ not enough (a language can lack a chapter of a volume it publishes). The
 check has not asked that language).
 
 **Chapter check**:
-Whether an enabled Church language has the chapter, learned by fetching it
+Whether an enabled language has the chapter, learned by fetching it
 (`churchText.load`) before the panel decides what to show. It walks the texts
 in pick order and fetches only as far as its question needs; a language whose
 volume lacks the chapter is excluded with no fetch, and a Bible row needs none.
@@ -192,7 +192,7 @@ walk, `firstOffered`, is the arrangement's too); the fetching loops are
 **Arrangement**:
 The one pure rule for what the panel body shows (`arrangement` in the
 panel's pure core). Inputs: the chapter's texts, each marked offered or not
-(`chapterOffer`), the pick memory, the enabled Church languages, the split
+(`chapterOffer`), the pick memory, the enabled languages, the split
 layout, the **language switch**, whether the chapter is a Bible chapter
 (`isBible`), whether the **no-translation line** is
 dismissed, the stored **mode**,
@@ -212,15 +212,15 @@ and `content.js` adds to the pick memory. With Translation stored:
   chapter, the text shown in its place carries the missing-chapter line, "No
   Mahsen en Pohnpei translation for Doctrine and Covenants 84.");
 - on a Bible chapter the text is a Bible version, the latest Bible pick: a
-  Church language goes to the page, never the beside card. The version
+  language goes to the page, never the beside card. The version
   carries the beside-the-page line while a language holds the page, and the
   not-available line (the not-available card's sentence) while every ticked
   language lacks the chapter. With the split layout `panel` and the switch
-  on, the Church language that offers the chapter shows instead, in the
+  on, the language that offers the chapter shows instead, in the
   version's place, and `versionRests` names it: the version dropdown rests.
   A layout back into the page brings the version back;
 - a language not yet checked stands before it: the loading state;
-- nothing offers it and no Church language is on: the setup card;
+- nothing offers it and no language is on: the setup card;
 - the **language switch** off, off the Bible: the off card, unless the chapter
   check already knows every ticked language lacks the chapter;
 - nothing offers it and languages are on: Citations with the **no-translation
@@ -234,9 +234,9 @@ in the panel either.
 
 **No-translation line**:
 The one quiet line above the Citations list when the stored mode is
-Translation, Church languages are on and none offers the chapter: "No
+Translation, languages are on and none offers the chapter: "No
 Kiribati translation for Doctrine and Covenants 76. **Add a language** ×".
-It names the enabled Church language nearest the front of the pick memory,
+It names the enabled language nearest the front of the pick memory,
 else the first enabled one, by its short native name (`churchText.nameFor`,
 as the cards do). "Add a language" opens settings at the languages card
 (`OPEN_OPTIONS {section}`); × sets the synced `noTranslationLineDismissed`
@@ -265,7 +265,7 @@ it shows.
 
 **Effective mode**:
 The mode actually showing: the **arrangement**'s mode. It differs from the
-stored mode only on a chapter nothing offers while Church languages are on
+stored mode only on a chapter nothing offers while languages are on
 (Citations under a stored Translation). `panel.effectiveMode()` is the one
 source of truth.
 
@@ -307,7 +307,7 @@ hint, and "Collapse panel for wider columns" when collapsing would make room
 (`pageSplit.collapseFits`). No sentence of its own: the **language row** names
 the language.
 Its one-line form is the **beside-the-page line**, above the Bible version in
-the panel while a Church language holds the page: "Español is side by side ·
+the panel while a language holds the page: "Español is side by side ·
 **Change**" or "Español is under each verse · **Change**", naming the layout
 the page shows, as the pressed segment does. Change swaps the line for the
 same split-layout control, in its place. A layout pick writes
@@ -327,7 +327,7 @@ rate limit or usage report. Its `enabledTranslations` row is guaranteed by the
 settings normalizer and is the default translation while no api.bible version
 is on. Its text is never edited (the condition of the name).
 
-**Church language**:
+**Language**:
 A language the Church publishes the standard works in, offered beside the
 page from the site's own content endpoint (`__BTX.churchText`). Enabled ones
 are the `churchLanguages` setting (codes from `C.CHURCH_LANGUAGES`); each
@@ -343,10 +343,13 @@ tell them apart by `provider` (`'church'`). In settings,
 the options page and the worker, *translation* (`enabledTranslations`,
 `defaultTranslationId`) means a Bible version: api.bible's, or the bundled
 World English Bible.
+_Avoid_: Church language (a Bible version is never a language: api.bible's list is
+requested with `language=eng`, so the bare word is unambiguous. A Bible version
+in another language would bring the qualifier back for review)
 
 **Language switch**:
 The synced boolean setting `churchLanguageShown` (default on, owned by
-`__BTX.settings`): whether a Church language shows at all. One switch for
+`__BTX.settings`): whether a language shows at all. One switch for
 every language. Off hides the language from the page: the **arrangement**
 names no page's language, so there is no **page split** and no chapter check
 for it, and the **no-translation line** never shows. The languages stay
@@ -368,7 +371,7 @@ the switch says whether the enabled ones *show*)
 
 **Language row**:
 The Translation toolbar's second row, under the version row, present
-whenever a Church language is ticked (or English is offered on request,
+whenever a language is ticked (or English is offered on request,
 #119): the language and its **language switch**. Its form is the panel's
 pure `languageRow` over the arrangement's facts: one language that may offer
 the chapter (a chapter check still asking counts) is its name as plain text;
@@ -384,10 +387,10 @@ Off the Bible the version row goes and the A− / A+ stepper sits here.
 _Avoid_: language bar, toggle row
 
 **Page split**:
-A Church-language chapter set into the site's own reading column, each block
+A chapter in a language, set into the site's own reading column, each block
 paired with the page's element of the same id (`__BTX.pageSplit`,
 ADR-0007). A page read in another language (`?lang=spa`) offers English as a
-Church language, unticked and on request (`churchText.textsFor`,
+language, unticked and on request (`churchText.textsFor`,
 `onRequest`): the reader didn't add it, so it is neither fetched nor the
 page's language until they choose it — a dropdown pick, or opening
 Translation where the tab shows it (the arrangement's `chooses`, remembered
@@ -395,8 +398,8 @@ in the pick memory). Chosen, the same rules set English into the Spanish
 page. It is independent of the mode: it shows, in Translation and
 Citations alike, while the **language switch** is on, the **split layout** is
 columns or interlinear and the **arrangement** names a page's language (`churchText.pageLanguage`): the
-first Church language in the pick memory that offers the chapter; with none,
-the text the Translation tab selects, only when that is a Church language. So
+first language in the pick memory that offers the chapter; with none,
+the text the Translation tab selects, only when that is a language. So
 John 3 with no pick and Español on shows no split (the tab selects the Bible),
 while Alma 5 splits in Español. A Bible version never holds the page, so on
 John 3 NIV can show in the panel with Español on the page. A language whose
@@ -443,7 +446,7 @@ mounted at a time.
 
 **View key**:
 The string identifying *which content* a view is showing — chapter + version
-(+ `::page` or `::panel` for a Church-language row) for translation, chapter +
+(+ `::page` or `::panel` for a language row) for translation, chapter +
 citation layout for citations (the verse being read is passed only when the
 list is built, and moved with `citPanel.markVerse` / `revealVerse` after
 that), talk + cite + an open counter for the talk reader (a row click opens

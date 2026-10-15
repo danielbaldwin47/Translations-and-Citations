@@ -1,6 +1,6 @@
 /*
  * Options page: an autosaving editor of the stored settings, in cards whose
- * ids are C.OPTIONS_SECTIONS, in page order — `languages` (Church languages
+ * ids are C.OPTIONS_SECTIONS, in page order — `languages` (languages
  * and where they show: the setup that needs no key comes first, with the
  * reader's own languages on top as "Your languages"), `bible` (api.bible key
  * and which translations the panel offers), `reading` (text size, panel width,
@@ -23,7 +23,7 @@
  * (failedWrites) but the About button's, and any write that lands retires
  * the error.
  *
- * A Church language ticked here also leads the pick memory (the panel's
+ * A language ticked here also leads the pick memory (the panel's
  * most-recently-used list, chrome.storage.local under C.SELECTION_KEY, not a
  * setting): church text's rememberTicked computes it, rememberTicks writes it
  * ahead of the setting, and open reader tabs adopt it through storage.onChanged.
@@ -426,7 +426,7 @@
     return (parts || []).map((part) => (typeof part === 'string' ? part : part.text)).join('');
   }
 
-  // ---- Church languages ----
+  // ---- Languages ----
 
   // The checklist's languages: the table minus English, which is the page's
   // own language.
@@ -1114,7 +1114,7 @@
     else dirty.delete('apiKey');
   }
 
-  // ---- Church languages ----
+  // ---- Languages ----
 
   // One row (label + checkbox) per language, built once; renderLanguageList
   // moves them between sections, so a tick keeps its checkbox, its state and

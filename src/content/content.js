@@ -14,7 +14,7 @@
  *    most-recently-used list (C.SELECTION_KEY in chrome.storage.local); a row
  *    on request the arrangement `chooses` (English on a page read in another
  *    language, shown by the Translation tab) is remembered there. The options page writes
- *    it too (a Church language ticked there leads) and this tab adopts that
+ *    it too (a language ticked there leads) and this tab adopts that
  *    write through storage.onChanged
  *  - describes the chapter to the panel's arrangement (factsFor: the texts
  *    chapterOffer marked offered, the pick memory, the enabled languages, the
@@ -168,7 +168,7 @@
   }
 
   // How a sentence names a text: an api.bible version by its abbreviation
-  // ("NIV"), a Church language by its English name ("Spanish").
+  // ("NIV"), a language by its English name ("Spanish").
   function nameOf(tr) {
     if (!tr) return '';
     return tr.provider === churchText.PROVIDER ? tr.name : (tr.abbr || tr.name);
@@ -185,7 +185,7 @@
     return enabled;
   }
 
-  // Where a Church language shows: 'columns' | 'interlinear' (in the page) or
+  // Where a language shows: 'columns' | 'interlinear' (in the page) or
   // 'panel'.
   function placement() {
     const l = enabled && enabled.churchLanguageLayout;
@@ -203,7 +203,7 @@
   }
 
   // ---- The chapter check ----------------------------------------------------
-  // A Church language offers a chapter only once its chapter is fetched and
+  // A language offers a chapter only once its chapter is fetched and
   // found (churchText.chapterOffer decides from the results so far). `rows`
   // are textsFor's. Ordered by the reader's picks: the check walks them as
   // pickText would and stops where its question is answered.
@@ -434,7 +434,7 @@
   }
 
   // The page split shows the arrangement's page language, in either mode: the
-  // first Church language in pick order that offers the chapter, while the
+  // first language in pick order that offers the chapter, while the
   // split layout is in-page. It goes when there is none, when the chapter
   // doesn't show (the page left). Called wherever one of those inputs moves; pageSplit.show is a
   // no-op for the key already showing. While a language in the way is not
@@ -535,7 +535,7 @@
       shown = panel.arrange(factsFor(e, offer));
     }
     applyNote(); // the beside-the-page line comes with a Bible version, goes with anything else
-    // Nothing offers the chapter and Church languages are on: Citations.
+    // Nothing offers the chapter and languages are on: Citations.
     if (shown.mode !== 'translation') return renderActiveMode();
     const list = texts = offer.texts.filter((t) => t.offered !== false);
     if (shown.body === 'off' || shown.body === 'not-available') {
@@ -586,7 +586,7 @@
     return panel.showView({ name: 'translation', key: transKey(), render: () => loadChapter() });
   }
 
-  // A Church language in the page and the same one in the panel are different
+  // A language in the page and the same one in the panel are different
   // views: the one shows a card, the other the text.
   function transKey() {
     if (!current) return null;
@@ -788,7 +788,7 @@
     });
   }
 
-  // A Church-language chapter comes straight from the site (same origin), so
+  // A language chapter comes straight from the site (same origin), so
   // it skips the worker, the key, the rate limiter and api.bible's usage
   // report. Split into the page (syncSplit), the panel only says so — or why
   // it couldn't.
@@ -861,7 +861,7 @@
   // Both write a setting through __BTX.settings and then render the change
   // here: the settings subscriber below skips this context's own writes.
 
-  // The setup card's "Add a Church language": turn it on, make it the pick,
+  // The setup card's "Add a language": turn it on, make it the pick,
   // and show the chapter with it at once (the split appears straight away).
   // The language and the switch go in one patch (setLanguageShown's
   // `extra`), so the card's promise holds even when the switch was off.

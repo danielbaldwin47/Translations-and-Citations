@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /*
  * No-build sanity checks for src/content/church-text.js (__BTX.churchText),
- * the Church-language parallel text. Run:
+ * the language parallel text. Run:
  *   node tools/validate-church-text.js
  *
  * Covers the pure core: which texts a chapter offers and which one shows
@@ -74,13 +74,13 @@ const NIV = { id: 'niv', name: 'New International Version', abbr: 'NIV', provide
 const [L1, L2] = C.CHURCH_LANGUAGES.filter((l) => l.code !== 'eng'); // the pages below are English
 let list = T.textsFor({ isBible: true, collection: 'nt', bibleRows: [NIV], languages: [L1.code, L2.code], pageLang: 'eng' });
 eq(list.map((t) => t.id), ['niv', 'church:' + L1.code, 'church:' + L2.code],
-  'a Bible chapter offers the api.bible versions first, then the Church languages');
+  'a Bible chapter offers the api.bible versions first, then the languages');
 eq(list[1], { id: 'church:' + L1.code, provider: 'church', lang: L1.code, abbr: L1.name === L1.english ? '' : L1.name, name: L1.english },
   'a Church row carries its language, native name and English name');
 list = T.textsFor({ isBible: false, bibleRows: [NIV], languages: [L1.code], pageLang: 'eng' });
-eq(list.map((t) => t.id), ['church:' + L1.code], 'a non-Bible chapter offers only the Church languages');
+eq(list.map((t) => t.id), ['church:' + L1.code], 'a non-Bible chapter offers only the languages');
 eq(T.textsFor({ isBible: false, bibleRows: [NIV], languages: [], pageLang: 'eng' }), [],
-  'a non-Bible chapter with no Church language has nothing to show (the panel forces citations)');
+  'a non-Bible chapter with no language has nothing to show (the panel forces citations)');
 eq(T.textsFor({ isBible: true, bibleRows: [], languages: [L1.code], pageLang: L1.code }).map((t) => t.id), ['church:eng'],
   "the page's own language is never offered beside itself");
 {
@@ -89,7 +89,7 @@ eq(T.textsFor({ isBible: true, bibleRows: [], languages: [L1.code], pageLang: L1
   // the page until they choose it (pageLanguage, chapterOffer's `unchecked`).
   const spaPage = (languages, extra) => T.textsFor(Object.assign({ isBible: false, collection: 'bofm', languages, pageLang: 'spa' }, extra));
   eq(spaPage([]).map((t) => t.id), ['church:eng'], 'a Spanish page with no language ticked offers English');
-  eq(spaPage([])[0], Object.assign({}, T.rowFor('eng'), { onRequest: true }), '...as a Church-language row on request');
+  eq(spaPage([])[0], Object.assign({}, T.rowFor('eng'), { onRequest: true }), '...as a language row on request');
   eq(spaPage(['eng'])[0], T.rowFor('eng'), '...English ticked (a value stored in settings) is an ordinary row');
   eq(spaPage(['spa', 'jpn']).map((t) => t.id), ['church:jpn', 'church:eng'],
     "...after the ticked languages, still leaving out the page's own (Spanish)");
@@ -127,7 +127,7 @@ eq(T.pickText(list, ['gone', 'niv']), 'niv', 'a preference the list lacks falls 
 eq(T.pickText(list, [null, '']), 'niv', 'no usable preference -> the first row');
 const churchOnly = T.textsFor({ isBible: false, bibleRows: [NIV], languages: [L1.code], pageLang: 'eng' });
 eq(T.pickText(churchOnly, ['niv', 'niv']), 'church:' + L1.code,
-  'a Bible version preferred on a Book of Mormon chapter falls back to a Church language...');
+  'a Bible version preferred on a Book of Mormon chapter falls back to a language...');
 eq(T.pickText(list, ['niv']), 'niv', '...and is still the pick back on a Bible chapter (the preference was not rewritten)');
 eq(T.pickText([], ['niv']), null, 'an empty list picks nothing');
 
@@ -226,7 +226,7 @@ console.log('pageLanguage (the page\'s language, from the pick memory):');
     '...neither offers it: no page language');
   // No pick names a language that offers the chapter: the page holds what the
   // Translation tab would select (pickText's answer), only when that is a
-  // Church language (B2).
+  // language (B2).
   const WEB_OK = Object.assign({}, { id: C.BUNDLED_BIBLE.id, provider: C.BUNDLED_BIBLE.provider }, { offered: true });
   eq(page([SPA(true), JPN(true)], [], 'columns'), { id: 'church:spa', next: null },
     'Alma 5, no picks, two languages: the one the Translation tab selects (the first enabled) holds the page');
@@ -318,7 +318,7 @@ eq(T.rememberTicked(['church:jpn', 'church:spa', 'niv'], [], ['spa']), ['church:
 eq(T.rememberTicked('niv', [], ['spa']), ['church:spa', 'niv'], '...a migrated single id included');
 eq(T.rememberTicked(['niv'], ['spa'], ['spa']), ['niv'], 'no change to the languages, no change to the list');
 eq(T.rememberTicked(['niv'], undefined, ['spa']), ['church:spa', 'niv'], 'nothing stored before counts as none on');
-eq(T.rememberTicked(['niv'], [], ['spa', 'xx-nope']), ['church:spa', 'niv'], 'a code that is no Church language is not remembered');
+eq(T.rememberTicked(['niv'], [], ['spa', 'xx-nope']), ['church:spa', 'niv'], 'a code that is no language is not remembered');
 
 console.log('labelFor:');
 const SPA_ROW = T.rowFor('spa');
@@ -408,12 +408,12 @@ console.log("bibleMenu / languageMenu (the Translation toolbar's two rows, #150)
     { id: 'church:jpn', label: '日本語 — Japanese' },
   ], 'off the Bible: the language rows, as they read today');
   // The version row's selection: the version showing when it is a Bible
-  // row of the menu, else the newest Bible pick (a Church language in the
+  // row of the menu, else the newest Bible pick (a language in the
   // panel never blanks it).
   eq(T.versionRow(mixed, { isBible: true, showing: 'niv', picks: ['bundled:engwebp'] }),
     { menu: T.bibleMenu(mixed, { isBible: true }), selected: 'niv' }, 'the version row: the Bible menu at the version showing');
   eq(T.versionRow(mixed, { isBible: true, showing: 'church:spa', picks: ['church:spa', 'niv'] }).selected, 'niv',
-    '...a Church language showing: the newest Bible pick');
+    '...a language showing: the newest Bible pick');
   eq(T.versionRow(mixed, { isBible: true, showing: null, picks: [] }).selected, 'bundled:engwebp',
     '...no Bible pick: the first Bible row');
   eq(T.versionRow(mixed, { isBible: false, showing: 'church:spa', picks: ['niv'] }), { menu: [], selected: null },

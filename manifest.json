@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Translations & Citations: a scripture study companion",
   "version": "1.0.0",
-  "description": "Read each scripture chapter beside another Bible translation or Church language, and see the talks that cite every verse.",
+  "description": "Read each scripture chapter beside another Bible translation or language, and see the talks that cite every verse.",
   "permissions": ["storage"],
   "host_permissions": [
     "https://rest.api.bible/*",

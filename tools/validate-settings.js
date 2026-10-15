@@ -273,23 +273,23 @@ check(itemBytes(reader) < QUOTA_BYTES_PER_ITEM * 0.75,
   `40 translations on stay well under the sync item's 8 KB (${itemBytes(reader)} bytes)`);
 const everything = Object.assign({}, reader, { churchLanguages: C.CHURCH_LANGUAGES.map((l) => l.code) });
 check(itemBytes(everything) < QUOTA_BYTES_PER_ITEM * 0.9,
-  `...and still fit with every Church language on too (${itemBytes(everything)} bytes)`);
+  `...and still fit with every language on too (${itemBytes(everything)} bytes)`);
 const prose = 'The Holy Bible in English, Douay-Rheims American Edition of 1899, translated from the Latin Vulgate';
 eq(S.normalize({ enabledTranslations: [Object.assign({}, fat, { description: prose })] }).enabledTranslations[0].description, undefined,
   'a description longer than an edition note is prose, and is not stored');
 eq(S.normalize({ enabledTranslations: [W('w1', 'Ecumenical'), W('w2', `Protestant ${prose}`)] }).enabledTranslations.map((t) => t.id), ['w2', 'engwebp'],
   'the Protestant edition is still preferred when its description is too long to store');
 
-// ---- normalize: Church languages ----
+// ---- normalize: Languages ----
 console.log('normalize (churchLanguages):');
 const CODES = C.CHURCH_LANGUAGES.map((l) => l.code);
-check(CODES.length > 0, 'the Church language table is not empty');
-eq(new Set(CODES).size, CODES.length, 'the Church language table has no duplicate codes');
+check(CODES.length > 0, 'the language table is not empty');
+eq(new Set(CODES).size, CODES.length, 'the language table has no duplicate codes');
 check(C.CHURCH_LANGUAGES.every((l) => /^[a-z]{3}(-[A-Z][a-z]{3})?$/.test(l.code) && l.name && l.english),
-  'every Church language row has a site code (spa, cmn-Latn), a native name and an English name');
+  'every language row has a site code (spa, cmn-Latn), a native name and an English name');
 const COLLECTIONS = ['ot', 'nt', 'bofm', 'dc-testament', 'pgp'];
 check(C.CHURCH_LANGUAGES.every((l) => Array.isArray(l.vols) && l.vols.length && l.vols.every((v) => COLLECTIONS.includes(v))),
-  'every Church language names the URL collections it publishes');
+  'every language names the URL collections it publishes');
 eq(S.defaults().churchLanguages, [], 'churchLanguages defaults to none (the feature is opt-in)');
 const [first, second] = CODES;
 eq(S.normalize({ churchLanguages: [second, first] }).churchLanguages, [first, second],
@@ -300,7 +300,7 @@ eq(S.normalize({ churchLanguages: [first, 'xxx', 42, null] }).churchLanguages, [
 eq(S.normalize({ churchLanguages: first }).churchLanguages, [], 'a non-array churchLanguages -> []');
 eq(S.diff({ churchLanguages: [second, first] }, { churchLanguages: [first, second] }), [],
   'two orderings of the same languages are not a change');
-eq(S.defaults().churchLanguageLayout, 'columns', 'a Church language splits the page side by side by default');
+eq(S.defaults().churchLanguageLayout, 'columns', 'a language splits the page side by side by default');
 for (const v of ['columns', 'interlinear', 'panel']) eq(S.normalize({ churchLanguageLayout: v }).churchLanguageLayout, v, `${v} is a layout`);
 eq(S.normalize({ churchLanguageLayout: 'sideways' }).churchLanguageLayout, 'columns', 'an unknown layout falls back to columns');
 

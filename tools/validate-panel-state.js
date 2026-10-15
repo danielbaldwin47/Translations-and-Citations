@@ -61,7 +61,7 @@ eq(s.collapsed, false, 'garbage collapsed falls back to false');
 // ---- The arrangement ----
 // What the panel body shows and which mode a click saves, from the chapter's
 // texts (each offered or not: chapterOffer's rows), the pick memory, the
-// enabled Church languages, the split layout, the stored mode, and this
+// enabled languages, the split layout, the stored mode, and this
 // visit's mode click and dropdown pick. Each row is one reader's journey:
 // chapters shown (setChapter: a new one, or the same one again after a
 // settings change), mode clicks (selectMode), dropdown picks (selectText) and
@@ -77,7 +77,7 @@ const engAsked = (offered) => Object.assign(church('eng', offered), { onRequest:
 // the Old and New Testaments).
 const chapter = (key, texts, languages, more) =>
   Object.assign({ key, texts, picks: [], languages, layout: 'columns', isBible: /^(ot|nt)\//.test(key) }, more);
-const MOSIAH3 = chapter('bofm/mosiah/3', [], []); // no Church language on: nothing offers it
+const MOSIAH3 = chapter('bofm/mosiah/3', [], []); // no language on: nothing offers it
 const MOSIAH4 = chapter('bofm/mosiah/4', [], []);
 const JOHN3 = chapter('nt/john/3', [WEB], []); // the bundled Bible offers every Bible chapter
 const DC76_GIL = chapter('dc-testament/dc/76', [church('gil', false)], ['gil']); // Kiribati on, lacking the chapter
@@ -302,7 +302,7 @@ const ARRANGEMENT_CASES = [
     [{ chapter: DC76_GIL }, { mode: 'citations', body: 'citations', note: 'no-translation', saved: 'translation' }],
     [{ click: 'citations' }, { mode: 'citations', body: 'citations', note: null, saved: 'citations' }],
   ] },
-  // The page's language (#109): the first Church language in pick order that
+  // The page's language (#109): the first language in pick order that
   // offers the chapter, while the split layout is in-page — whatever the
   // panel shows. `pageNext` is the language the chapter check must ask first.
   { name: 'Spanish picked, side by side, mode Citations: the page holds Spanish', init: {}, steps: [
@@ -545,7 +545,7 @@ P.setChapter(s, { texts: [church('gil', false)], languages: ['gil'] });
 eq(P.effectiveMode(s), 'citations', 'a chapter with no key counts as a new one (the visit\'s click does not leak)');
 
 // ---- The language row (GLOSSARY: Language row) ----
-// The Translation toolbar's second row: the Church language and its switch,
+// The Translation toolbar's second row: the language and its switch,
 // from the arrangement's facts. Its form, the language it names (by its own
 // name, as the switch's "Show Español" does) and whether the switch is live.
 console.log('languageRow:');
@@ -1395,7 +1395,7 @@ console.log('setupCopy:');
   eq(bofm.heading, 'Read Alma 5 in another language', 'off the Bible only languages are offered');
   eq(bofm.bible, null, '...and there is no api.bible block');
   eq(bofm.talks, 'See the talks that cite Alma 5', 'the talks link names the chapter');
-  eq(bofm.languages, 'Choose a Church language…', 'the language picker prompts for a choice');
+  eq(bofm.languages, 'Choose a language…', 'the language picker prompts for a choice');
   eq(bofm.add, 'Add', '...which the Add button commits (choosing alone writes nothing)');
 }
 
@@ -1521,7 +1521,7 @@ console.log('errorCopy:');
   eq(P.pausedLine(''), 'api.bible’s free monthly limit is reached.', 'no date known: the line without one');
   eq(P.pausedLine('soon'), 'api.bible’s free monthly limit is reached.', '...nor an unreadable one');
   // The hint names only what the dropdown offers that doesn't need api.bible
-  // (`others`: the World English Bible, how many Church languages): every
+  // (`others`: the World English Bible, how many languages): every
   // api.bible translation is paused with the month, and the cache holds too
   // little to promise "chapters you've read".
   // The hint says what comes back on that day (the version, and the reader's
@@ -1532,15 +1532,15 @@ console.log('errorCopy:');
   const MENU = 'from the menu at the top of the panel.';
   eq(pausedWith({ bundled: true, church: 2, apiBible: 3 }),
     { message: 'api.bible’s free monthly limit is reached. Back on November 1.',
-      hint: `NIV and your other api.bible translations come back on that day. The World English Bible and your Church languages still work. Choose one ${MENU}`,
+      hint: `NIV and your other api.bible translations come back on that day. The World English Bible and your languages still work. Choose one ${MENU}`,
       action: null },
     'api.bible refusing in a paused month: the paused line, what comes back, what still works and where, no Try again');
   eq(pausedWith({ bundled: true, church: 1, apiBible: 1 }).hint,
-    `NIV comes back on that day. The World English Bible and your Church language still work. Choose one ${MENU}`, '...one api.bible translation, one Church language');
+    `NIV comes back on that day. The World English Bible and your language still work. Choose one ${MENU}`, '...one api.bible translation, one language');
   eq(pausedWith({ bundled: true, church: 0, apiBible: 2 }).hint,
     `NIV and your other api.bible translations come back on that day. The World English Bible still works. Choose it ${MENU}`, '...the World English Bible alone');
-  eq(pausedWith({ bundled: false, church: 1 }).hint, `NIV comes back on that day. Your Church language still works. Choose it ${MENU}`, '...a Church language alone');
-  eq(pausedWith({ bundled: false, church: 3 }).hint, `NIV comes back on that day. Your Church languages still work. Choose one ${MENU}`, '...Church languages alone');
+  eq(pausedWith({ bundled: false, church: 1 }).hint, `NIV comes back on that day. Your language still works. Choose it ${MENU}`, '...a language alone');
+  eq(pausedWith({ bundled: false, church: 3 }).hint, `NIV comes back on that day. Your languages still work. Choose one ${MENU}`, '...languages alone');
   eq(pausedWith({ bundled: false, church: 0 }).hint, 'NIV comes back on that day.', '...nothing else offered: only what comes back');
   eq(e('RATE_LIMITED', { remote: true, rate: paused }).hint, 'NIV comes back on that day.', '...nor with no `others` known');
   eq(e('RATE_LIMITED', { remote: true, rate: paused, name: '' }).hint, 'This translation comes back on that day.', '...a version with no name still reads as a sentence');
@@ -1563,7 +1563,7 @@ console.log('errorCopy:');
   eq(P.nearLine({ state: 'near', month: '2027-01' }, '2026-12'), 'You’re at about 80% of api.bible’s free monthly limit.', '...across the new year');
   eq(P.nearLine({ state: 'ok', month: '2026-10' }, ''), '', 'ok: no line');
   eq(P.nearLine({ state: 'paused', month: '2026-10', until: '2026-11-01' }, ''), '', 'paused: the paused line speaks, not this one');
-  eq(P.nearLine(undefined, ''), '', 'no state (the bundled Bible, a Church language): no line');
+  eq(P.nearLine(undefined, ''), '', 'no state (the bundled Bible, a language): no line');
   eq(P.nearLine({ state: 'near' }, ''), '', 'near with no month to remember: no line');
   eq(P.nearLine({ state: 'near', month: 'soon' }, ''), '', '...nor an unreadable month');
   check(!/\d{3}|NIV|call/i.test(P.nearLine(near, '')), '...no version name, no call counts');
@@ -1803,7 +1803,7 @@ check(/const out = renderModeBody\(opts\);\s*applyNote\(\);/.test(contentSrc),
 check(/function changeLayout\(layout\) \{/.test(contentSrc) && !/remember\(pick\)/.test(contentSrc),
   'the layout control writes churchLanguageLayout and nothing else: the pick memory stays');
 // The Translation tab's loading state waits on the language the arrangement
-// names (textNext): on a Bible chapter In the panel that is a Church language
+// names (textNext): on a Bible chapter In the panel that is a language
 // the chapter check's own walk would pass over.
 check(/runCheck\(parsed, rows, \(o\) => panel\.arrangement\(factsFor\(e, o\)\)\.textNext, stale\)/.test(contentSrc),
   'renderTranslation checks the language the arrangement waits on');

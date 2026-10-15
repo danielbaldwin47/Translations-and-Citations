@@ -125,7 +125,7 @@
      or By source | By verse) plus the text-size stepper. In Translation it
      shows on a Bible chapter, or when there is no language row (today's one
      row);
-   - the language row, in Translation whenever a Church language is ticked
+   - the language row, in Translation whenever a language is ticked
      (GLOSSARY: Language row): the language's name as plain text, or the
      language dropdown, then its switch. Off the Bible the stepper sits here
      and the main row goes.
@@ -445,7 +445,7 @@
   color: var(--btx-muted);
 }
 
-/* A Church language read in the panel: where to show it, the way back into
+/* A language read in the panel: where to show it, the way back into
    the page. */
 #btx-root .btx-article-tools {
   display: flex;
@@ -474,7 +474,7 @@
 }
 #btx-root .btx-q2 { padding-inline-start: 2.4em; }
 
-/* A Church-language chapter's italic summary and introductory line. */
+/* A language chapter's italic summary and introductory line. */
 #btx-root .btx-summary,
 #btx-root .btx-intro { font-style: italic; opacity: 0.85; }
 
@@ -663,7 +663,7 @@
 }
 #btx-root .btx-link:hover { text-decoration-thickness: 2px; }
 
-/* Where a Church language shows: a segmented control whose labels may wrap
+/* Where a language shows: a segmented control whose labels may wrap
    at the narrowest panel rather than be cut off. */
 #btx-root .btx-seg { display: flex; }
 #btx-root .btx-seg-btn {

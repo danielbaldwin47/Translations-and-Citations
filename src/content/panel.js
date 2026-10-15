@@ -309,7 +309,7 @@
   //              the chapter check hasn't asked yet). Not an array: nothing is
   //              known yet, as if the check were asking.
   //   picks      the pick memory, newest first (plus the default row id)
-  //   languages  the enabled Church language codes
+  //   languages  the enabled language codes
   //   layout     churchLanguageLayout: a Church row shows as the beside card
   //              unless it is 'panel'
   //   shown      the language switch (GLOSSARY), churchLanguageShown; absent =
@@ -326,15 +326,15 @@
   // Translation walks the texts with churchText.firstOffered (translationWalk):
   // the first one offered shows; one not yet checked before it means the
   // loading state (so Citations never paints first, then switches). On a
-  // Bible chapter the walk is the Bible versions': a Church language goes to
+  // Bible chapter the walk is the Bible versions': a language goes to
   // the page, never the beside card. With the layout In the panel (and the
-  // switch on) the Church languages come first there, and the one offered
+  // switch on) the languages come first there, and the one offered
   // shows in the version's place with `versionRests` naming it; a layout
   // back into the page brings the version back. When this visit's dropdown pick lacks the chapter, the text
   // shown in its place carries the missing-chapter line; a Bible version
   // shown while the check found every ticked language lacking the chapter
   // carries the not-available line. With nothing offered: the setup card
-  // when no Church language is ticked; the off card while the switch is off
+  // when no language is ticked; the off card while the switch is off
   // off the Bible, unless the check already knows every ticked language
   // lacks the chapter (then the rules below, without the no-translation
   // line, so Show never leads to a dead end); the not-available card when
@@ -355,7 +355,7 @@
     const mode = click || stored;
     const saves = click && click !== stored ? click : null;
     const ct = churchText();
-    // The switch off hides the Church language from the panel too: the
+    // The switch off hides the language from the panel too: the
     // Translation tab walks the Bible rows alone.
     const isChurch = (t) => t && t.provider === ct.PROVIDER;
     const hidden = o.shown === false;
@@ -426,9 +426,9 @@
   // The Translation tab's walk (churchText.firstOffered: the first text in
   // pick order that offers the chapter, or the next one to check). Off the
   // Bible it walks every text. On a Bible chapter it walks the Bible
-  // versions — a Church language there goes to the page, never into the
+  // versions — a language there goes to the page, never into the
   // panel — except with the layout In the panel (`o.layout` 'panel', switch
-  // on, `texts` already without hidden rows): then the Church languages
+  // on, `texts` already without hidden rows): then the languages
   // first, as the language row picks them, and the Bible versions only when
   // none offers the chapter. A row on request counts there only once the
   // reader chose it (in `picks`), as for the page.
@@ -443,7 +443,7 @@
     return ct.firstOffered(texts.filter((t) => !isChurch(t)), picks);
   }
 
-  // The language the no-translation line names: the enabled Church language
+  // The language the no-translation line names: the enabled language
   // nearest the front of the pick memory (so it speaks about the text the
   // reader expected), else the first enabled one. Pick ids are `church:{code}`.
   function noteLanguage(picks, languages) {
@@ -457,7 +457,7 @@
   }
 
   // ---- The language row (GLOSSARY: Language row) -----------------------------
-  // The Translation toolbar's second row: the Church language and its switch.
+  // The Translation toolbar's second row: the language and its switch.
   // Pure, from the arrangement's facts (texts with their `offered` marks, the
   // pick memory, the ticked languages, the switch):
   //   languageRow({ texts, picks, languages, shown }) -> {
@@ -861,7 +861,7 @@
     const bible = o && o.bible;
     return {
       heading: `Read ${chapter} in another ${bible ? 'translation or language' : 'language'}`,
-      languages: 'Choose a Church language…',
+      languages: 'Choose a language…',
       add: 'Add',
       languagesHint: 'Published by the Church. No key needed.',
       // The in-product disclosures (C.DISCLOSURE), beside the action they consent to.
@@ -955,11 +955,11 @@
     };
   }
 
-  // Where a Church language shows, named the same on the options page:
+  // Where a language shows, named the same on the options page:
   // [churchLanguageLayout value, label].
   const LAYOUTS = [['columns', 'Side by side'], ['interlinear', 'Under each verse'], ['panel', 'In the panel']];
 
-  // The card shown while a Church language is split into the page: the
+  // The card shown while a language is split into the page: the
   // layout control, the room hint and the collapse offer, no sentence of its
   // own (the language row names the language, the pressed segment the
   // layout). `layout` is the reader's setting ('columns' | 'interlinear');
@@ -1067,7 +1067,7 @@
   // and the reader's other api.bible translations when the dropdown has more:
   // `others.apiBible` counts its api.bible rows), then only what the dropdown
   // offers that doesn't need api.bible (`others`: { bundled, church } — the
-  // World English Bible is offered, how many Church languages are). Every
+  // World English Bible is offered, how many languages are). Every
   // api.bible translation is paused with the month, and the cache is too
   // small to promise chapters already read.
   function pausedHint(name, others) {
@@ -1078,12 +1078,12 @@
       ? `${who} and your other api.bible translations come back on that day.`
       : `${who} comes back on that day.`;
     const church = Number(o.church) > 0 ? Number(o.church) : 0;
-    const langs = church === 1 ? 'your Church language' : 'your Church languages';
+    const langs = church === 1 ? 'your language' : 'your languages';
     let now = '';
     if (o.bundled && church) now = `The World English Bible and ${langs} still work. Choose one ${MENU}.`;
     else if (o.bundled) now = `The World English Bible still works. Choose it ${MENU}.`;
-    else if (church === 1) now = `Your Church language still works. Choose it ${MENU}.`;
-    else if (church) now = `Your Church languages still work. Choose one ${MENU}.`;
+    else if (church === 1) now = `Your language still works. Choose it ${MENU}.`;
+    else if (church) now = `Your languages still work. Choose one ${MENU}.`;
     return now ? `${back} ${now}` : back;
   }
 
@@ -1618,7 +1618,7 @@
   // Collapse. The toolbar under it holds up to two rows (toolbarRows): the
   // main row, the current mode's control — the Bible version dropdown, or the
   // By source | By verse toggle — beside the text-size stepper; and in
-  // Translation, while a Church language is ticked, the language row: its
+  // Translation, while a language is ticked, the language row: its
   // name or the language dropdown, then its switch (GLOSSARY: Language row).
   // Off the Bible the stepper moves onto the language row.
   function ensureRoot() {
@@ -2763,7 +2763,7 @@
     if (cbs.onLayoutChange) cbs.onLayoutChange(value);
   }
 
-  // Where a Church language shows (LAYOUTS), as one segmented control: on the
+  // Where a language shows (LAYOUTS), as one segmented control: on the
   // beside card, above the text when it is read in the panel, and in the
   // beside-the-page line's place (its Change). `current()` is the reader's
   // setting; the segment pressed is the layout the page shows
@@ -2872,7 +2872,7 @@
   function languagePicker(copy, langs) {
     const row = el('div', 'btx-card-row');
     const select = el('select', 'btx-card-select');
-    select.setAttribute('aria-label', 'Church language to add');
+    select.setAttribute('aria-label', 'Language to add');
     const prompt = el('option', null, copy.languages);
     prompt.value = '';
     prompt.disabled = true;

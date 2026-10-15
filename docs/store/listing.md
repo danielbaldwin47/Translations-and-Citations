@@ -27,7 +27,7 @@ Read each scripture chapter in another translation or language, and see the talk
 Translations
 • The World English Bible is built in: open a Bible chapter and it appears beside the page, with no setup.
 • Bring your own free api.bible key for NIV, NKJV and the other versions your key unlocks.
-• Read any standard work in one of about 100 Church languages (Español, Português, 日本語, …), side by side with the English or under each verse.
+• Read any standard work in one of about 100 languages (Español, Português, 日本語, …), side by side with the English or under each verse.
 
 Citations
 • For all five standard works: the General Conference addresses (1942 to the latest conference) and Journal of Discourses sermons that cite each verse, listed by verse or by source.
@@ -56,7 +56,7 @@ One line per dashboard field.
 - `https://rest.api.bible/*`: Fetches the version list and the chapter being read from api.bible, with the reader's own key, for the translations that key unlocks.
 - `https://fums.api.bible/*`: Sends api.bible's required anonymous usage report for each api.bible chapter shown, which the api.bible licence asks every app to send.
 - `https://scriptures.byu.edu/*`: Fetches an early General Conference talk (1942 to 1970) from BYU, its publisher, when the reader opens it or opens the citation list that shows its excerpt.
-- `https://www.churchofjesuschrist.org/study*`: Runs the panel on the scripture chapter being read, and fetches from the same site the chapter in a Church language the reader added and the talks the reader opens.
+- `https://www.churchofjesuschrist.org/study*`: Runs the panel on the scripture chapter being read, and fetches from the same site the chapter in a language the reader added and the talks the reader opens.
 
 ## Remote code
 

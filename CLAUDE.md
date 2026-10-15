@@ -15,8 +15,8 @@ panel, two modes:
    bundled **World English Bible** (no key; the default while no api.bible
    version is on) or
    **api.bible** with the user's own key (NIV, NKJV, …), and on any
-   standard work in a **Church language** (Spanish, Japanese, …) fetched from
-   the site's own content endpoint. A Church language is split into the page
+   standard work in a **language** (Spanish, Japanese, …) fetched from
+   the site's own content endpoint. A language is split into the page
    beside the English by default (the **page split**), not shown in the panel.
 2. **Citations** (all standard works) — which talks cite each verse (BYU
    Scripture Citation Index data), in two citation layouts (by verse / by
@@ -40,7 +40,7 @@ texts are `docs/store/listing.md`, the privacy policy `docs/privacy.md`.
   `church-text.js` (the pick memory a tick writes) and the worker's
   `cache.js` (to paint the cached version list) via `<script src>` first.
 - **No secrets/CORS in content scripts.** All api.bible calls go through the
-  **service worker**. The citation feature and Church-language text are
+  **service worker**. The citation feature and language text are
   content-script-only (static web-accessible data, same-origin site fetches,
   and BYU's talk fragments, which BYU serves to any origin by CORS; every
   fetch `credentials: 'omit'`).
@@ -84,7 +84,7 @@ src/
     ratelimit.js           __BTX.rate      15/30s burst window + this browser's api.bible calls per calendar month, its writes serialized (no cap: only api.bible's 429 at or past 5,000, naming no short wait, pauses); pure answerOf / rateState ok/near/paused (near only below 5,000), attached as `rate` to every api.bible chapter and version-list answer
     fums.js                __BTX.fums      api.bible usage report (FUMS v3 GET) on every api.bible display, cache hits too; device id minted on a successful Connect (storage.local), session id per worker lifetime
   content/
-    church-text.js         __BTX.churchText which texts a chapter offers + which shows (textsFor/pickText/pickOrder; the one walk firstOffered; the chapter check's chapterOffer over checkResults, keyed by checkKey; the page's language, pageLanguage); the toolbar's two menus (bibleMenu/languageMenu, the version row's selection versionRow, labels labelFor, a lone language's name nameFor); setup-card list (languagesToAdd); pick memory (mruFrom/rememberPick; rememberTicked for a tick in settings; stored under C.SELECTION_KEY, written by content.js and the options page); same-origin Church-language chapter → IR with element ids (chapterFrom; its block walk blockElements also reads the English side for the split)
+    church-text.js         __BTX.churchText which texts a chapter offers + which shows (textsFor/pickText/pickOrder; the one walk firstOffered; the chapter check's chapterOffer over checkResults, keyed by checkKey; the page's language, pageLanguage); the toolbar's two menus (bibleMenu/languageMenu, the version row's selection versionRow, labels labelFor, a lone language's name nameFor); setup-card list (languagesToAdd); pick memory (mruFrom/rememberPick; rememberTicked for a tick in settings; stored under C.SELECTION_KEY, written by content.js and the options page); same-origin language chapter → IR with element ids (chapterFrom; its block walk blockElements also reads the English side for the split)
     page-split.js/.css     __BTX.pageSplit the reading layer, independent of the mode: start() fits the site's reading column to the open space while the panel is open (fitColumn / fitRule); show/hide the page split (columns | interlinear) while the arrangement names a page's language, paired by element id, headed by the Hide line (its click is show's onHide); pure cores wantsSplit / hideLineCopy / fitWidth / effectiveLayout / fitColumn / fitRule / groupRows / soloIds / rowRules / readingRight / readingEdges / collapseFits
     detect.js              __BTX.detect    URL parse (all standard works, isBible) + SPA nav
     page-hook.js           page-world history patch, injected via web-accessible <script src>
@@ -105,7 +105,7 @@ src/
     data-personal/         GITIGNORED: the personal pack, same layout, descriptor flavor `personal` (build --pack personal)
     store-stamp.json       the Store stamp (GLOSSARY); read by cit-data.js, swapped in by build-store-zip
   bible/engwebp/           GENERATED, committed, shipped: the World English Bible as IR, {USFM}.json per book + index.json (archive SHA-256, download date); C.BUNDLED_BIBLE names it
-  options/                 options.html/js/css — cards in the order of C.OPTIONS_SECTIONS: languages, bible, reading (autosaving), then About (text, plus one button, "Show the welcome again": it writes `welcomeSeen` false (`WELCOME_AGAIN`) and sends OPEN_WELCOME; aboutCopy stays text); the Church-language list is the pure languageList ("Your languages" = the enabled ones, then the coverage groups without them, each row's search match; languageTick: a tick or untick clears the search and names where focus goes); pure form core exported for Node
+  options/                 options.html/js/css — cards in the order of C.OPTIONS_SECTIONS: languages, bible, reading (autosaving), then About (text, plus one button, "Show the welcome again": it writes `welcomeSeen` false (`WELCOME_AGAIN`) and sends OPEN_WELCOME; aboutCopy stays text); the language list is the pure languageList ("Your languages" = the enabled ones, then the coverage groups without them, each row's search match; languageTick: a tick or untick clears the search and names where focus goes); pure form core exported for Node
 icons/                     generated by tools/make-icons.js
 docs/                      adr/ (decisions), agents/ (issue-tracker, triage-labels, domain, pack-refresh checklist), store/listing.md (Store texts), privacy.md (the page C.ABOUT.privacyUrl publishes), research/
 tools/                     build-citation-data.js (+ verbatim-matcher.js, inclusion rule verbatim; + footnote-cite.js, the footnote-cite rule it shares with derive-conference.js), fetch-jod-wikisource.js + build-jod-talks.js (+ jod-patches.json), derive-conference.js (derivation run), build-bible-data.js, build-store-zip.js, rederive-js-snippets.js, make-icons.js, validate-*.js, test-talk-source.js (+ mini-dom.js, its Node DOM); fixtures/base-talk-ids.json freezes base talk ids (A26)
@@ -178,7 +178,7 @@ source-data/               GITIGNORED build input, filled from the owner's priva
   translations card lists the api.bible setup steps; their links open
   api.bible's sign-up and dashboard pages with no redirect. Paste the key from
   the dashboard — it connects itself, turns on the versions added to the key,
-  NIV default. Church languages: Add Español from the setup card
+  NIV default. Languages: Add Español from the setup card
   on `bofm/alma/5` (or check it in settings) — the page splits (columns once
   the panel is collapsed, under each verse while it's too narrow); `ot/ps/23`
   shows poetry lines (Spanish) and furigana (Japanese). A version-list refresh
@@ -267,7 +267,7 @@ validators — go there before changing behaviour.
   stored key stays connected (the paused line under it, `pausedNote`; the
   refresh rests aria-disabled), and a new key refused then is not saved
   (`keyErrorText` says when to try Connect again). Single-value fields live in one
-  `FIELDS` table (the Church-language checklist is one row: its `change`
+  `FIELDS` table (the language checklist is one row: its `change`
   events bubble to the container; the language search sits outside it). A
   newly ticked language also goes to the front of the pick memory
   (`chrome.storage.local`, `C.SELECTION_KEY`) through `churchText.rememberTicked`,
@@ -342,13 +342,13 @@ validators — go there before changing behaviour.
 - **Source-type marking** is a coloured strip on each source-type group, hue
   set once per `btx-grp-{sourceType slug}` (`--btx-src`). No setting.
 - **Translatable and the setup card**: a chapter is translatable when some
-  enabled text offers *that chapter* — a Church language only once the
+  enabled text offers *that chapter* — a language only once the
   chapter check (GLOSSARY) found it there; the pure `churchText.chapterOffer`
   marks each text `offered` from its results. What shows is the panel's pure
   **arrangement** (GLOSSARY), the one place the mode rules live: a mode click
   saves `panelMode` on any chapter; Translation on a chapter nothing offers
-  shows one card. The setup card (Add a Church language, or api.bible setup
-  via `OPEN_OPTIONS {section}`) when no Church language is ticked. With one
+  shows one card. The setup card (Add a language, or api.bible setup
+  via `OPEN_OPTIONS {section}`) when no language is ticked. With one
   ticked: the off card while the language switch (`churchLanguageShown`) is
   off on a non-Bible chapter, unless the check already knows every ticked
   language lacks the chapter; the not-available card (its link opens

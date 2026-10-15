@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /*
  * No-build sanity checks for src/content/page-split.js (__BTX.pageSplit), the
- * Church-language text split into the site's reading column. Run:
+ * Language text split into the site's reading column. Run:
  *   node tools/validate-page-split.js
  *
  * Covers the pure core — when the page splits at all, how wide the column may

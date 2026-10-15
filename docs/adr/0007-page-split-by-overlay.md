@@ -1,6 +1,6 @@
-# Church-language text is split into the page by overlay, never by editing the site's DOM
+# Language text is split into the page by overlay, never by editing the site's DOM
 
-A Church-language chapter can be shown in the site's own reading column,
+A language chapter can be shown in the site's own reading column,
 paired verse by verse with the English (`src/content/page-split.js`, the
 `churchLanguageLayout` setting). This is the one place the extension writes
 into the site's reader, and that reader is a React tree the extension does not
