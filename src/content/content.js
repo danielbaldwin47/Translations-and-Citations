@@ -354,6 +354,10 @@
 
   async function render() {
     const parsed = detect.parseLocation(location.pathname, location.search);
+    // Skip spurious events (e.g. verse-anchor hashchange) for the same chapter.
+    // Panel-initiated changes arrive via renderMode instead, bypassing this.
+    const key = parsed ? chapterKey(parsed) : null;
+    if (parsed && key === currentKey) return;
     current = parsed;
 
     if (!parsed) {
@@ -365,10 +369,6 @@
       return;
     }
 
-    // Skip spurious events (e.g. verse-anchor hashchange) for the same chapter.
-    // Panel-initiated changes arrive via renderMode instead, bypassing this.
-    const key = chapterKey(parsed);
-    if (key === currentKey) return;
     currentKey = key;
     clearTimeout(retryTimer);
     if (key !== shownChapter) {
@@ -384,12 +384,14 @@
     shownChapter = key;
 
     const e = await loadEnabled();
+    if (current !== parsed) return;
 
     // The panel arranges itself from what is known so far (the chapter
     // check's results this tab): a text not checked yet in the way of the
     // pick is Translation's loading state, and renderTranslation runs the
     // check before anything else shows.
     await loadSelection();
+    if (current !== parsed) return;
     const offer = offerFor(parsed, textsForChapter(parsed, e));
     texts = offer.texts.filter((t) => t.offered !== false);
     panel.showChapter(Object.assign({ key }, factsFor(e, offer)));
@@ -504,14 +506,14 @@
   }
 
   async function renderTranslation() {
-    const e = await loadEnabled();
-    // The user can toggle to Citations while that resolves; mounting a
-    // translation view now would paint over the citations they asked for.
-    if (panel.effectiveMode() !== 'translation') return;
-    await loadSelection();
     const token = ++transToken;
     const parsed = current;
     const stale = () => token !== transToken || current !== parsed || panel.effectiveMode() !== 'translation';
+    const e = await loadEnabled();
+    // The user can toggle to Citations while that resolves; mounting a
+    // translation view now would paint over the citations they asked for.
+    if (stale()) return;
+    await loadSelection();
     if (stale()) return;
     const rows = textsForChapter(parsed, e);
     let offer = offerFor(parsed, rows);
