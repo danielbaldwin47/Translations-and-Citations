@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /*
- * No-build sanity checks for the highlight module's pure cores
+ * No-build checks for highlight keyboard/layout cores and saved marks
  * (src/citations/highlights.js, __BTX.highlights). Run:
  *   node tools/validate-highlights.js
  *
@@ -19,8 +19,10 @@
  * menu sits above the selection when there is room, so it never covers the
  * text it acts on).
  *
- * What a browser shows (caret-browsing selection, the menu, focus moves) is
- * not checked here. Exits non-zero on any failure.
+ * Storage regressions drive public actions and fresh reads across independent
+ * module contexts sharing asynchronous storage. They also cover legacy lists,
+ * grouped/overlapping marks and the older-browser read fallback. The test DOM
+ * does not verify browser selection, layout or focus. Exits non-zero on failure.
  */
 'use strict';
 
@@ -83,8 +85,13 @@ eq(H.menuTop(Object.assign({ rect: sel(160, 880) }, band)), 892 - 36,
   'a selection filling the band: the menu keeps to the band\'s bottom');
 eq(H.menuTop({ rect: sel(400, 420), menuH: 36 }), 400 - 6 - 36, 'no band given: the window from 8px down');
 
-if (failures) {
-  console.error(`validate-highlights: ${failures} failure(s)`);
-  process.exit(1);
+async function finish() {
+  await require('./test-highlights-storage.js')();
+  if (failures) {
+    console.error(`validate-highlights: ${failures} failure(s)`);
+    process.exitCode = 1;
+    return;
+  }
+  console.log('validate-highlights: ok');
 }
-console.log('validate-highlights: ok');
+finish().catch((error) => { console.error(error); process.exitCode = 1; });
