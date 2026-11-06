@@ -344,6 +344,7 @@ async function storageChecks() {
 
   let store = {};
   let failWrites = false;
+  let failNextWrite = false;
   const changeListeners = [];
   global.chrome = {
     runtime: { lastError: null },
@@ -351,7 +352,8 @@ async function storageChecks() {
       sync: {
         get(key, cb) { cb({ [key]: store[key] }); },
         set(obj, cb) {
-          if (failWrites) { // e.g. sync quota exceeded
+          if (failWrites || failNextWrite) { // e.g. sync quota exceeded
+            failNextWrite = false;
             chrome.runtime.lastError = { message: 'QUOTA_BYTES quota exceeded' };
             if (cb) cb();
             chrome.runtime.lastError = null;
@@ -413,6 +415,40 @@ async function storageChecks() {
   await S.patch({ sidebarWidth: 460 });
   check(events.length === before + 2, 'each own write notifies once');
   check(events.slice(before).every((e) => e.own === true), 'both queued own writes stay flagged own');
+
+  // Separate controls can ask for writes before either promise settles.
+  // Each patch must see the settings saved by the mutation before it.
+  await S.replace({});
+  await Promise.all([
+    S.patch({ sidebarWidth: 640 }),
+    S.patch({ scrollSync: false }),
+    S.patch({ fontScale: 1.3 }),
+  ]);
+  const concurrent = await S.get();
+  eq([concurrent.sidebarWidth, concurrent.scrollSync, concurrent.fontScale], [640, false, 1.3],
+    'concurrent independent patches all remain saved');
+  eq([store.btxSettings.sidebarWidth, store.btxSettings.scrollSync, store.btxSettings.fontScale], [640, false, 1.3],
+    'storage keeps every concurrent patch, not just the local cache');
+
+  // A replace resets earlier mutations; a later patch builds on that reset.
+  await Promise.all([
+    S.patch({ sidebarWidth: 800 }),
+    S.replace({ scrollSync: false }),
+    S.patch({ fontScale: 1.4 }),
+  ]);
+  const ordered = await S.get();
+  eq([ordered.sidebarWidth, ordered.scrollSync, ordered.fontScale], [380, false, 1.4],
+    'patch and replace preserve invocation order');
+
+  await S.replace({});
+  failNextWrite = true;
+  await Promise.all([
+    S.patch({ sidebarWidth: 800 }),
+    S.patch({ scrollSync: false }),
+  ]);
+  const recovered = await S.get();
+  eq([recovered.sidebarWidth, recovered.scrollSync], [380, false],
+    'a queued patch survives a failed predecessor without saving its rejected value');
 
   // Own writes are matched on a write tag, not on the value — so another
   // context writing exactly what we would have written is still not "own".
