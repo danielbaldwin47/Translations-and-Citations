@@ -434,19 +434,31 @@
     return next;
   }
 
-  // Change some settings, leaving the rest alone. Read-modify-write against
-  // the freshest value we have, so two contexts patching different fields
-  // don't clobber each other the way ad-hoc read/modify/write cycles did.
-  async function patch(partial) {
-    const current = await get();
-    return write(normalize(Object.assign({}, current, partial || {})));
+  // Mutations in this context share one object. Queue before reading it so
+  // overlapping edits build on the previous write, including its rollback.
+  // Reads remain immediate; changes from other contexts arrive through wire.
+  let mutationQueue = Promise.resolve();
+  function mutate(fn) {
+    const run = mutationQueue.then(fn);
+    mutationQueue = run.catch(() => {});
+    return run;
+  }
+
+  // Change some settings, leaving the rest alone.
+  function patch(partial) {
+    return mutate(async () => {
+      const current = await get();
+      return write(normalize(Object.assign({}, current, partial || {})));
+    });
   }
 
   // Replace the whole object (the options page's Save). Missing fields go back
   // to their defaults.
-  async function replace(value) {
-    await get(); // make sure the listener is wired before we write
-    return write(normalize(value));
+  function replace(value) {
+    return mutate(async () => {
+      await get(); // make sure the listener is wired before we write
+      return write(normalize(value));
+    });
   }
 
   // fn({ next, prev, changed, own }) on every change to the stored settings:

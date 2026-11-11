@@ -1,8 +1,12 @@
 /*
  * Local highlights in the inline talk reader: select text to mark it, click a
  * mark (or Tab to it and press Enter) to remove it. Saved in chrome.storage.local on this machine only
- * (ADR-0004), one list per talk under `btxHl::{talkId}`, and re-applied when
- * the talk is opened again.
+ * (ADR-0004), one atomic block-record list per logical highlight under
+ * `btxHlItem::{encoded talkId}::{encoded highlightId}`, and re-applied when
+ * the talk is opened again. A null item is a deletion tombstone. Legacy
+ * `btxHl::{talkId}` arrays stay read-only: items override them by highlight id.
+ * Deleted legacy quotes remain in that old local array, but load/all and the
+ * reader omit them. Reads never migrate or compact stored highlights.
  *
  * Interface (__BTX.highlights):
  *   attach(container, talkId, { host, reveal, menuMinTop })
@@ -66,6 +70,8 @@
 
   const KEY = (talkId) => `btxHl::${talkId}`;
   const HINT_KEY = 'btxHlHintSeen';
+  const ITEM_PREFIX = 'btxHlItem::';
+  const itemKey = (talkId, id) => `${ITEM_PREFIX}${encodeURIComponent(talkId)}::${encodeURIComponent(id)}`;
   // What a record may anchor to, when it carries an id.
   const BLOCKS = 'p, li, blockquote, h1, h2, h3, h4, h5, h6, .btxk-paragraph, .btxk-std';
 
@@ -100,36 +106,111 @@
   let menuRange = null;     // the selection "Highlight" acts on (see showSelectMenu)
   let menuReturn = null;    // the mark a keyboard-opened "Remove" gives focus back to
   let docBound = false;
-  let writes = Promise.resolve(); // serialises each read-modify-write of a list
+  let writes = Promise.resolve(); // completes each local action before the next
 
   // ---- storage ----
-  function load(talkId) {
+  function itemParts(key) {
+    if (!key.startsWith(ITEM_PREFIX)) return null;
+    const parts = key.slice(ITEM_PREFIX.length).split('::');
+    if (parts.length !== 2) return null;
+    try { return parts.map(decodeURIComponent); } catch (e) { return null; }
+  }
+
+  // getKeys avoids copying unrelated chapter caches on modern Chromium.
+  // Older browsers have no key enumeration, so retain the full-read fallback.
+  function readHighlights(talkId) {
+    const wants = (key) => {
+      if (key.startsWith('btxHl::')) return talkId == null || key === KEY(talkId);
+      const parts = itemParts(key);
+      return parts && (talkId == null || parts[0] === String(talkId));
+    };
     return new Promise((resolve) => {
-      try { chrome.storage.local.get(KEY(talkId), (d) => resolve((d && d[KEY(talkId)]) || [])); }
-      catch (e) { resolve([]); }
+      const done = (data) => { void chrome.runtime.lastError; resolve(data || {}); };
+      try {
+        const local = chrome.storage.local;
+        if (typeof local.getKeys === 'function') {
+          local.getKeys((keys) => {
+            if (chrome.runtime.lastError) { resolve({}); return; }
+            try { local.get((keys || []).filter(wants), done); } catch (e) { resolve({}); }
+          });
+        } else local.get(null, done);
+      } catch (e) { resolve({}); }
     });
   }
-  function store(talkId, list) {
-    try { chrome.storage.local.set({ [KEY(talkId)]: list }); } catch (e) { /* ignore */ }
+
+  // Preserve legacy group order. New groups replay in creation order, with
+  // their id breaking timestamp ties consistently across storage snapshots.
+  function recordsFrom(data, talkId) {
+    const groups = new Map();
+    for (const rec of Array.isArray(data[KEY(talkId)]) ? data[KEY(talkId)] : []) {
+      if (!rec || rec.id == null) continue;
+      const id = String(rec.id);
+      if (!groups.has(id)) groups.set(id, []);
+      groups.get(id).push(rec);
+    }
+    const items = Object.entries(data).map(([key, value]) => ({ parts: itemParts(key), value }))
+      .filter((item) => item.parts && item.parts[0] === String(talkId))
+      .sort((a, b) => ((a.value && a.value[0] && a.value[0].ts) || 0)
+        - ((b.value && b.value[0] && b.value[0].ts) || 0)
+        || a.parts[1].localeCompare(b.parts[1]));
+    for (const { parts, value } of items) {
+      const id = parts[1];
+      if (value === null) groups.delete(id);
+      else if (Array.isArray(value) && value.every((rec) => rec && String(rec.id) === id)) groups.set(id, value);
+    }
+    return Array.from(groups.values()).flat();
   }
-  function update(talkId, change) {
-    writes = writes.then(async () => store(talkId, change(await load(talkId)))).catch(() => {});
+
+  async function load(talkId) {
+    return recordsFrom(await readHighlights(talkId), talkId);
+  }
+
+  // Each action writes only its highlight. Await completion so an immediate
+  // removal in this context follows its creation, including a slow save.
+  function store(talkId, id, value) {
+    writes = writes.then(() => new Promise((resolve) => {
+      try {
+        chrome.storage.local.set({ [itemKey(talkId, id)]: value }, () => {
+          void chrome.runtime.lastError;
+          resolve();
+        });
+      } catch (e) { resolve(); }
+    })).catch(() => {});
+    return writes;
+  }
+
+  // Remove means the quote leaves storage (docs/privacy.md). The legacy array
+  // is rewritten without every record a tombstone hides; the tombstones stay
+  // authoritative, so two contexts scrubbing at once can at worst leave a
+  // hidden quote for the next removal's scrub, never bring one back.
+  function scrubLegacy(talkId) {
+    writes = writes.then(async () => {
+      const data = await readHighlights(talkId);
+      const legacy = data[KEY(talkId)];
+      if (!Array.isArray(legacy)) return;
+      const kept = legacy.filter((rec) => !rec || rec.id == null || data[itemKey(talkId, rec.id)] !== null);
+      if (kept.length === legacy.length) return;
+      await new Promise((resolve) => {
+        const done = () => { void chrome.runtime.lastError; resolve(); };
+        try {
+          if (kept.length) chrome.storage.local.set({ [KEY(talkId)]: kept }, done);
+          else chrome.storage.local.remove(KEY(talkId), done);
+        } catch (e) { resolve(); }
+      });
+    }).catch(() => {});
     return writes;
   }
 
   // All saved highlights across talks (for a future review menu).
-  function all() {
-    return new Promise((resolve) => {
-      try {
-        chrome.storage.local.get(null, (d) => {
-          const out = [];
-          for (const k of Object.keys(d || {})) {
-            if (k.indexOf('btxHl::') === 0) out.push({ talkId: k.slice(7), items: d[k] || [] });
-          }
-          resolve(out);
-        });
-      } catch (e) { resolve([]); }
-    });
+  async function all() {
+    const data = await readHighlights();
+    const talks = new Set();
+    for (const key of Object.keys(data)) {
+      if (key.startsWith('btxHl::')) talks.add(key.slice(7));
+      const parts = itemParts(key);
+      if (parts) talks.add(parts[0]);
+    }
+    return Array.from(talks, (talkId) => ({ talkId, items: recordsFrom(data, talkId) }));
   }
 
   // Without storage there is nothing to learn, so no hint either.
@@ -144,6 +225,7 @@
   }
 
   function newId() {
+    if (root.crypto && typeof root.crypto.randomUUID === 'function') return root.crypto.randomUUID();
     return Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
   }
 
@@ -346,7 +428,7 @@
     const made = marksOf(container, id);
     if (made.length && keyboard) focusSpot(blockOf(container, made[0]));
     if (made.length) placeCaret((r) => r.setStartAfter(made[made.length - 1]));
-    update(talkId, (list) => list.concat(recs));
+    store(talkId, id, recs);
     markHintSeen();
     say(SAY.created);
   }
@@ -375,7 +457,8 @@
     markStops(container);
     if (hadFocus) focusSpot(spot);
     placeCaret((r) => r.setStart(at.startContainer, at.startOffset));
-    update(talkId, (list) => list.filter((r) => r.id !== hlId));
+    store(talkId, hlId, null);
+    scrubLegacy(talkId);
     say(SAY.removed);
   }
 

@@ -639,6 +639,9 @@
   let connectSeq = 0; // the newest list request owns the status line
   let lastTried = ''; // the key a paste/change last tried, so a blur doesn't retry it
   let connectTimer = 0;
+  let keyInput = ''; // the normalized field value at its last input or fill
+  let keyEditSeq = 0;
+  let keyWrites = 0; // a clear must follow even a first Connect still saving
   let statusShown = ''; // the key's status line as written (statusChange compares against it)
   let statusTimer = 0; // a re-announce waiting out its clear
   let listRefresh = Promise.resolve(); // the newest refreshList, settled once its result is on screen
@@ -735,14 +738,20 @@
   // "Show the welcome again") never joins `failed`: Try again would re-send
   // half of it.
   async function write(partial, keys, quiet, alone) {
+    const edit = keyEditSeq;
     let ok = true;
     if (Object.keys(partial).length) {
+      const keyWrite = Object.prototype.hasOwnProperty.call(partial, 'apiKey');
+      if (keyWrite) keyWrites++;
       let result;
       try { result = await SETTINGS.patch(partial); } catch (e) { result = settings; }
+      if (keyWrite) keyWrites--;
       ok = patchLanded(result, partial, SETTINGS.normalize);
       settings = result;
     }
-    for (const k of keys) if (!queued.has(k)) dirty.delete(k);
+    for (const k of keys) {
+      if (!queued.has(k) && !(k === 'apiKey' && edit !== keyEditSeq)) dirty.delete(k);
+    }
     if (ok) {
       if (failed) { failed = null; hideSaveError(); }
       if (!quiet && Object.keys(partial).length) showSaved();
@@ -1071,6 +1080,7 @@
     const partial = Object.assign({ apiKey: key }, translationPatch(listState()));
     if (SETTINGS.diff(settings, Object.assign({}, settings, partial)).length) await write(partial, ['apiKey'].concat(LIST_KEYS));
     else dirty.delete('apiKey');
+    if (seq !== connectSeq) return;
     updateConnect(); // the key is the stored one now: Connect rests
     settleKeyFocus(from);
   }
@@ -1110,7 +1120,7 @@
     keyState = 'none';
     renderTranslations([], '');
     showKeyState();
-    if (settings.apiKey) write({ apiKey: '' }, ['apiKey']);
+    if (settings.apiKey || keyWrites) write({ apiKey: '' }, ['apiKey']);
     else dirty.delete('apiKey');
   }
 
@@ -1281,7 +1291,7 @@
   // is not here — it is built from the key, not from one control — but it
   // goes through the same dirty flag, the same write and the same fill plan.
   const FIELDS = [
-    { key: 'apiKey', node: els.apiKey, read: () => keyFromField(els.apiKey.value), write: (v) => { els.apiKey.value = v; } },
+    { key: 'apiKey', node: els.apiKey, read: () => keyFromField(els.apiKey.value), write: (v) => { els.apiKey.value = v; keyInput = v; } },
     // A group of checkboxes, but one setting: its change events bubble to the
     // container, which is what writes it.
     { key: 'churchLanguages', node: els.churchLanguages, read: checkedLanguages, write: checkLanguages },
@@ -1416,6 +1426,14 @@
   // is a pending change, which a key adopted from elsewhere won't overwrite.
   function onKeyInput() {
     const v = keyFromField(els.apiKey.value);
+    if (v !== keyInput) {
+      keyInput = v;
+      keyEditSeq++;
+      connectSeq++;
+      lastTried = ''; // the edit dropped any try in flight: the next key is untried
+      keyState = 'none';
+      showKeyState();
+    }
     if (!v && !settings.apiKey) { clearKey(); return; }
     if (v && v === settings.apiKey) {
       clearTimeout(connectTimer);
