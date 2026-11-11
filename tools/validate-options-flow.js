@@ -155,3 +155,10 @@ test('a refused older save preserves input typed while it was pending', async ()
   o.edit('key-B'); o.deferred.shift()(true); await o.advance();
   assert.equal(o.saved().apiKey, ''); assert.equal(o.field(), 'key-B'); assert.doesNotMatch(o.status(), /Connected/); assert(o.connectEnabled());
 });
+test('editing away and back during an auto-try tries the key again', async () => {
+  const o = await options(); o.edit('key-A', true); await o.advance();
+  assert.equal(o.requests.length, 1); o.edit('key-B'); o.edit('key-A', true); await o.advance();
+  assert.equal(o.requests.length, 2); o.reply(0); await o.advance();
+  assert.equal(o.saved().apiKey, ''); o.reply(1); await o.advance();
+  assert.equal(o.saved().apiKey, 'key-A'); assert.match(o.status(), /Connected/);
+});

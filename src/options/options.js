@@ -1430,6 +1430,7 @@
       keyInput = v;
       keyEditSeq++;
       connectSeq++;
+      lastTried = ''; // the edit dropped any try in flight: the next key is untried
       keyState = 'none';
       showKeyState();
     }
