@@ -36,7 +36,7 @@ module.exports = async function checkStorage() {
     assert.ok(saved.gets.every((keys) => Array.isArray(keys) && !keys.includes('unrelated')), 'modern reads omit unrelated cached values');
     a.remove('old-one'); b.remove('old-two'); await saved.settle();
     assert.deepEqual(plain(await a.api.load(1)), [], 'separate legacy deletions cannot resurrect each other');
-    assert.deepEqual(saved.data['btxHl::1'], legacy, 'legacy compatibility input stays read-only');
+    assert.ok(!('btxHl::1' in saved.data), 'removed legacy quotes leave storage (privacy policy: Remove deletes)');
     assert.deepEqual(plain(await a.api.all()), [{ talkId: '1', items: [] }], 'all excludes deleted legacy quotes');
     const newReader = reader(saved.api); await newReader.attach();
     await newReader.offer(newReader.article.querySelector('p').firstChild, 11);
@@ -104,6 +104,8 @@ module.exports = async function checkStorage() {
     const legacyId = 'mark::with/%delimiters';
     const saved = storage({ [`btxHl::${talk}`]: [record(legacyId, 0, 5, 'Alpha')], [`btxHl::${other}`]: [record('other', 6, 10, 'beta')] }, false);
     const a = reader(saved.api, talk); await a.attach(); a.remove(legacyId); await saved.settle();
+    assert.ok(!(`btxHl::${talk}` in saved.data), 'the removed legacy quote leaves storage');
+    assert.deepEqual(saved.data[`btxHl::${other}`].map((rec) => rec.text), ['beta'], 'another talk\'s legacy quotes are untouched');
     assert.deepEqual(plain(await a.api.load(talk)), [], 'encoded legacy identifier removes from the intended talk');
     assert.deepEqual(plain(await a.api.load(other)).map((rec) => rec.id), ['other'], 'separator-containing talk does not affect another talk');
     assert.ok(saved.gets.some((keys) => keys === null), 'old Chromium fallback remains supported');

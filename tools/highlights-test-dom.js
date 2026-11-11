@@ -145,6 +145,10 @@ function storage(seed = {}, modern = true) {
       const copy = structuredClone(values);
       return defer(() => { Object.assign(data, copy); if (callback) callback(); });
     },
+    remove(keys, callback) {
+      writeCount++;
+      return defer(() => { for (const k of [].concat(keys)) delete data[k]; if (callback) callback(); });
+    },
   };
   if (modern) api.getKeys = (callback) => defer(() => callback(Object.keys(data)));
   return {

@@ -179,6 +179,28 @@
     return writes;
   }
 
+  // Remove means the quote leaves storage (docs/privacy.md). The legacy array
+  // is rewritten without every record a tombstone hides; the tombstones stay
+  // authoritative, so two contexts scrubbing at once can at worst leave a
+  // hidden quote for the next removal's scrub, never bring one back.
+  function scrubLegacy(talkId) {
+    writes = writes.then(async () => {
+      const data = await readHighlights(talkId);
+      const legacy = data[KEY(talkId)];
+      if (!Array.isArray(legacy)) return;
+      const kept = legacy.filter((rec) => !rec || rec.id == null || data[itemKey(talkId, rec.id)] !== null);
+      if (kept.length === legacy.length) return;
+      await new Promise((resolve) => {
+        const done = () => { void chrome.runtime.lastError; resolve(); };
+        try {
+          if (kept.length) chrome.storage.local.set({ [KEY(talkId)]: kept }, done);
+          else chrome.storage.local.remove(KEY(talkId), done);
+        } catch (e) { resolve(); }
+      });
+    }).catch(() => {});
+    return writes;
+  }
+
   // All saved highlights across talks (for a future review menu).
   async function all() {
     const data = await readHighlights();
@@ -436,6 +458,7 @@
     if (hadFocus) focusSpot(spot);
     placeCaret((r) => r.setStart(at.startContainer, at.startOffset));
     store(talkId, hlId, null);
+    scrubLegacy(talkId);
     say(SAY.removed);
   }
 
