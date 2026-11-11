@@ -1,29 +1,91 @@
 /*
- * Church-language parallel text: the current chapter as the Church itself
+ * Language parallel text: the current chapter as the Church itself
  * publishes it in another language, for any standard work. It answers two
  * questions for the orchestrator:
  *
  *   which texts can sit beside this chapter, and which one shows?
  *     textsFor({ isBible, collection, bibleRows, languages, pageLang }) -> [row]
- *       api.bible rows (Bible chapters only) followed by one synthetic row per
- *       enabled Church language that publishes this collection (its `vols` in
+ *       api.bible rows (Bible chapters only: `isBible` true) followed by one synthetic row per
+ *       enabled language that publishes this collection (its `vols` in
  *       C.CHURCH_LANGUAGES), minus the language the page is already in.
  *       A Church row is { id:'church:spa', provider:'church', lang, abbr, name }
  *       so it rides the same dropdown and view key as an api.bible version.
+ *       A page read in another language (`pageLang` given and not 'eng')
+ *       also offers English, last and once: the options checklist can't
+ *       tick English, so its row carries `onRequest: true`. The reader
+ *       didn't add it, so it is neither fetched nor the page's language
+ *       until chosen: picked from the dropdown, or shown by the Translation
+ *       tab (the panel's arrangement `chooses` it and the orchestrator
+ *       remembers it). Until then pageLanguage passes it over and
+ *       chapterOffer's `unchecked` leaves it out; the Translation tab's
+ *       walk still reaches it. Once in the pick memory it is any Church
+ *       row: on Spanish Alma 5 it holds the page, and the split pairs it
+ *       by element id with the Spanish article.
  *     pickText(list, preferredIds) -> id | null
  *       the first preferred id the list offers, else the list's first row.
  *       The caller's preference is never rewritten by a fallback, which is
  *       what lets a Bible version survive a detour through the Book of Mormon.
+ *     pickOrder(list, preferredIds) -> [row]
+ *       pickText's order over every row
+ *     firstOffered(rows, preferredIds) -> { row, next }
+ *       the one walk over pickOrder that chapterOffer, pageLanguage and the
+ *       panel's arrangement share: the first row offering the chapter, or
+ *       `next`, the language of the first row not checked yet in its way
+ *     chapterOffer({ texts, results, preferredIds })
+ *         -> { texts: [row + { offered, failed? }], pick, next, translatable, unchecked }
+ *       the chapter check's decision (GLOSSARY): a Church row offers the
+ *       chapter only once found there (`results[lang]` 'found' | 'unavailable'
+ *       | 'error', absent = not checked). 'error' (the check hit a network
+ *       error) counts as offered, so the panel's error card says why, and
+ *       marks the row `failed`. `pick` / `next` are firstOffered's.
+ *       `offered` and `translatable` are true / false / null (null = not
+ *       checked yet). `unchecked`: every language not checked yet, which the
+ *       background check asks once the Translation tab settles (a row on
+ *       request only once in `preferredIds`)
+ *     pageLanguage({ texts, picks, layout, shown }) -> { id, next }
+ *       the page split's language (GLOSSARY: Page split), while `layout` is
+ *       'columns' | 'interlinear' and the language switch (`shown`,
+ *       GLOSSARY: Language switch; absent = on) is on: the first language in `picks` that
+ *       offers the chapter; failing that, the row the Translation tab selects
+ *       (firstOffered over every row), only when it is a Church row. A
+ *       `failed` row never holds the page, nor does a row on request not in
+ *       `picks`. `next`: an unchecked language in the way (check it, then
+ *       ask again; `id` is null meanwhile)
  *     mruFrom(stored) / rememberPick(mru, id) -> [id]
  *       the preference itself: the reader's picks, newest first (MRU_MAX),
  *       migrated from the single id older versions stored.
+ *     rememberTicked(mru, before, after) -> [id]
+ *       the same list after the enabled languages change from `before`
+ *       to `after` (codes): each newly ticked language goes to the front
+ *       through rememberPick (the last ticked leads), an untick changes
+ *       nothing. The options page's write; content.js's setup card calls
+ *       rememberPick for the one language it adds.
  *
  *   how does each read, and what else could be added?
- *     labelFor(row, list) -> "NIV — New International Version" | "Español — Spanish"
- *       twins in `list` told apart by description, else id edition, else order
- *     menuFor(list) -> [{ label, items: [{ id, label }] }]
- *       the dropdown: 'Bible translations' then 'Church languages', headed only
- *       when both are there
+ *     nameFor(row) -> "Español" | "Kiribati" | "English"
+ *       one language named on its own (the panel's cards, the language row,
+ *       the Hide line): the native name labelFor leads with
+ *     labelFor(row, list) -> "New International Version (NIV)" | "Español — Spanish"
+ *       a Bible version: name first, abbreviation in parentheses (a narrow
+ *       dropdown cuts the abbreviation); a language: "native — English"
+ *       twins in `list` from different providers told apart by where they
+ *       come from: "World English Bible, built in (WEB)", "World English
+ *       Bible, api.bible (WEB)". Twins from the same provider, by description,
+ *       else id edition, else order (after the provider when both apply). All
+ *       written before the abbreviation so the cut spares it:
+ *       "World English Bible Updated, Protestant (WEBU)", "…, 2 (WEBU)"
+ *     bibleMenu(list, { isBible }) -> [{ id, label }]
+ *     versionRow(list, { isBible, showing, picks }) -> { menu, selected }
+ *     languageMenu(list) -> [{ id, label }]
+ *       the menus the Translation toolbar's two rows read (the panel's
+ *       version row and language row, GLOSSARY: Language row). Each is one
+ *       kind of thing: a flat list in `list` order, labels from labelFor, no
+ *       group heading. bibleMenu: the Bible rows, empty off the Bible (a
+ *       missing isBible reads as off). versionRow: bibleMenu and the id it
+ *       selects, the version `showing` when it is a Bible row, else the
+ *       newest Bible pick in `picks`.
+ *       languageMenu: the Church rows on any chapter, an on-request English
+ *       row included, the page's own language already out (textsFor).
  *     languagesToAdd({ collection, pageLang, enabled }) -> [{ code, label }]
  *       the setup card's list: languages publishing the volume, not yet on,
  *       A–Z by English name and labelled English first ("Spanish — Español")
@@ -40,7 +102,14 @@
  *       contents page — the endpoint answers a missing book or chapter with
  *       the volume's or book's contents, whose `data-uri` (…/_manifest,
  *       …/_contents) differs from the one asked for. Verses aren't required:
- *       the Official Declarations have none. Results are cached per tab.
+ *       the Official Declarations have none. Results are cached per tab, and
+ *       NOT_FOUND is remembered for the tab: never fetched twice.
+ *     checkKey(parsed, lang) -> `${lang}|${uri}`
+ *       how every per-tab record of one language's chapter is keyed (load's
+ *       cache, and the caller's Set of failed checks)
+ *     checkResults(parsed, langs, failed) -> { [lang]: 'found' | 'unavailable' | 'error' }
+ *       chapterOffer's `results`: what load has learned about this chapter in
+ *       this tab, else 'error' where `failed` (a Set of checkKeys) holds it
  *
  * chapterFrom(root, meta) is the markup rule, pure over a minimal node
  * interface (nodeType, tagName, childNodes, getAttribute, nodeValue) so Node
@@ -86,6 +155,7 @@
   const PROVIDER = 'church';
   const ID_PREFIX = 'church:';
   const API_PATH = '/study/api/v3/language-pages/type/content';
+  const ENGLISH = C.ENGLISH_LANG; // detect's language for a page with no `lang`
 
   const LANG_BY_CODE = {};
   for (const l of C.CHURCH_LANGUAGES) LANG_BY_CODE[l.code] = l;
@@ -107,10 +177,13 @@
 
   function textsFor(opts) {
     const o = opts || {};
-    const bible = o.isBible !== false && Array.isArray(o.bibleRows) ? o.bibleRows : [];
-    const church = (Array.isArray(o.languages) ? o.languages : [])
+    const bible = o.isBible === true && Array.isArray(o.bibleRows) ? o.bibleRows : [];
+    const ticked = Array.isArray(o.languages) ? o.languages : [];
+    // English on a page read in another language (header).
+    const english = o.pageLang && o.pageLang !== ENGLISH && ticked.indexOf(ENGLISH) < 0 ? [ENGLISH] : [];
+    const church = ticked.concat(english)
       .filter((code) => code !== o.pageLang)
-      .map(rowFor)
+      .map((code) => (english.indexOf(code) >= 0 ? Object.assign(rowFor(code), { onRequest: true }) : rowFor(code)))
       .filter((row) => row && publishes(row.lang, o.collection));
     return bible.concat(church);
   }
@@ -121,6 +194,96 @@
       if (id && rows.some((t) => t.id === id)) return id;
     }
     return rows.length ? rows[0].id : null;
+  }
+
+  // pickText's order over every row: the preferred ids the list offers, newest
+  // first, then the rest in list order. firstOffered walks it.
+  function pickOrder(list, preferredIds) {
+    const rows = Array.isArray(list) ? list : [];
+    const preferred = (preferredIds || []).filter((id, i, all) => id && all.indexOf(id) === i)
+      .map((id) => rows.find((t) => t.id === id)).filter(Boolean);
+    return preferred.concat(rows.filter((t) => preferred.indexOf(t) < 0));
+  }
+
+  // The one walk every "which text" question makes: `rows` in pickText's
+  // order, stopping at the first row that offers the chapter (`offered`
+  // true) or the first the chapter check hasn't asked yet (null).
+  //   -> { row: row | null, next: lang | null }   next: check it, then ask again
+  function firstOffered(rows, preferredIds) {
+    for (const row of pickOrder(rows, preferredIds)) {
+      if (row.offered === true) return { row, next: null };
+      if (row.offered === null) return { row: null, next: row.lang };
+    }
+    return { row: null, next: null };
+  }
+
+  // ---- Which texts offer this chapter (the chapter check's decision) ---------
+  // A language offers a chapter only once the chapter check found it
+  // there; a Bible row (bundled or api.bible) offers it without a check.
+  // `results` maps a language to what its check said — 'found', 'unavailable'
+  // (the language lacks the chapter), or 'error' (the check failed: offered, so
+  // the panel's error card says why, and marked `failed`, so it never holds
+  // the page) — and lacks the languages not checked yet. The rows are walked
+  // by firstOffered, and checking stops at the first one that offers the
+  // chapter:
+  //   -> { texts: [row + { offered: true | false | null, failed? }],   null = not checked yet
+  //        pick: id | null,                 pickText over the offered rows, once settled
+  //        next: lang | null,               the language to check next; null = settled
+  //        translatable: true | false | null,   null = unknown until `next` is checked
+  //        unchecked: [lang] }              every language not checked yet (the background check)
+  function chapterOffer(opts) {
+    const o = opts || {};
+    const results = o.results || {};
+    const offeredBy = (row) => {
+      if (row.provider !== PROVIDER) return true;
+      const r = Object.prototype.hasOwnProperty.call(results, row.lang) ? results[row.lang] : undefined;
+      if (r === undefined) return null;
+      return r !== 'unavailable';
+    };
+    const failed = (row) => row.provider === PROVIDER && results[row.lang] === 'error';
+    const texts = (Array.isArray(o.texts) ? o.texts : []).map((row) => Object.assign({}, row, { offered: offeredBy(row) },
+      failed(row) ? { failed: true } : null));
+    const walk = firstOffered(texts, o.preferredIds);
+    const pick = walk.row ? walk.row.id : null;
+    const next = walk.next;
+    const translatable = texts.some((t) => t.offered === true) ? true
+      : (texts.some((t) => t.offered === null) ? null : false);
+    // A row on request is asked only once chosen (a pick, or the walk
+    // reaching it when the Translation tab opens on it), never in the background.
+    const chosen = (t) => !t.onRequest || (o.preferredIds || []).indexOf(t.id) >= 0;
+    const unchecked = texts.filter((t) => t.offered === null && chosen(t)).map((t) => t.lang);
+    return { texts, pick, next, translatable, unchecked };
+  }
+
+  // ---- Which language holds the page ----------------------------------------
+  // The page split's language (GLOSSARY: Page split), while the split layout
+  // is in-page ('columns' | 'interlinear') and the language switch is on
+  // (`shown` false names none, and asks for no check: a hidden language is
+  // not looked up): the first language in the
+  // pick memory whose chapter the check found, so on John 3 NIV can show in
+  // the panel while Español holds the page. With none, the row the
+  // Translation tab selects, only when it is a language: John 3 with
+  // no pick keeps the Bible in the panel and no split, Alma 5 splits in its
+  // one language. `texts` are chapterOffer's rows.
+  //   -> { id: row id | null,       the page's language, null = none (yet)
+  //        next: lang | null }      a language not checked yet in the way: check it, then ask again
+  function pageLanguage(opts) {
+    const o = opts || {};
+    const none = { id: null, next: null };
+    if (o.shown === false) return none;
+    if (o.layout !== 'columns' && o.layout !== 'interlinear') return none;
+    const picks = Array.isArray(o.picks) ? o.picks : [];
+    // A failed check offers the panel's text (its error card), never the
+    // page; a row on request holds it only once the reader chose it.
+    const rows = (Array.isArray(o.texts) ? o.texts : []).filter(Boolean)
+      .filter((row) => !row.onRequest || picks.indexOf(row.id) >= 0)
+      .map((row) => (row.failed ? Object.assign({}, row, { offered: false }) : row));
+    const named = firstOffered(rows.filter((row) => row.provider === PROVIDER && picks.indexOf(row.id) >= 0), picks);
+    if (named.row || named.next) return { id: named.row ? named.row.id : null, next: named.next };
+    // No pick names a language that offers it: the Translation tab's selection,
+    // when that is a language.
+    const selected = firstOffered(rows, picks);
+    return { id: selected.row && selected.row.provider === PROVIDER ? selected.row.id : null, next: selected.next };
   }
 
   // ---- What the reader picked, most recent first ------------------------------
@@ -141,45 +304,107 @@
     return (typeof id === 'string' && id !== '' ? [id] : []).concat(rest).slice(0, MRU_MAX);
   }
 
-  // ---- How a row reads -------------------------------------------------------
-  // "NIV — New International Version", "Español — Spanish", "English". Two rows
-  // that would read the same (api.bible lists World English Bible Updated three
-  // times) are told apart by api.bible's `description` ("Protestant"), else by
-  // the id's edition suffix ("…-02" -> "(2)"), else by their order.
-  function baseLabel(row) {
-    return row.abbr ? `${row.abbr} — ${row.name}` : String(row.name || row.id);
+  // The pick memory after the enabled languages change from `before`
+  // to `after` (codes): each language newly on goes to the front through
+  // rememberPick, in `after`'s order, so the last one ticked leads. Unticking
+  // changes nothing: the list is a record of picks, not of what is on (the
+  // text lists drop an unticked language by themselves).
+  function rememberTicked(mru, before, after) {
+    const was = Array.isArray(before) ? before : [];
+    return (Array.isArray(after) ? after : [])
+      .filter((code) => was.indexOf(code) < 0 && rowFor(code))
+      .reduce((list, code) => rememberPick(list, ID_PREFIX + code), mruFrom(mru));
   }
+
+  // ---- How a row reads -------------------------------------------------------
+  // "New International Version (NIV)", "Español — Spanish", "English". A Bible
+  // version leads with its name and the abbreviation follows in parentheses, so
+  // a narrow dropdown cuts the abbreviation, not the name; a language
+  // keeps "native name — English name". Two rows that would read the same
+  // (api.bible lists World English Bible Updated three times) are told apart
+  // by where they come from when the providers differ (the bundled World
+  // English Bible beside api.bible's: "built in", "api.bible"), else by
+  // api.bible's `description` ("Protestant"), else by the id's edition
+  // suffix ("…-02" -> "2"), else by their order — written after the name and
+  // before the abbreviation ("World English Bible Updated, Protestant (WEBU)"),
+  // so the narrow dropdown's cut takes the abbreviation before it takes what
+  // tells the twins apart.
+  function labelParts(row) {
+    if (row.provider === PROVIDER) return { name: row.abbr ? `${row.abbr} — ${row.name}` : String(row.name || row.id), abbr: '' };
+    const name = String(row.name || row.abbr || row.id);
+    return { name, abbr: row.abbr && row.abbr !== name ? row.abbr : '' };
+  }
+
+  // A language's short name, for anywhere one language is named on
+  // its own: the native name labelFor leads with ("Español", "Kiribati"),
+  // else its one name (English). '' for no row.
+  function nameFor(row) {
+    return row ? String(row.abbr || row.name || '') : '';
+  }
+
+  function labelOf(parts, extra) {
+    const name = extra ? `${parts.name}, ${extra}` : parts.name;
+    return parts.abbr ? `${name} (${parts.abbr})` : name;
+  }
+
+  function baseLabel(row) {
+    return labelOf(labelParts(row));
+  }
+
+  const SOURCE_NAME = { bundled: 'built in', 'api.bible': 'api.bible' };
 
   function labelFor(row, list) {
     const base = baseLabel(row);
     const twins = (Array.isArray(list) ? list : []).filter((r) => r !== row && baseLabel(r) === base);
     if (!twins.length) return base;
+    // Twins from different providers are told apart by where they come from
+    // ("built in", "api.bible"); description, edition and order then apply
+    // only among the twins from the row's own provider.
+    const source = twins.some((r) => r.provider !== row.provider) ? SOURCE_NAME[row.provider] || String(row.provider) : '';
+    const kin = twins.filter((r) => r.provider === row.provider);
+    const told = (extra) => labelOf(labelParts(row), [source, extra].filter(Boolean).join(', '));
+    if (!kin.length) return told('');
     const desc = (r) => (typeof r.description === 'string' ? r.description.trim() : '');
-    if (desc(row) && twins.every((r) => desc(r) !== desc(row))) return `${base} (${desc(row)})`;
+    if (desc(row) && kin.every((r) => desc(r) !== desc(row))) return told(desc(row));
     const edition = (r) => {
       const m = /-([0-9a-z]+)$/i.exec(String(r.id));
       return m ? m[1].replace(/^0+(?=.)/, '') : '';
     };
-    if (edition(row) && twins.every((r) => edition(r) !== edition(row))) return `${base} (${edition(row)})`;
-    const n = list.filter((r) => baseLabel(r) === base).indexOf(row);
-    return n < 0 ? base : `${base} (${n + 1})`;
+    if (edition(row) && kin.every((r) => edition(r) !== edition(row))) return told(edition(row));
+    const n = list.filter((r) => baseLabel(r) === base && r.provider === row.provider).indexOf(row);
+    return n < 0 ? base : told(String(n + 1));
   }
 
-  // The translation dropdown: Bible translations, then Church languages, each
-  // under its own heading only when both kinds are there.
-  //   -> [{ label: 'Bible translations' | 'Church languages' | null, items: [{ id, label }] }]
-  function menuFor(list) {
+  // The two menus the Translation toolbar's rows read. Each is one kind of
+  // thing, so each is a flat list in input order with no group heading.
+  //   -> [{ id, label }]
+  // bibleMenu: the Bible rows (bundled and api.bible), on a Bible chapter only.
+  function bibleMenu(list, opts) {
     const rows = Array.isArray(list) ? list : [];
-    const item = (r) => ({ id: r.id, label: labelFor(r, rows) });
-    const bible = rows.filter((r) => r.provider !== PROVIDER).map(item);
-    const church = rows.filter((r) => r.provider === PROVIDER).map(item);
-    if (bible.length && church.length) {
-      return [{ label: 'Bible translations', items: bible }, { label: 'Church languages', items: church }];
-    }
-    return bible.length || church.length ? [{ label: null, items: bible.concat(church) }] : [];
+    if (!(opts && opts.isBible === true)) return [];
+    return rows.filter((r) => r.provider !== PROVIDER).map((r) => ({ id: r.id, label: labelFor(r, rows) }));
   }
 
-  // The languages the setup card offers to add: every Church language that
+  // versionRow: the Bible menu and the version it selects — `showing` when
+  // that is one of its rows, else the newest Bible pick (pickText over the
+  // menu), so a language in the panel never blanks it.
+  function versionRow(list, opts) {
+    const o = opts || {};
+    const menu = bibleMenu(list, o);
+    if (!menu.length) return { menu, selected: null };
+    const selected = menu.some((i) => i.id === o.showing) ? o.showing : pickText(menu, o.picks);
+    return { menu, selected };
+  }
+
+  // languageMenu: the Church rows, wherever the chapter is. The page's own
+  // language is already out of `list` (textsFor), and English on request is
+  // already in it.
+  function languageMenu(list) {
+    const rows = Array.isArray(list) ? list : [];
+    return rows.filter((r) => r.provider === PROVIDER).map((r) => ({ id: r.id, label: labelFor(r, rows) }));
+  }
+
+  // The languages the setup card offers to add: every language that
   // publishes this chapter's volume, minus the page's own and any already on.
   // One A–Z list by English name, each label English first ("Spanish —
   // Español"): the reader of an English page looks a language up by its
@@ -370,7 +595,7 @@
   }
 
   const CORE = {
-    PROVIDER, ID_PREFIX, MRU_MAX, rowFor, textsFor, pickText, mruFrom, rememberPick, labelFor, menuFor, languagesToAdd,
+    PROVIDER, ID_PREFIX, MRU_MAX, rowFor, textsFor, pickText, pickOrder, firstOffered, chapterOffer, pageLanguage, mruFrom, rememberPick, rememberTicked, nameFor, labelFor, bibleMenu, versionRow, languageMenu, languagesToAdd,
     chapterUri, apiUrl, chapterFrom, blockElements, servesChapter, dirOf,
   };
 
@@ -381,8 +606,13 @@
 
   const ERR = C.ERR;
   const CACHE_MAX = 40;
-  const cache = new Map(); // `${lang}|${uri}` -> chapter, oldest first
-  const inFlight = new Map(); // `${lang}|${uri}` -> pending load, shared by concurrent callers
+  const cache = new Map(); // checkKey -> chapter, oldest first
+  const inFlight = new Map(); // checkKey -> pending load, shared by concurrent callers
+  // What the chapter check learned this tab, checkKey -> 'found' |
+  // 'unavailable'. Unbounded but tiny; never evicted, so a language that lacks
+  // a chapter is fetched for it once per tab, and one that has it is known to
+  // even after `cache` evicted its text.
+  const known = new Map();
 
   function err(code, message) {
     return { error: { code, message: message || code } };
@@ -390,10 +620,16 @@
 
   // The panel card and the page split ask for the same chapter at once; they
   // share one request rather than racing two.
+  // One language's chapter, as every per-tab record of it is keyed.
+  function checkKey(parsed, lang) {
+    return `${lang}|${chapterUri(parsed)}`;
+  }
+
   function load(parsed, lang) {
     const uri = chapterUri(parsed);
-    const key = `${lang}|${uri}`;
+    const key = checkKey(parsed, lang);
     if (cache.has(key)) return Promise.resolve(cache.get(key));
+    if (known.get(key) === 'unavailable') return Promise.resolve(err(ERR.NOT_FOUND));
     if (!inFlight.has(key)) {
       inFlight.set(key, fetchChapter(uri, lang, key).finally(() => inFlight.delete(key)));
     }
@@ -401,29 +637,45 @@
   }
 
   async function fetchChapter(uri, lang, key) {
+    const missing = () => { known.set(key, 'unavailable'); return err(ERR.NOT_FOUND); };
     let res;
     try { res = await fetch(apiUrl(lang, uri), { credentials: 'omit' }); }
     catch (e) { return err(ERR.NETWORK, String(e)); }
-    if (res.status === 404) return err(ERR.NOT_FOUND);
+    if (res.status === 404) return missing();
     if (!res.ok) return err(ERR.UNKNOWN, `HTTP ${res.status}`);
 
     let json;
     try { json = await res.json(); } catch (e) { return err(ERR.UNKNOWN, 'Unreadable response'); }
     const body = json && json.content && json.content.body;
-    if (typeof body !== 'string') return err(ERR.NOT_FOUND);
+    if (typeof body !== 'string') return missing();
 
     // An inert document: DOMParser runs no scripts and loads no resources, and
     // only text is read back out of it.
     const doc = new DOMParser().parseFromString(body, 'text/html');
     const chapter = chapterFrom(doc.body, json.meta);
-    if (!servesChapter(chapter, uri)) return err(ERR.NOT_FOUND);
+    if (!servesChapter(chapter, uri)) return missing();
 
+    known.set(key, 'found');
     cache.set(key, chapter);
     while (cache.size > CACHE_MAX) cache.delete(cache.keys().next().value);
     return chapter;
   }
 
+  // The chapter check's results for `parsed` so far, as chapterOffer reads
+  // them: { [lang]: 'found' | 'unavailable' | 'error' }, languages not
+  // checked absent. `failed` is the caller's Set of checkKeys whose check
+  // failed (network): what this tab learned outranks it.
+  function checkResults(parsed, langs, failed) {
+    const out = {};
+    for (const lang of langs || []) {
+      const key = checkKey(parsed, lang);
+      const r = known.get(key) || (failed && failed.has(key) ? 'error' : null);
+      if (r) out[lang] = r;
+    }
+    return out;
+  }
+
   root.__BTX = Object.assign(root.__BTX || {}, {
-    churchText: Object.assign({}, CORE, { load }),
+    churchText: Object.assign({}, CORE, { load, checkKey, checkResults }),
   });
 })(typeof globalThis !== 'undefined' ? globalThis : this);
